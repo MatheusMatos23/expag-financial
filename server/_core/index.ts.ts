@@ -138,8 +138,7 @@ async function startServer() {
     });
 
     // Dev local bypass (mantido para desenvolvimento)
-    if (process.env.NODE_ENV === "development" && process.env.VITE_APP_ID === "local-dev") {
-      app.get("/api/dev-login", async (req, res) => {
+    if (process.env.NODE_ENV === "development" && process.env.VITE_APP_ID === "local-dev") {      app.get("/api/dev-login", async (req, res) => {
         try {
           await dbModule.upsertUser({
             openId: "local-dev", name: "Dev Local",
@@ -174,14 +173,14 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
+  // Em produção (Railway), usar a porta diretamente sem scan
+  const port = process.env.NODE_ENV === "production"
+    ? preferredPort
+    : await findAvailablePort(preferredPort);
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${port}/`);
   });
 }
 
