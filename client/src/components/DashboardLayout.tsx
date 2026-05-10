@@ -65,11 +65,16 @@ function AuthScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { 
+        setError(`Resposta inválida do servidor (${res.status}): ${text.slice(0, 100)}`);
+        return;
+      }
       if (!res.ok) { setError(data.error ?? "Erro ao fazer login."); return; }
       window.location.reload();
-    } catch {
-      setError("Erro de conexão com o servidor.");
+    } catch (err: any) {
+      setError("Erro de rede: " + (err?.message ?? "desconhecido"));
     } finally {
       setLoading(false);
     }
