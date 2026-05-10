@@ -1,0 +1,182 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.6rem;
+
+  /* ══════════════════════════════════════════════════════════════════
+     EXPAG PREMIUM DESIGN SYSTEM
+     Toda a paleta parte do navy #0b1e4a — uma única família de cores.
+     Fundo → Cards → Sidebar → Bordas → Acentos: tudo alinhado.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /* Backgrounds — família navy escura */
+  --background:              #080e1c;   /* fundo geral — navy profundo */
+  --card:                    #0d1528;   /* cards — um tom acima */
+  --popover:                 #0d1528;
+  --card-foreground:         #e8edf5;
+  --popover-foreground:      #e8edf5;
+
+  /* Texto */
+  --foreground:              #e8edf5;   /* branco suave com toque azul */
+
+  /* Primária — azul elétrico Expag */
+  --primary:                 #3b82f6;   /* blue-500 vibrante */
+  --primary-foreground:      #ffffff;
+
+  /* Secundária */
+  --secondary:               #162040;
+  --secondary-foreground:    #c8d3e8;
+
+  /* Muted */
+  --muted:                   #111d38;
+  --muted-foreground:        #5c7099;
+
+  /* Accent */
+  --accent:                  #162040;
+  --accent-foreground:       #e8edf5;
+
+  /* Destructive */
+  --destructive:             #ef4444;
+  --destructive-foreground:  #ffffff;
+
+  /* Bordas e inputs — navy médio */
+  --border:                  #1a2d50;
+  --input:                   #111d38;
+  --ring:                    #3b82f6;
+
+  /* Charts — paleta Expag */
+  --chart-1:                 #3b82f6;   /* azul principal */
+  --chart-2:                 #10b981;   /* verde */
+  --chart-3:                 #f59e0b;   /* âmbar */
+  --chart-4:                 #ef4444;   /* vermelho */
+  --chart-5:                 #8b5cf6;   /* roxo */
+
+  /* ── Sidebar — Expag navy escuro, mesmo tom da família ── */
+  --sidebar:                 #060c18;   /* navy mais escuro que o fundo */
+  --sidebar-foreground:      #c8d3e8;
+  --sidebar-primary:         #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent:          #0d1a30;   /* hover items */
+  --sidebar-accent-foreground: #e8edf5;
+  --sidebar-border:          #131f38;
+  --sidebar-ring:            #3b82f6;
+}
+
+/* Dark theme same as root - system is always dark */
+.dark { }
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  .value-positive { @apply text-green-400 font-semibold; }
+  .value-negative { @apply text-red-400 font-semibold; }
+  .value-neutral { @apply text-blue-400 font-semibold; }
+  .badge-success { @apply bg-green-500/15 text-green-400 border border-green-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-warning { @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-danger { @apply bg-red-500/15 text-red-400 border border-red-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-info { @apply bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-neutral { @apply bg-gray-500/15 text-gray-400 border border-gray-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  /**
+   * Custom container utility that centers content and adds responsive padding.
+   *
+   * This overrides Tailwind's default container behavior to:
+   * - Auto-center content (mx-auto)
+   * - Add responsive horizontal padding
+   * - Set max-width for large screens
+   *
+   * Usage: <div className="container">...</div>
+   *
+   * For custom widths, use max-w-* utilities directly:
+   * <div className="max-w-6xl mx-auto px-4">...</div>
+   */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem; /* 16px - mobile padding */
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem; /* 32px - desktop padding */
+      padding-right: 2rem;
+      max-width: 1280px; /* Standard content width */
+    }
+  }
+}

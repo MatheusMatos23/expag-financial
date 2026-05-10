@@ -1,0 +1,24 @@
+CREATE INDEX `at_session_idx` ON `api_transactions` (`sessionId`);--> statement-breakpoint
+CREATE INDEX `at_date_idx` ON `api_transactions` (`transactionDate`);--> statement-breakpoint
+CREATE INDEX `at_status_idx` ON `api_transactions` (`matchStatus`);--> statement-breakpoint
+CREATE INDEX `at_session_type_idx` ON `api_transactions` (`sessionId`,`type`);--> statement-breakpoint
+CREATE INDEX `bt_session_idx` ON `bank_transactions` (`sessionId`);--> statement-breakpoint
+CREATE INDEX `bt_date_idx` ON `bank_transactions` (`transactionDate`);--> statement-breakpoint
+CREATE INDEX `bt_status_idx` ON `bank_transactions` (`matchStatus`);--> statement-breakpoint
+CREATE INDEX `bt_session_type_idx` ON `bank_transactions` (`sessionId`,`type`);--> statement-breakpoint
+CREATE INDEX `ci_credit_idx` ON `credit_installments` (`creditId`);--> statement-breakpoint
+CREATE INDEX `ci_status_idx` ON `credit_installments` (`status`);--> statement-breakpoint
+CREATE INDEX `ci_due_date_idx` ON `credit_installments` (`dueDate`);--> statement-breakpoint
+CREATE INDEX `cp_status_idx` ON `credit_portfolio` (`status`);--> statement-breakpoint
+CREATE INDEX `cp_client_idx` ON `credit_portfolio` (`clientId`);--> statement-breakpoint
+CREATE INDEX `div_session_idx` ON `divergences` (`sessionId`);--> statement-breakpoint
+CREATE INDEX `div_status_idx` ON `divergences` (`status`);--> statement-breakpoint
+CREATE INDEX `div_priority_idx` ON `divergences` (`priority`);--> statement-breakpoint
+CREATE INDEX `div_date_idx` ON `divergences` (`divergenceDate`);--> statement-breakpoint
+CREATE INDEX `div_status_priority_idx` ON `divergences` (`status`,`priority`);--> statement-breakpoint
+CREATE INDEX `pay_due_date_idx` ON `payables` (`dueDate`);--> statement-breakpoint
+CREATE INDEX `pay_status_idx` ON `payables` (`status`);--> statement-breakpoint
+CREATE INDEX `pay_status_due_idx` ON `payables` (`status`,`dueDate`);--> statement-breakpoint
+CREATE INDEX `rev_date_idx` ON `revenues` (`referenceDate`);--> statement-breakpoint
+CREATE INDEX `rev_status_idx` ON `revenues` (`status`);--> statement-breakpoint
+CREATE INDEX `rev_type_idx` ON `revenues` (`type`);

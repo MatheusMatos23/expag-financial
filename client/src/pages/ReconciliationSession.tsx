@@ -1,0 +1,591 @@
+import { trpc } from "@/lib/trpc";
+import {
+  formatCurrency, formatDate, formatDateTime,
+  getStatusBadge, getStatusLabel, safeNumber,
+} from "@/lib/utils";
+import { useParams, useLocation } from "wouter";
+import {
+  ArrowLeft, CheckCircle, AlertTriangle, Activity, ExternalLink,
+  Hash, Link2, Unlink, TrendingUp, BarChart3, Search,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
+import { useState, useMemo } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, PieChart, Pie,
+} from "recharts";
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+
+const TOOLTIP_STYLE = {
+  background: "#0d1528", border: "1px solid #1a2d50",
+  borderRadius: "8px", fontSize: "11px", color: "#e8edf5",
+};
+
+// ─── BADGES ───────────────────────────────────────────────────────────────────
+
+function MatchBadge({ status }: { status: string }) {
+  const map: Record<string, { cls: string; label: string; dot?: string }> = {
+    matched:  { cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", label: "Conciliado", dot: "bg-emerald-400" },
+    divergent:{ cls: "bg-amber-500/15  text-amber-400  border-amber-500/30",  label: "Divergente", dot: "bg-amber-400 animate-pulse" },
+    pending:  { cls: "bg-sky-500/15    text-sky-400    border-sky-500/30",    label: "Pendente",   dot: "bg-sky-400" },
+    manual:   { cls: "bg-violet-500/15 text-violet-400 border-violet-500/30", label: "Manual",     dot: "bg-violet-400" },
+  };
+  const m = map[status] ?? map.pending;
+  return (
+    <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border", m.cls)}>
+      {m.dot && <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", m.dot)} />}
+      {m.label}
+    </span>
+  );
+}
+
+function MatchTypeBadge({ type }: { type: string | null }) {
+  if (!type) return <span className="text-muted-foreground/40 text-[10px]">—</span>;
+  const map: Record<string, string> = {
+    exact: "text-emerald-400 bg-emerald-500/10",
+    partial: "text-sky-400 bg-sky-500/10",
+    approximate: "text-amber-400 bg-amber-500/10",
+    manual: "text-violet-400 bg-violet-500/10",
+  };
+  const labels: Record<string, string> = {
+    exact: "Exato", partial: "Parcial", approximate: "Aprox.", manual: "Manual",
+  };
+  return (
+    <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", map[type] ?? "text-muted-foreground bg-muted/30")}>
+      {labels[type] ?? type}
+    </span>
+  );
+}
+
+function TypeBadge({ type }: { type: string }) {
+  return (
+    <span className={cn(
+      "text-[10px] font-medium px-1.5 py-0.5 rounded",
+      type === "credit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+    )}>
+      {type === "credit" ? "Crédito" : "Débito"}
+    </span>
+  );
+}
+
+// ─── KPI CARD ─────────────────────────────────────────────────────────────────
+
+function KPI({ label, value, sub, color = "text-foreground", highlight = false }: {
+  label: string; value: string | number; sub?: string; color?: string; highlight?: boolean;
+}) {
+  return (
+    <div className={cn(
+      "border rounded-xl p-4",
+      highlight ? "bg-primary/5 border-primary/20" : "bg-card border-border"
+    )}>
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{label}</p>
+      <p className={cn("text-2xl font-bold font-mono", color)}>{value}</p>
+      {sub && <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+// ─── DIFF ROW ─────────────────────────────────────────────────────────────────
+
+function DiffRow({ label, bank, api }: { label: string; bank: number; api: number }) {
+  const diff = bank - api;
+  const ok = Math.abs(diff) < 0.01;
+  return (
+    <div className="grid grid-cols-4 gap-2 py-2.5 border-b border-border/40 last:border-0 text-xs">
+      <span className="text-muted-foreground font-medium">{label}</span>
+      <span className="font-mono text-right text-emerald-400 font-semibold">{formatCurrency(bank)}</span>
+      <span className="font-mono text-right text-sky-400 font-semibold">{formatCurrency(api)}</span>
+      <span className={cn("font-mono font-bold text-right", ok ? "text-emerald-400" : "text-red-400")}>
+        {ok ? "✓ Zerado" : (diff > 0 ? "+" : "") + formatCurrency(diff)}
+      </span>
+    </div>
+  );
+}
+
+// ─── MATCH QUALITY BAR ───────────────────────────────────────────────────────
+
+function MatchQualityBar({ matched, divergent, total }: {
+  matched: number; divergent: number; total: number;
+}) {
+  const matchPct    = total > 0 ? (matched / total) * 100 : 0;
+  const divergePct  = total > 0 ? (divergent / total) * 100 : 0;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="text-muted-foreground">Qualidade do Matching</span>
+        <span className={cn("font-bold", matchPct >= 90 ? "text-emerald-400" : matchPct >= 70 ? "text-amber-400" : "text-red-400")}>
+          {matchPct.toFixed(1)}%
+        </span>
+      </div>
+      <div className="flex h-3 rounded-full overflow-hidden bg-border/40 gap-0.5">
+        <div className="bg-emerald-500 rounded-l-full transition-all duration-700" style={{ width: `${matchPct}%` }} />
+        <div className="bg-amber-500 transition-all duration-700" style={{ width: `${divergePct}%` }} />
+        <div className="bg-border/60 flex-1 rounded-r-full" />
+      </div>
+      <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />{matched} conciliados</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />{divergent} divergentes</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-border" />{total - matched - divergent} pendentes</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── PAIRED VIEW ─────────────────────────────────────────────────────────────
+
+function PairedTransactionRow({ bank, api }: { bank: any; api?: any }) {
+  const hasMatch = !!api;
+  const amountMatch = hasMatch && Math.abs(safeNumber(bank.amount) - safeNumber(api.amount)) < 0.01;
+
+  return (
+    <div className={cn(
+      "grid grid-cols-2 gap-3 p-3 rounded-lg border transition-colors",
+      hasMatch
+        ? "border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/8"
+        : "border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/8"
+    )}>
+      {/* Bank side */}
+      <div className="space-y-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Banco</span>
+          <TypeBadge type={bank.type} />
+        </div>
+        <p className="text-xs font-medium text-foreground truncate">{bank.description || "Sem descrição"}</p>
+        <div className="flex items-center gap-2">
+          <span className={cn("font-mono text-sm font-bold", bank.type === "credit" ? "text-emerald-400" : "text-red-400")}>
+            {formatCurrency(bank.amount)}
+          </span>
+          {bank.channel && (
+            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1 rounded">{bank.channel}</span>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground">{formatDate(bank.transactionDate)}</p>
+      </div>
+
+      {/* API side / divergent */}
+      {hasMatch ? (
+        <div className="space-y-1 min-w-0 border-l border-border/40 pl-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">API</span>
+            <MatchTypeBadge type={bank.matchType} />
+          </div>
+          <p className="text-xs font-medium text-foreground truncate">{api.description || "Sem descrição"}</p>
+          <div className="flex items-center gap-2">
+            <span className={cn("font-mono text-sm font-bold", amountMatch ? "text-emerald-400" : "text-amber-400")}>
+              {formatCurrency(api.amount)}
+            </span>
+            {!amountMatch && (
+              <span className="text-[10px] text-amber-400">
+                Δ {formatCurrency(Math.abs(safeNumber(bank.amount) - safeNumber(api.amount)))}
+              </span>
+            )}
+          </div>
+          {api.clientName && (
+            <p className="text-[10px] text-muted-foreground truncate">{api.clientName}</p>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center justify-center border-l border-border/40 pl-3">
+          <div className="text-center space-y-1">
+            <Unlink className="w-4 h-4 text-amber-400/50 mx-auto" />
+            <p className="text-[10px] text-amber-400 font-medium">Sem par na API</p>
+            <p className="text-[10px] text-muted-foreground">Divergência gerada</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+
+export default function ReconciliationSession() {
+  const params = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
+  const [view, setView] = useState<"table" | "pairs">("table");
+  const [activeTab, setActiveTab] = useState<"all" | "credits" | "debits" | "matched" | "divergent">("all");
+  const id = parseInt(params.id ?? "0");
+
+  const { data, isLoading } = trpc.reconciliation.getSessionById.useQuery({ id });
+
+  // ── Todos os hooks DEVEM ficar antes de qualquer return condicional ──
+  const { session, bankCredits = [], bankDebits = [], apiCredits = [], apiDebits = [] } =
+    (data as any) ?? {};
+
+  const allBank = useMemo(() => [...(bankCredits as any[]), ...(bankDebits as any[])], [bankCredits, bankDebits]);
+  const allApi  = useMemo(() => [...(apiCredits as any[]), ...(apiDebits as any[])], [apiCredits, apiDebits]);
+
+  const matchedBank   = useMemo(() => allBank.filter((t: any) => t.matchStatus === "matched"), [allBank]);
+  const divergentBank = useMemo(() => allBank.filter((t: any) => t.matchStatus !== "matched"), [allBank]);
+
+  const matchTypeData = useMemo(() => {
+    const counts = { exact: 0, partial: 0, approximate: 0, manual: 0 };
+    for (const t of matchedBank as any[]) {
+      const k = t.matchType as keyof typeof counts;
+      if (k in counts) counts[k]++;
+    }
+    return [
+      { name: "Exato",   value: counts.exact,       color: "#10b981" },
+      { name: "Parcial", value: counts.partial,      color: "#38bdf8" },
+      { name: "Aprox.",  value: counts.approximate,  color: "#f59e0b" },
+      { name: "Manual",  value: counts.manual,       color: "#8b5cf6" },
+    ].filter(d => d.value > 0);
+  }, [matchedBank]);
+
+  const apiById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const t of allApi as any[]) m.set(t.id, t);
+    return m;
+  }, [allApi]);
+
+  const filteredRows = useMemo(() => {
+    switch (activeTab) {
+      case "credits":   return bankCredits as any[];
+      case "debits":    return bankDebits as any[];
+      case "matched":   return allBank.filter((t: any) => t.matchStatus === "matched");
+      case "divergent": return allBank.filter((t: any) => t.matchStatus !== "matched");
+      default:          return allBank;
+    }
+  }, [activeTab, bankCredits, bankDebits, allBank]);
+
+  // ── Agora sim os returns condicionais ──
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Carregando sessão...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-sm font-medium text-muted-foreground">Sessão não encontrada.</p>
+        <button onClick={() => setLocation("/conciliacao")}
+          className="mt-3 text-xs text-primary hover:underline">← Voltar</button>
+      </div>
+    );
+  }
+
+  // ── Totals ──
+  const totalBankCred = (bankCredits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
+  const totalBankDeb  = (bankDebits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
+  const totalApiCred  = (apiCredits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
+  const totalApiDeb   = (apiDebits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
+  const matchRate     = allBank.length > 0 ? Math.round((matchedBank.length / allBank.length) * 100) : 0;
+  const totalDiff     = (totalBankCred + totalBankDeb) - (totalApiCred + totalApiDeb);
+
+  // ── Table columns ──
+  const columns: ColumnDef<any>[] = [
+    {
+      key: "transactionDate", header: "Data", sortable: true, width: "90px",
+      cell: (r) => <span className="text-muted-foreground">{formatDate(r.transactionDate)}</span>,
+    },
+    {
+      key: "type", header: "Tipo", width: "70px",
+      cell: (r) => <TypeBadge type={r.type} />,
+    },
+    {
+      key: "description", header: "Descrição", searchable: true, minWidth: "180px",
+      cell: (r) => (
+        <span className="text-xs text-foreground truncate block max-w-[220px]">
+          {r.description || <span className="text-muted-foreground/40 italic">Sem descrição</span>}
+        </span>
+      ),
+    },
+    {
+      key: "channel", header: "Canal", width: "80px",
+      cell: (r) => r.channel
+        ? <span className="text-[10px] text-muted-foreground font-medium bg-muted/30 px-1 rounded">{r.channel}</span>
+        : <span className="text-muted-foreground/40">—</span>,
+    },
+    {
+      key: "bankName", header: "Banco", width: "100px",
+      cell: (r) => r.bankName
+        ? <span className="text-[10px] text-muted-foreground truncate block max-w-[100px]">{r.bankName}</span>
+        : <span className="text-muted-foreground/40">—</span>,
+    },
+    {
+      key: "amount", header: "Valor", sortable: true, align: "right", width: "115px",
+      cell: (r) => (
+        <span className={cn("font-mono text-sm font-bold",
+          r.type === "credit" ? "text-emerald-400" : "text-red-400"
+        )}>
+          {r.type === "debit" ? "−" : ""}{formatCurrency(r.amount)}
+        </span>
+      ),
+    },
+    {
+      key: "matchStatus", header: "Status", width: "120px",
+      cell: (r) => <MatchBadge status={r.matchStatus ?? "pending"} />,
+    },
+    {
+      key: "matchType", header: "Match", width: "90px",
+      cell: (r) => <MatchTypeBadge type={r.matchType} />,
+    },
+  ];
+
+  const TABS = [
+    { key: "all",       label: `Todos (${allBank.length})` },
+    { key: "credits",   label: `Créditos (${bankCredits.length})` },
+    { key: "debits",    label: `Débitos (${bankDebits.length})` },
+    { key: "matched",   label: `Conciliados (${matchedBank.length})` },
+    { key: "divergent", label: `Divergentes (${divergentBank.length})` },
+  ] as const;
+
+  return (
+    <div className="space-y-6">
+      {/* ── Header ── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => setLocation("/conciliacao")}
+          className="w-8 h-8 rounded-lg border border-border flex items-center justify-center hover:bg-accent transition-colors shrink-0"
+        >
+          <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl font-bold text-foreground">
+              Conciliação · {formatDate(session.referenceDate)}
+            </h1>
+            <span className={getStatusBadge(session.status)}>
+              {getStatusLabel(session.status)}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            ID #{session.id} · {formatDateTime(session.createdAt)}
+          </p>
+        </div>
+        <button
+          onClick={() => setLocation("/divergencias")}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors shrink-0"
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Ver Divergências
+          <ExternalLink className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* ── KPIs ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KPI label="Conciliados"   value={matchedBank.length}   color="text-emerald-400" sub="transações" highlight />
+        <KPI label="Divergências"  value={safeNumber(session.divergentCount, 0)} color="text-amber-400" sub="para analisar" />
+        <KPI label="Taxa Matching"
+          value={`${matchRate}%`}
+          color={matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-amber-400" : "text-red-400"}
+          sub="banco vs API" />
+        <KPI label="Total Banco"   value={formatCurrency(totalBankCred + totalBankDeb)} sub="créditos + débitos" />
+        <KPI label="Total API"     value={formatCurrency(totalApiCred + totalApiDeb)}   sub="créditos + débitos" />
+        <KPI label="Diferença"
+          value={formatCurrency(Math.abs(totalDiff))}
+          color={Math.abs(totalDiff) < 0.01 ? "text-emerald-400" : "text-red-400"}
+          sub={Math.abs(totalDiff) < 0.01 ? "✓ Zerado" : totalDiff > 0 ? "sobra no banco" : "falta no banco"} />
+      </div>
+
+      {/* ── Match Quality Bar ── */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <MatchQualityBar
+          matched={matchedBank.length}
+          divergent={divergentBank.length}
+          total={allBank.length}
+        />
+      </div>
+
+      {/* ── Charts Row ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Comparativo */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" />
+            Comparativo Banco × API
+          </h3>
+          <div className="grid grid-cols-4 gap-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border mb-1">
+            <span>Categoria</span>
+            <span className="text-right text-emerald-400">Banco</span>
+            <span className="text-right text-sky-400">API</span>
+            <span className="text-right">Δ Diferença</span>
+          </div>
+          <DiffRow label="Créditos" bank={totalBankCred} api={totalApiCred} />
+          <DiffRow label="Débitos"  bank={totalBankDeb}  api={totalApiDeb}  />
+          <DiffRow label="Total"    bank={totalBankCred + totalBankDeb} api={totalApiCred + totalApiDeb} />
+
+          {/* Bar chart visual */}
+          <div className="mt-5">
+            <ResponsiveContainer width="100%" height={130}>
+              <BarChart
+                data={[
+                  { name: "Créditos", banco: totalBankCred, api: totalApiCred },
+                  { name: "Débitos",  banco: totalBankDeb,  api: totalApiDeb },
+                ]}
+                margin={{ left: -10 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#5c7099" }} />
+                <YAxis tick={{ fontSize: 9, fill: "#5c7099" }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="banco" fill="#10b981" name="Banco" radius={[3,3,0,0]} opacity={0.85} />
+                <Bar dataKey="api"   fill="#38bdf8" name="API"   radius={[3,3,0,0]} opacity={0.85} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Match type distribution */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-primary" />
+            Distribuição por Tipo de Match
+          </h3>
+          {matchTypeData.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={140}>
+                <PieChart>
+                  <Pie data={matchTypeData} cx="50%" cy="50%" innerRadius={40} outerRadius={62}
+                    paddingAngle={3} dataKey="value">
+                    {matchTypeData.map((e, i) => <Cell key={i} fill={e.color} opacity={0.88} />)}
+                  </Pie>
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-2">
+                {matchTypeData.map((d) => (
+                  <div key={d.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+                      <span className="text-[11px] text-muted-foreground">{d.name}</span>
+                    </div>
+                    <span className="text-[11px] font-mono font-semibold text-foreground">{d.value}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 pt-4 border-t border-border/40 space-y-2">
+                {matchTypeData.map((d) => {
+                  const pct = matchedBank.length > 0 ? Math.round((d.value / matchedBank.length) * 100) : 0;
+                  return (
+                    <div key={d.name} className="flex items-center gap-3">
+                      <span className="text-[10px] text-muted-foreground w-12 shrink-0">{d.name}</span>
+                      <div className="flex-1 bg-border/40 rounded-full h-1 overflow-hidden">
+                        <div className="h-1 rounded-full" style={{ width: `${pct}%`, background: d.color }} />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground w-8 text-right">{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+              Nenhum match processado
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Transaction Explorer ── */}
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            Explorador de Transações
+          </h3>
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center p-0.5 bg-muted/30 rounded-lg">
+              <button
+                onClick={() => setView("table")}
+                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                  view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Tabela
+              </button>
+              <button
+                onClick={() => setView("pairs")}
+                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                  view === "pairs" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Link2 className="w-3 h-3 inline mr-1" />
+                Pares
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab filter */}
+        <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg mb-4 flex-wrap">
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                "px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
+                activeTab === tab.key
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Table view */}
+        {view === "table" && (
+          <DataTable
+            data={filteredRows}
+            columns={columns}
+            searchPlaceholder="Buscar por descrição, banco, canal..."
+            exportFilename={`conciliacao-${session.id}`}
+            emptyTitle="Nenhuma transação encontrada"
+            defaultPageSize={25}
+            compact
+            rowClassName={(row: any) => {
+              if (row.matchStatus === "divergent" || row.matchStatus === "pending") return "bg-amber-500/5";
+              return undefined;
+            }}
+          />
+        )}
+
+        {/* Pairs view */}
+        {view === "pairs" && (
+          <div className="space-y-2">
+            {/* Header */}
+            <div className="grid grid-cols-2 gap-3 px-1 pb-1 border-b border-border">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Banco</span>
+              </div>
+              <div className="flex items-center gap-2 pl-3">
+                <div className="w-2 h-2 rounded-full bg-sky-500" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">API / Par Conciliado</span>
+              </div>
+            </div>
+
+            {/* Matched pairs first */}
+            {(activeTab === "all" || activeTab === "matched") && matchedBank.map((bt: any) => {
+              const apiTx = apiById.get(bt.matchedApiTransactionId);
+              return <PairedTransactionRow key={bt.id} bank={bt} api={apiTx} />;
+            })}
+
+            {/* Divergent (no pair) */}
+            {(activeTab === "all" || activeTab === "divergent") && divergentBank.map((bt: any) => (
+              <PairedTransactionRow key={bt.id} bank={bt} />
+            ))}
+
+            {filteredRows.length === 0 && (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                Nenhuma transação para exibir neste filtro.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
