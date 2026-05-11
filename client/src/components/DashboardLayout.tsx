@@ -143,11 +143,13 @@ function AuthScreen() {
           style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
 
         <div className="relative z-10 flex flex-col h-full p-10 xl:p-12">
-          {/* Logo */}
-          <ExpagLogo collapsed={false} />
+          {/* Logo maior */}
+          <div className="mb-auto">
+            <ExpagLogo collapsed={false} className="scale-[1.4] origin-left" />
+          </div>
 
-          {/* Main headline */}
-          <div className="mt-auto mb-10">
+          {/* Main headline — centralizado verticalmente */}
+          <div className="my-10">
             <p className="text-[11px] font-semibold tracking-widest text-primary/80 uppercase mb-3">
               Sistema Financeiro Institucional
             </p>
@@ -163,11 +165,11 @@ function AuthScreen() {
           <div className="grid grid-cols-2 gap-3 mb-8">
             {FEATURES.map(({ icon: Icon, label, sub }) => (
               <div key={label}
-                className="rounded-xl p-3.5 border"
+                className="rounded-xl p-4 border"
                 style={{ background: "rgba(59,130,246,0.06)", borderColor: "rgba(59,130,246,0.12)" }}>
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center mb-2.5"
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
                   style={{ background: "rgba(59,130,246,0.15)" }}>
-                  <Icon className="w-3.5 h-3.5 text-primary" />
+                  <Icon className="w-4 h-4 text-primary" />
                 </div>
                 <p className="text-xs font-semibold text-white/90 leading-tight">{label}</p>
                 <p className="text-[10px] text-white/35 mt-1 leading-relaxed">{sub}</p>
