@@ -332,6 +332,18 @@ const controllershipRouter = router({
       return { id };
     }),
 
+  updateRevenue: protectedProcedure
+    .input(z.object({
+      id: z.number(), referenceDate: z.string().optional(), type: z.string().optional(),
+      description: z.string().optional(), amount: z.string().optional(),
+      clientName: z.string().optional(), status: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => { await db.updateRevenue(input.id, input); return { success: true }; }),
+
+  deleteRevenue: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => { await db.deleteRevenue(input.id); return { success: true }; }),
+
   getExpenses: protectedProcedure
     .input(z.object({
       dateFrom: z.string().optional(), dateTo: z.string().optional(),
@@ -349,6 +361,18 @@ const controllershipRouter = router({
       const id = await db.createExpense(input);
       return { id };
     }),
+
+  updateExpense: protectedProcedure
+    .input(z.object({
+      id: z.number(), referenceDate: z.string().optional(), category: z.string().optional(),
+      description: z.string().optional(), amount: z.string().optional(),
+      supplier: z.string().optional(), status: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => { await db.updateExpense(input.id, input); return { success: true }; }),
+
+  deleteExpense: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => { await db.deleteExpense(input.id); return { success: true }; }),
 
   getPayables: protectedProcedure
     .input(z.object({
@@ -380,12 +404,31 @@ const controllershipRouter = router({
       await db.deletePayable(input.id);
       return { success: true };
     }),
+  updatePayable: protectedProcedure
+    .input(z.object({
+      id: z.number(), dueDate: z.string().optional(), description: z.string().optional(),
+      category: z.string().optional(), amount: z.string().optional(),
+      supplier: z.string().optional(), notes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => { await db.updatePayable(input.id, input); return { success: true }; }),
+
   markPayablePaid: protectedProcedure
     .input(z.object({ id: z.number(), paidDate: z.string().optional() }))
     .mutation(async ({ input }) => {
       await db.updatePayableStatus(input.id, 'pago', input.paidDate ?? new Date().toISOString().split('T')[0]);
       return { success: true };
     }),
+  updateLoan: protectedProcedure
+    .input(z.object({
+      id: z.number(), status: z.string().optional(), outstandingBalance: z.string().optional(),
+      paidInstallments: z.number().optional(), notes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => { await db.updateCreditPortfolio(input.id, input); return { success: true }; }),
+
+  deleteLoan: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => { await db.deleteCreditPortfolio(input.id); return { success: true }; }),
+
   getLoans: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => db.getCreditPortfolio(input)),
@@ -439,18 +482,24 @@ const controllershipRouter = router({
     .query(async ({ input }) => {
       const rawData = await db.getRevenueSummary(input.dateFrom, input.dateTo);
       const byType = Array.isArray(rawData) ? rawData : (rawData as any).byType ?? [];
-      const total = byType.reduce((s: number, r: any) => s + parseFloat(r.total ?? '0'), 0);
-      const count = byType.reduce((s: number, r: any) => s + Number(r.count ?? 0), 0);
-      return { byType, total: total.toFixed(2), received: total.toFixed(2), pending: '0.00', count };
+      const allRevenues = await db.getRevenues({ dateFrom: input.dateFrom, dateTo: input.dateTo });
+      const total    = byType.reduce((s: number, r: any) => s + parseFloat(r.total ?? '0'), 0);
+      const count    = byType.reduce((s: number, r: any) => s + Number(r.count ?? 0), 0);
+      const received = (allRevenues as any[]).filter(r => r.status === 'realizado').reduce((s, r) => s + parseFloat(r.amount ?? '0'), 0);
+      const pending  = (allRevenues as any[]).filter(r => r.status === 'previsto').reduce((s, r) => s + parseFloat(r.amount ?? '0'), 0);
+      return { byType, total: total.toFixed(2), received: received.toFixed(2), pending: pending.toFixed(2), count };
     }),
   getExpenseSummary: protectedProcedure
     .input(z.object({ dateFrom: z.string(), dateTo: z.string() }))
     .query(async ({ input }) => {
       const rawData = await db.getExpenseSummary(input.dateFrom, input.dateTo);
       const byCategory = Array.isArray(rawData) ? rawData : (rawData as any).byCategory ?? [];
-      const total = byCategory.reduce((s: number, r: any) => s + parseFloat(r.total ?? '0'), 0);
-      const count = byCategory.reduce((s: number, r: any) => s + Number(r.count ?? 0), 0);
-      return { byCategory, total: total.toFixed(2), paid: total.toFixed(2), pending: '0.00', count };
+      const allExpenses = await db.getExpenses({ dateFrom: input.dateFrom, dateTo: input.dateTo });
+      const total   = byCategory.reduce((s: number, r: any) => s + parseFloat(r.total ?? '0'), 0);
+      const count   = byCategory.reduce((s: number, r: any) => s + Number(r.count ?? 0), 0);
+      const paid    = (allExpenses as any[]).filter(e => e.status === 'realizado').reduce((s, e) => s + parseFloat(e.amount ?? '0'), 0);
+      const pending = (allExpenses as any[]).filter(e => e.status === 'previsto').reduce((s, e) => s + parseFloat(e.amount ?? '0'), 0);
+      return { byCategory, total: total.toFixed(2), paid: paid.toFixed(2), pending: pending.toFixed(2), count };
     }),
 });
 
@@ -505,6 +554,18 @@ const accountingRouter = router({
       return { success: true };
     }),
 
+  deleteManagerialBalance: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => { await db.deleteManagerialBalance(input.id); return { success: true }; }),
+
+  deleteDRE: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => { await db.deleteDRE(input.id); return { success: true }; }),
+
+  deleteCashFlow: protectedProcedure
+    .input(z.object({ referenceDate: z.string() }))
+    .mutation(async ({ input }) => { await db.deleteCashFlow(input.referenceDate); return { success: true }; }),
+
   getCostCenters: protectedProcedure.query(async () => db.getCostCenters()),
 
   createCostCenter: protectedProcedure
@@ -512,6 +573,13 @@ const accountingRouter = router({
     .mutation(async ({ input }) => {
       const id = await db.createCostCenter(input);
       return { id };
+    }),
+
+  deleteCostCenter: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      await db.deleteCostCenter(input.id);
+      return { success: true };
     }),
 });
 
@@ -524,6 +592,30 @@ const dashboardRouter = router({
   getAlerts: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => db.getAlerts(input.status)),
+
+  getUsers: protectedProcedure.query(async () => db.getUsers()),
+
+  createUser: protectedProcedure
+    .input(z.object({ name: z.string(), email: z.string().email(), password: z.string().min(8), role: z.enum(["user","admin"]).default("user") }))
+    .mutation(async ({ input }) => {
+      const { hashPassword, emailToOpenId } = await import("./_core/localAuth");
+      const existing = await db.getUserByEmail(input.email.toLowerCase());
+      if (existing) throw new Error("Usuário já existe com este email.");
+      const openId       = emailToOpenId(input.email);
+      const passwordHash = await hashPassword(input.password);
+      await db.upsertUser({ openId, email: input.email.toLowerCase(), name: input.name, loginMethod: "local", role: input.role, lastSignedIn: new Date() });
+      const user = await db.getUserByOpenId(openId);
+      if (user) await db.updateUserPassword(user.id, passwordHash);
+      return { success: true };
+    }),
+
+  deleteUser: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.id === input.id) throw new Error("Não é possível excluir o próprio usuário.");
+      await db.deleteUser(input.id);
+      return { success: true };
+    }),
 
   acknowledgeAlert: protectedProcedure
     .input(z.object({ id: z.number() }))

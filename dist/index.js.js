@@ -11,6 +11,9 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -45380,6 +45383,45 @@ var require_dist2 = __commonJS({
   }
 });
 
+// server/_core/localAuth.ts
+var localAuth_exports = {};
+__export(localAuth_exports, {
+  emailToOpenId: () => emailToOpenId,
+  hashPassword: () => hashPassword,
+  verifyPassword: () => verifyPassword
+});
+import { createHash, pbkdf2, randomBytes, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+async function hashPassword(plain) {
+  const salt = randomBytes(SALT_LEN).toString("hex");
+  const key = await pbkdf2Async(plain, salt, ITERATIONS, KEY_LEN, ALGORITHM);
+  return `pbkdf2$${salt}$${key.toString("hex")}`;
+}
+async function verifyPassword(plain, stored) {
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "pbkdf2") return false;
+  const [, salt, expectedHex] = parts;
+  const key = await pbkdf2Async(plain, salt, ITERATIONS, KEY_LEN, ALGORITHM);
+  const actualBuf = Buffer.from(key.toString("hex"));
+  const expectedBuf = Buffer.from(expectedHex);
+  if (actualBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(actualBuf, expectedBuf);
+}
+function emailToOpenId(email3) {
+  return "local:" + createHash("sha256").update(email3.toLowerCase().trim()).digest("hex").slice(0, 24);
+}
+var pbkdf2Async, ALGORITHM, ITERATIONS, KEY_LEN, SALT_LEN;
+var init_localAuth = __esm({
+  "server/_core/localAuth.ts"() {
+    "use strict";
+    pbkdf2Async = promisify(pbkdf2);
+    ALGORITHM = "sha512";
+    ITERATIONS = 21e4;
+    KEY_LEN = 64;
+    SALT_LEN = 32;
+  }
+});
+
 // node_modules/.pnpm/@babel+parser@7.28.4/node_modules/@babel/parser/lib/index.js
 var require_lib6 = __commonJS({
   "node_modules/.pnpm/@babel+parser@7.28.4/node_modules/@babel/parser/lib/index.js"(exports) {
@@ -71982,6 +72024,11 @@ async function createCostCenter(data) {
   const result = await db.insert(costCenters).values({ ...data, type: data.type });
   return result[0].insertId;
 }
+async function deleteCostCenter(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(costCenters).where(eq(costCenters.id, id));
+}
 async function getSystemConfig(key) {
   const db = await getDb();
   if (!db) return null;
@@ -72017,6 +72064,101 @@ async function getDashboardSummary(dateFrom, dateTo) {
     revenueSummary: revSummary,
     expenseSummary: expSummary
   };
+}
+async function updateRevenue(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(revenues).set({
+    ...data.referenceDate && { referenceDate: data.referenceDate },
+    ...data.type && { type: data.type },
+    ...data.description !== void 0 && { description: data.description },
+    ...data.amount && { amount: data.amount },
+    ...data.clientName !== void 0 && { clientName: data.clientName },
+    ...data.status && { status: data.status }
+  }).where(eq(revenues.id, id));
+}
+async function deleteRevenue(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(revenues).where(eq(revenues.id, id));
+}
+async function updateExpense(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(expenses).set({
+    ...data.referenceDate && { referenceDate: data.referenceDate },
+    ...data.category && { category: data.category },
+    ...data.description !== void 0 && { description: data.description },
+    ...data.amount && { amount: data.amount },
+    ...data.supplier !== void 0 && { supplier: data.supplier },
+    ...data.status && { status: data.status }
+  }).where(eq(expenses.id, id));
+}
+async function deleteExpense(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(expenses).where(eq(expenses.id, id));
+}
+async function updateCreditPortfolio(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(creditPortfolio).set({
+    ...data.status && { status: data.status },
+    ...data.outstandingBalance !== void 0 && { outstandingBalance: data.outstandingBalance },
+    ...data.paidInstallments !== void 0 && { paidInstallments: data.paidInstallments },
+    ...data.notes !== void 0 && { notes: data.notes }
+  }).where(eq(creditPortfolio.id, id));
+}
+async function deleteCreditPortfolio(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(creditPortfolio).where(eq(creditPortfolio.id, id));
+}
+async function updatePayable(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(payables).set({
+    ...data.dueDate && { dueDate: data.dueDate },
+    ...data.description !== void 0 && { description: data.description },
+    ...data.category && { category: data.category },
+    ...data.amount && { amount: data.amount },
+    ...data.supplier !== void 0 && { supplier: data.supplier },
+    ...data.notes !== void 0 && { notes: data.notes }
+  }).where(eq(payables.id, id));
+}
+async function getUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: users.id,
+    openId: users.openId,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn,
+    loginMethod: users.loginMethod
+  }).from(users).orderBy(users.createdAt);
+}
+async function deleteUser(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(users).where(eq(users.id, id));
+}
+async function deleteManagerialBalance(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(managerialBalances).where(eq(managerialBalances.id, id));
+}
+async function deleteDRE(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(dre).where(eq(dre.id, id));
+}
+async function deleteCashFlow(referenceDate) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(cashFlow).where(eq(cashFlow.referenceDate, referenceDate));
 }
 
 // server/_core/cookies.ts
@@ -89813,23 +89955,34 @@ var adminProcedure = t.procedure.use(
 
 // server/_core/systemRouter.ts
 var systemRouter = router({
-  health: publicProcedure.input(
-    external_exports.object({
-      timestamp: external_exports.number().min(0, "timestamp cannot be negative")
-    })
-  ).query(() => ({
-    ok: true
-  })),
-  notifyOwner: adminProcedure.input(
-    external_exports.object({
-      title: external_exports.string().min(1, "title is required"),
-      content: external_exports.string().min(1, "content is required")
-    })
-  ).mutation(async ({ input }) => {
+  health: publicProcedure.input(external_exports.object({ timestamp: external_exports.number().min(0, "timestamp cannot be negative") })).query(() => ({ ok: true })),
+  notifyOwner: adminProcedure.input(external_exports.object({ title: external_exports.string().min(1), content: external_exports.string().min(1) })).mutation(async ({ input }) => {
     const delivered = await notifyOwner(input);
-    return {
-      success: delivered
-    };
+    return { success: delivered };
+  }),
+  // ── User Management ──────────────────────────────────────────────────────
+  getUsers: protectedProcedure.query(async () => getUsers()),
+  createUser: protectedProcedure.input(external_exports.object({ email: external_exports.string().email(), name: external_exports.string().min(1), password: external_exports.string().min(8) })).mutation(async ({ input }) => {
+    const { hashPassword: hashPassword2, emailToOpenId: emailToOpenId2 } = await Promise.resolve().then(() => (init_localAuth(), localAuth_exports));
+    const existing = await getUserByEmail(input.email.toLowerCase());
+    if (existing) throw new Error("Usu\xE1rio com este email j\xE1 existe.");
+    const openId = emailToOpenId2(input.email);
+    const passwordHash = await hashPassword2(input.password);
+    await upsertUser({ openId, email: input.email.toLowerCase(), name: input.name, loginMethod: "local", role: "user", lastSignedIn: /* @__PURE__ */ new Date() });
+    const user = await getUserByOpenId(openId);
+    if (user) await updateUserPassword(user.id, passwordHash);
+    return { success: true };
+  }),
+  deleteUser: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    if (ctx.user?.id === input.id) throw new Error("Voc\xEA n\xE3o pode excluir seu pr\xF3prio usu\xE1rio.");
+    await deleteUser(input.id);
+    return { success: true };
+  }),
+  updateUserPassword: protectedProcedure.input(external_exports.object({ id: external_exports.number(), password: external_exports.string().min(8) })).mutation(async ({ input }) => {
+    const { hashPassword: hashPassword2 } = await Promise.resolve().then(() => (init_localAuth(), localAuth_exports));
+    const hash2 = await hashPassword2(input.password);
+    await updateUserPassword(input.id, hash2);
+    return { success: true };
   })
 });
 
@@ -90958,6 +91111,22 @@ var controllershipRouter = router({
     const id = await createRevenue(input);
     return { id };
   }),
+  updateRevenue: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    referenceDate: external_exports.string().optional(),
+    type: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    amount: external_exports.string().optional(),
+    clientName: external_exports.string().optional(),
+    status: external_exports.string().optional()
+  })).mutation(async ({ input }) => {
+    await updateRevenue(input.id, input);
+    return { success: true };
+  }),
+  deleteRevenue: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await deleteRevenue(input.id);
+    return { success: true };
+  }),
   getExpenses: protectedProcedure.input(external_exports.object({
     dateFrom: external_exports.string().optional(),
     dateTo: external_exports.string().optional(),
@@ -90976,6 +91145,22 @@ var controllershipRouter = router({
   })).mutation(async ({ input }) => {
     const id = await createExpense(input);
     return { id };
+  }),
+  updateExpense: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    referenceDate: external_exports.string().optional(),
+    category: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    amount: external_exports.string().optional(),
+    supplier: external_exports.string().optional(),
+    status: external_exports.string().optional()
+  })).mutation(async ({ input }) => {
+    await updateExpense(input.id, input);
+    return { success: true };
+  }),
+  deleteExpense: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await deleteExpense(input.id);
+    return { success: true };
   }),
   getPayables: protectedProcedure.input(external_exports.object({
     status: external_exports.string().optional(),
@@ -91003,8 +91188,34 @@ var controllershipRouter = router({
     await deletePayable(input.id);
     return { success: true };
   }),
+  updatePayable: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    dueDate: external_exports.string().optional(),
+    description: external_exports.string().optional(),
+    category: external_exports.string().optional(),
+    amount: external_exports.string().optional(),
+    supplier: external_exports.string().optional(),
+    notes: external_exports.string().optional()
+  })).mutation(async ({ input }) => {
+    await updatePayable(input.id, input);
+    return { success: true };
+  }),
   markPayablePaid: protectedProcedure.input(external_exports.object({ id: external_exports.number(), paidDate: external_exports.string().optional() })).mutation(async ({ input }) => {
     await updatePayableStatus(input.id, "pago", input.paidDate ?? (/* @__PURE__ */ new Date()).toISOString().split("T")[0]);
+    return { success: true };
+  }),
+  updateLoan: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    status: external_exports.string().optional(),
+    outstandingBalance: external_exports.string().optional(),
+    paidInstallments: external_exports.number().optional(),
+    notes: external_exports.string().optional()
+  })).mutation(async ({ input }) => {
+    await updateCreditPortfolio(input.id, input);
+    return { success: true };
+  }),
+  deleteLoan: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await deleteCreditPortfolio(input.id);
     return { success: true };
   }),
   getLoans: protectedProcedure.input(external_exports.object({ status: external_exports.string().optional() })).query(async ({ input }) => getCreditPortfolio(input)),
@@ -91049,16 +91260,22 @@ var controllershipRouter = router({
   getRevenueSummary: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => {
     const rawData = await getRevenueSummary(input.dateFrom, input.dateTo);
     const byType = Array.isArray(rawData) ? rawData : rawData.byType ?? [];
+    const allRevenues = await getRevenues({ dateFrom: input.dateFrom, dateTo: input.dateTo });
     const total = byType.reduce((s, r) => s + parseFloat(r.total ?? "0"), 0);
     const count = byType.reduce((s, r) => s + Number(r.count ?? 0), 0);
-    return { byType, total: total.toFixed(2), received: total.toFixed(2), pending: "0.00", count };
+    const received = allRevenues.filter((r) => r.status === "realizado").reduce((s, r) => s + parseFloat(r.amount ?? "0"), 0);
+    const pending = allRevenues.filter((r) => r.status === "previsto").reduce((s, r) => s + parseFloat(r.amount ?? "0"), 0);
+    return { byType, total: total.toFixed(2), received: received.toFixed(2), pending: pending.toFixed(2), count };
   }),
   getExpenseSummary: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => {
     const rawData = await getExpenseSummary(input.dateFrom, input.dateTo);
     const byCategory = Array.isArray(rawData) ? rawData : rawData.byCategory ?? [];
+    const allExpenses = await getExpenses({ dateFrom: input.dateFrom, dateTo: input.dateTo });
     const total = byCategory.reduce((s, r) => s + parseFloat(r.total ?? "0"), 0);
     const count = byCategory.reduce((s, r) => s + Number(r.count ?? 0), 0);
-    return { byCategory, total: total.toFixed(2), paid: total.toFixed(2), pending: "0.00", count };
+    const paid = allExpenses.filter((e) => e.status === "realizado").reduce((s, e) => s + parseFloat(e.amount ?? "0"), 0);
+    const pending = allExpenses.filter((e) => e.status === "previsto").reduce((s, e) => s + parseFloat(e.amount ?? "0"), 0);
+    return { byCategory, total: total.toFixed(2), paid: paid.toFixed(2), pending: pending.toFixed(2), count };
   })
 });
 var accountingRouter = router({
@@ -91108,15 +91325,48 @@ var accountingRouter = router({
     }
     return { success: true };
   }),
+  deleteManagerialBalance: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await deleteManagerialBalance(input.id);
+    return { success: true };
+  }),
+  deleteDRE: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await deleteDRE(input.id);
+    return { success: true };
+  }),
+  deleteCashFlow: protectedProcedure.input(external_exports.object({ referenceDate: external_exports.string() })).mutation(async ({ input }) => {
+    await deleteCashFlow(input.referenceDate);
+    return { success: true };
+  }),
   getCostCenters: protectedProcedure.query(async () => getCostCenters()),
   createCostCenter: protectedProcedure.input(external_exports.object({ name: external_exports.string(), type: external_exports.string(), description: external_exports.string().optional() })).mutation(async ({ input }) => {
     const id = await createCostCenter(input);
     return { id };
+  }),
+  deleteCostCenter: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await deleteCostCenter(input.id);
+    return { success: true };
   })
 });
 var dashboardRouter = router({
   getSummary: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => getDashboardSummary(input.dateFrom, input.dateTo)),
   getAlerts: protectedProcedure.input(external_exports.object({ status: external_exports.string().optional() })).query(async ({ input }) => getAlerts(input.status)),
+  getUsers: protectedProcedure.query(async () => getUsers()),
+  createUser: protectedProcedure.input(external_exports.object({ name: external_exports.string(), email: external_exports.string().email(), password: external_exports.string().min(8), role: external_exports.enum(["user", "admin"]).default("user") })).mutation(async ({ input }) => {
+    const { hashPassword: hashPassword2, emailToOpenId: emailToOpenId2 } = await Promise.resolve().then(() => (init_localAuth(), localAuth_exports));
+    const existing = await getUserByEmail(input.email.toLowerCase());
+    if (existing) throw new Error("Usu\xE1rio j\xE1 existe com este email.");
+    const openId = emailToOpenId2(input.email);
+    const passwordHash = await hashPassword2(input.password);
+    await upsertUser({ openId, email: input.email.toLowerCase(), name: input.name, loginMethod: "local", role: input.role, lastSignedIn: /* @__PURE__ */ new Date() });
+    const user = await getUserByOpenId(openId);
+    if (user) await updateUserPassword(user.id, passwordHash);
+    return { success: true };
+  }),
+  deleteUser: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    if (ctx.user.id === input.id) throw new Error("N\xE3o \xE9 poss\xEDvel excluir o pr\xF3prio usu\xE1rio.");
+    await deleteUser(input.id);
+    return { success: true };
+  }),
   acknowledgeAlert: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
     await acknowledgeAlert(input.id, ctx.user.id);
     return { success: true };
@@ -91446,34 +91696,8 @@ function serveStatic(app) {
   });
 }
 
-// server/_core/localAuth.ts
-import { createHash, pbkdf2, randomBytes, timingSafeEqual } from "crypto";
-import { promisify } from "util";
-var pbkdf2Async = promisify(pbkdf2);
-var ALGORITHM = "sha512";
-var ITERATIONS = 21e4;
-var KEY_LEN = 64;
-var SALT_LEN = 32;
-async function hashPassword(plain) {
-  const salt = randomBytes(SALT_LEN).toString("hex");
-  const key = await pbkdf2Async(plain, salt, ITERATIONS, KEY_LEN, ALGORITHM);
-  return `pbkdf2$${salt}$${key.toString("hex")}`;
-}
-async function verifyPassword(plain, stored) {
-  const parts = stored.split("$");
-  if (parts.length !== 3 || parts[0] !== "pbkdf2") return false;
-  const [, salt, expectedHex] = parts;
-  const key = await pbkdf2Async(plain, salt, ITERATIONS, KEY_LEN, ALGORITHM);
-  const actualBuf = Buffer.from(key.toString("hex"));
-  const expectedBuf = Buffer.from(expectedHex);
-  if (actualBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(actualBuf, expectedBuf);
-}
-function emailToOpenId(email3) {
-  return "local:" + createHash("sha256").update(email3.toLowerCase().trim()).digest("hex").slice(0, 24);
-}
-
 // server/_core/index.ts
+init_localAuth();
 function isPortAvailable(port) {
   return new Promise((resolve) => {
     const server = net.createServer();

@@ -610,6 +610,12 @@ export async function createCostCenter(data: { name: string; type: string; descr
   return result[0].insertId;
 }
 
+export async function deleteCostCenter(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(costCenters).where(eq(costCenters.id, id));
+}
+
 // ─── SYSTEM CONFIG ────────────────────────────────────────────────────────────
 export async function getSystemConfig(key: string) {
   const db = await getDb();
@@ -644,4 +650,137 @@ export async function getDashboardSummary(dateFrom: string, dateTo: string) {
     overduePayables: overduePayables.length, activeAlerts: activeAlerts.length,
     revenueSummary: revSummary, expenseSummary: expSummary,
   };
+}
+
+// ─── EDIT/DELETE OPERATIONS ───────────────────────────────────────────────────
+
+export async function updateRevenue(id: number, data: {
+  referenceDate?: string; type?: string; description?: string;
+  amount?: string; clientName?: string; status?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(revenues).set({
+    ...(data.referenceDate && { referenceDate: data.referenceDate as unknown as Date }),
+    ...(data.type && { type: data.type as any }),
+    ...(data.description !== undefined && { description: data.description }),
+    ...(data.amount && { amount: data.amount }),
+    ...(data.clientName !== undefined && { clientName: data.clientName }),
+    ...(data.status && { status: data.status as any }),
+  }).where(eq(revenues.id, id));
+}
+
+export async function deleteRevenue(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(revenues).where(eq(revenues.id, id));
+}
+
+export async function updateExpense(id: number, data: {
+  referenceDate?: string; category?: string; description?: string;
+  amount?: string; supplier?: string; status?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(expenses).set({
+    ...(data.referenceDate && { referenceDate: data.referenceDate as unknown as Date }),
+    ...(data.category && { category: data.category as any }),
+    ...(data.description !== undefined && { description: data.description }),
+    ...(data.amount && { amount: data.amount }),
+    ...(data.supplier !== undefined && { supplier: data.supplier }),
+    ...(data.status && { status: data.status as any }),
+  }).where(eq(expenses.id, id));
+}
+
+export async function deleteExpense(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(expenses).where(eq(expenses.id, id));
+}
+
+export async function updateCreditPortfolio(id: number, data: {
+  status?: string; outstandingBalance?: string; paidInstallments?: number; notes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(creditPortfolio).set({
+    ...(data.status && { status: data.status as any }),
+    ...(data.outstandingBalance !== undefined && { outstandingBalance: data.outstandingBalance }),
+    ...(data.paidInstallments !== undefined && { paidInstallments: data.paidInstallments }),
+    ...(data.notes !== undefined && { notes: data.notes }),
+  }).where(eq(creditPortfolio.id, id));
+}
+
+export async function deleteCreditPortfolio(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(creditPortfolio).where(eq(creditPortfolio.id, id));
+}
+
+export async function updatePayable(id: number, data: {
+  dueDate?: string; description?: string; category?: string;
+  amount?: string; supplier?: string; notes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(payables).set({
+    ...(data.dueDate && { dueDate: data.dueDate as unknown as Date }),
+    ...(data.description !== undefined && { description: data.description }),
+    ...(data.category && { category: data.category as any }),
+    ...(data.amount && { amount: data.amount }),
+    ...(data.supplier !== undefined && { supplier: data.supplier }),
+    ...(data.notes !== undefined && { notes: data.notes }),
+  }).where(eq(payables.id, id));
+}
+
+export async function getUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: users.id, openId: users.openId, name: users.name,
+    email: users.email, role: users.role, createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn, loginMethod: users.loginMethod,
+  }).from(users).orderBy(users.createdAt);
+}
+
+export async function deleteUser(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(users).where(eq(users.id, id));
+}
+
+export async function deleteManagerialBalance(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(managerialBalances).where(eq(managerialBalances.id, id));
+}
+
+export async function deleteDRE(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(dre).where(eq(dre.id, id));
+}
+
+export async function deleteCashFlow(referenceDate: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(cashFlow).where(eq(cashFlow.referenceDate, referenceDate as unknown as Date));
+}
+
+
+export async function createUser(data: {
+  email: string; name: string; passwordHash: string; role?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const { emailToOpenId } = await import("./_core/localAuth");
+  const openId = emailToOpenId(data.email);
+  await db.insert(users).values({
+    openId, email: data.email, name: data.name,
+    passwordHash: data.passwordHash,
+    loginMethod: "local",
+    role: (data.role as "user" | "admin") ?? "user",
+    lastSignedIn: new Date(),
+  });
+  return openId;
 }

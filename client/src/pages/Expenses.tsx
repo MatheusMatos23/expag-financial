@@ -4,7 +4,7 @@ import {
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, Receipt, TrendingDown, Calendar, Hash } from "lucide-react";
+import { Plus, Receipt, TrendingDown, Calendar, Hash, Filter, ArrowDownRight, Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,19 +43,54 @@ const DEFAULT_FORM = {
   amount: "", status: "realizado", supplier: "", notes: "",
 };
 
+const PERIODS = [
+  { label: "Este mês", getValue: () => getCurrentMonthRange() },
+  { label: "30 dias",  getValue: () => { const to = new Date(); const from = new Date(); from.setDate(from.getDate()-30); return { dateFrom: from.toISOString().split("T")[0], dateTo: to.toISOString().split("T")[0] }; } },
+  { label: "90 dias",  getValue: () => { const to = new Date(); const from = new Date(); from.setDate(from.getDate()-90); return { dateFrom: from.toISOString().split("T")[0], dateTo: to.toISOString().split("T")[0] }; } },
+  { label: "Este ano", getValue: () => { const now = new Date(); return { dateFrom: `${now.getFullYear()}-01-01`, dateTo: now.toISOString().split("T")[0] }; } },
+];
+
 export default function Expenses() {
-  const { dateFrom, dateTo } = getCurrentMonthRange();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [periodIdx, setPeriodIdx] = useState(0);
+  const [catFilter, setCatFilter] = useState("all");
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
-  const { data: expenses, refetch, isLoading } = trpc.controllership.getExpenses.useQuery({ dateFrom, dateTo });
+  const { dateFrom, dateTo } = PERIODS[periodIdx].getValue();
+
+  const [editRow, setEditRow] = useState<any>(null);
+
+  const { data: expenses, refetch, isLoading } = trpc.controllership.getExpenses.useQuery({
+    dateFrom, dateTo,
+    category: catFilter !== "all" ? catFilter : undefined,
+  });
   const { data: summary } = trpc.controllership.getExpenseSummary.useQuery({ dateFrom, dateTo });
 
   const createMutation = trpc.controllership.createExpense.useMutation({
     onSuccess: () => { toast.success("Despesa registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
     onError: (e) => toast.error(e.message),
   });
+
+  const updateMutation = trpc.controllership.updateExpense.useMutation({
+    onSuccess: () => { toast.success("Despesa atualizada!"); setEditRow(null); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteMutation = trpc.controllership.deleteExpense.useMutation({
+    onSuccess: () => { toast.success("Despesa removida."); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const handleEdit = (row: any) => {
+    setEditRow(row);
+    setForm({
+      referenceDate: row.referenceDate?.slice(0,10) ?? new Date().toISOString().split("T")[0],
+      category: row.category ?? "operacional", subcategory: row.subcategory ?? "",
+      description: row.description ?? "", amount: row.amount ?? "",
+      status: row.status ?? "realizado", supplier: row.supplier ?? "", notes: "",
+    });
+  };
 
   const rows = (expenses ?? []) as any[];
   const total   = safeNumber(summary?.total);
@@ -100,6 +135,21 @@ export default function Expenses() {
       key: "status", header: "Status", width: "100px",
       cell: (r) => <span className={getStatusBadge(r.status)}>{getStatusLabel(r.status)}</span>,
     },
+    {
+      key: "id", header: "", align: "right" as const, width: "70px", searchable: false,
+      cell: (r) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+            onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
+            <Edit2 className="w-3 h-3" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+            onClick={(e) => { e.stopPropagation(); if(confirm("Remover esta despesa?")) deleteMutation.mutate({ id: r.id }); }}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -108,14 +158,14 @@ export default function Expenses() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Despesas</h1>
-          <p className="text-sm text-muted-foreground mt-1">Camada 2 · Mapeamento de despesas por categoria</p>
+          <p className="text-sm text-muted-foreground mt-1">Categoria 2 · Mapeamento de despesas por categoria</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={v => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
           <DialogTrigger asChild>
             <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Despesa</Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Registrar Despesa</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editRow ? "Editar Despesa" : "Registrar Despesa"}</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
               <div>
                 <Label className="text-xs text-muted-foreground">Data *</Label>
@@ -231,6 +281,39 @@ export default function Expenses() {
         emptyDescription="Registre uma nova despesa usando o botão acima."
         defaultPageSize={25}
       />
+
+      {/* Edit Dialog */}
+      <Dialog open={editRow !== null} onOpenChange={v => !v && setEditRow(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Editar Despesa</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div><Label className="text-xs text-muted-foreground">Data</Label>
+              <Input type="date" value={form.referenceDate} onChange={e => set("referenceDate")(e.target.value)} className="mt-1 h-8 text-xs" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs text-muted-foreground">Categoria</Label>
+                <Select value={form.category} onValueChange={set("category")}>
+                  <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-xs">{CAT_LABELS[c]}</SelectItem>)}</SelectContent>
+                </Select></div>
+              <div><Label className="text-xs text-muted-foreground">Status</Label>
+                <Select value={form.status} onValueChange={set("status")}>
+                  <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{STATUS_LIST.map(s => <SelectItem key={s} value={s} className="text-xs">{getStatusLabel(s)}</SelectItem>)}</SelectContent>
+                </Select></div>
+            </div>
+            <div><Label className="text-xs text-muted-foreground">Valor (R$)</Label>
+              <Input type="number" step="0.01" value={form.amount} onChange={e => set("amount")(e.target.value)} className="mt-1 h-8 text-xs font-mono" /></div>
+            <div><Label className="text-xs text-muted-foreground">Descrição</Label>
+              <Input value={form.description} onChange={e => set("description")(e.target.value)} className="mt-1 h-8 text-xs" /></div>
+            <div><Label className="text-xs text-muted-foreground">Fornecedor</Label>
+              <Input value={form.supplier} onChange={e => set("supplier")(e.target.value)} className="mt-1 h-8 text-xs" /></div>
+            <Button onClick={() => updateMutation.mutate({ id: editRow.id, ...form })}
+              disabled={updateMutation.isPending} className="w-full">
+              {updateMutation.isPending ? "Salvando..." : "Salvar Alterações"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

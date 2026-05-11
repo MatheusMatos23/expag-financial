@@ -4,7 +4,7 @@ import {
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, TrendingUp, DollarSign, Calendar, Hash } from "lucide-react";
+import { Plus, TrendingUp, DollarSign, Calendar, Hash, ArrowUpRight, Filter, Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ const TYPE_COLORS: Record<string, string> = {
   white_label: "text-teal-400 bg-teal-500/10", receita_financeira: "text-blue-400 bg-blue-500/10",
   receita_operacional: "text-indigo-400 bg-indigo-500/10", outros: "text-gray-400 bg-gray-500/10",
 };
+const BAR_COLORS = ["#10b981","#38bdf8","#818cf8","#f59e0b","#fb923c","#e879f9","#2dd4bf","#60a5fa","#a78bfa","#94a3b8"];
 const STATUS_LIST = ["previsto", "realizado", "cancelado"];
 const TOOLTIP_STYLE = { background:"#0d1528", border:"1px solid #1a2d50", borderRadius:"8px", fontSize:"11px", color:"#e8edf5" };
 
@@ -38,42 +39,73 @@ const DEFAULT_FORM = {
   clientId: "", clientName: "", notes: "",
 };
 
+// Period presets
+const PERIODS = [
+  { label: "Este mês", getValue: () => getCurrentMonthRange() },
+  { label: "Últimos 30 dias", getValue: () => { const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 30); return { dateFrom: from.toISOString().split("T")[0], dateTo: to.toISOString().split("T")[0] }; } },
+  { label: "Últimos 90 dias", getValue: () => { const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 90); return { dateFrom: from.toISOString().split("T")[0], dateTo: to.toISOString().split("T")[0] }; } },
+  { label: "Este ano", getValue: () => { const now = new Date(); return { dateFrom: `${now.getFullYear()}-01-01`, dateTo: now.toISOString().split("T")[0] }; } },
+];
+
 export default function Revenues() {
-  const { dateFrom, dateTo } = getCurrentMonthRange();
   const [open, setOpen] = useState(false);
+  const [editRow, setEditRow] = useState<any>(null);
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [periodIdx, setPeriodIdx] = useState(0);
+  const [typeFilter, setTypeFilter] = useState("all");
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
-  const { data: revenues, refetch, isLoading } = trpc.controllership.getRevenues.useQuery({ dateFrom, dateTo });
+  const { dateFrom, dateTo } = PERIODS[periodIdx].getValue();
+
+  const { data: revenues, refetch, isLoading } = trpc.controllership.getRevenues.useQuery({
+    dateFrom, dateTo, type: typeFilter !== "all" ? typeFilter : undefined,
+  });
   const { data: summary } = trpc.controllership.getRevenueSummary.useQuery({ dateFrom, dateTo });
 
   const createMutation = trpc.controllership.createRevenue.useMutation({
-    onSuccess: () => {
-      toast.success("Receita registrada com sucesso!");
-      setOpen(false); refetch(); setForm(DEFAULT_FORM);
-    },
+    onSuccess: () => { toast.success("Receita registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateMutation = trpc.controllership.updateRevenue.useMutation({
+    onSuccess: () => { toast.success("Receita atualizada!"); setEditRow(null); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteMutation = trpc.controllership.deleteRevenue.useMutation({
+    onSuccess: () => { toast.success("Receita removida!"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
-  const rows = (revenues ?? []) as any[];
-  const total = safeNumber(summary?.total);
-  const received = safeNumber(summary?.received);
-  const pending = safeNumber(summary?.pending);
-  const count = safeNumber(summary?.count, 0);
+  const handleEdit = (row: any) => {
+    setEditRow(row);
+    setForm({
+      referenceDate: row.referenceDate?.slice(0,10) ?? new Date().toISOString().split("T")[0],
+      type: row.type ?? "pix", description: row.description ?? "",
+      amount: row.amount ?? "", status: row.status ?? "realizado",
+      clientId: row.clientId ?? "", clientName: row.clientName ?? "", notes: "",
+    });
+  };
 
-  const chartData = (summary?.byType ?? []).map((r: any) => ({
+  const rows = (revenues ?? []) as any[];
+  const total    = safeNumber(summary?.total);
+  const received = safeNumber(summary?.received);
+  const pending  = safeNumber(summary?.pending);
+  const count    = safeNumber(summary?.count, 0);
+
+  const chartData = (summary?.byType ?? []).map((r: any, i: number) => ({
     name: TYPE_LABELS[r.type] ?? r.type,
     valor: safeNumber(r.total),
-  }));
+    pct: total > 0 ? Math.round((safeNumber(r.total) / total) * 100) : 0,
+    color: BAR_COLORS[i % BAR_COLORS.length],
+    type: r.type,
+  })).sort((a: any, b: any) => b.valor - a.valor);
 
-  // ── Columns ──
   const columns: ColumnDef<any>[] = [
     {
       key: "referenceDate", header: "Data", sortable: true, width: "90px",
-      cell: (r) => <span className="text-muted-foreground">{formatDate(r.referenceDate)}</span>,
+      cell: (r) => <span className="text-muted-foreground text-xs">{formatDate(r.referenceDate)}</span>,
     },
     {
-      key: "type", header: "Tipo", sortable: true, width: "110px",
+      key: "type", header: "Tipo", sortable: true, width: "120px",
       cell: (r) => (
         <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded", TYPE_COLORS[r.type] ?? "text-gray-400 bg-gray-500/10")}>
           {TYPE_LABELS[r.type] ?? r.type}
@@ -82,11 +114,7 @@ export default function Revenues() {
     },
     {
       key: "description", header: "Descrição", searchable: true, minWidth: "160px",
-      cell: (r) => (
-        <span className="text-xs text-foreground truncate block max-w-[200px]">
-          {r.description || <span className="text-muted-foreground/40 italic">—</span>}
-        </span>
-      ),
+      cell: (r) => <span className="text-xs text-foreground truncate block max-w-[200px]">{r.description || "—"}</span>,
     },
     {
       key: "clientName", header: "Cliente", searchable: true,
@@ -97,8 +125,8 @@ export default function Revenues() {
     {
       key: "amount", header: "Valor", sortable: true, align: "right", width: "120px",
       cell: (r) => (
-        <span className="font-mono text-sm font-bold text-emerald-400">
-          {formatCurrency(r.amount)}
+        <span className="font-mono text-sm font-bold text-emerald-400 flex items-center justify-end gap-1">
+          <ArrowUpRight className="w-3 h-3" />{formatCurrency(r.amount)}
         </span>
       ),
     },
@@ -106,118 +134,183 @@ export default function Revenues() {
       key: "status", header: "Status", width: "100px",
       cell: (r) => <span className={getStatusBadge(r.status)}>{getStatusLabel(r.status)}</span>,
     },
+    {
+      key: "id", header: "", width: "80px", align: "right" as const, searchable: false,
+      cell: (r) => (
+        <div className="flex items-center justify-end gap-1">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+            onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
+            <Edit2 className="w-3 h-3" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+            onClick={(e) => { e.stopPropagation(); if(confirm("Remover esta receita?")) deleteMutation.mutate({ id: r.id }); }}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Receitas</h1>
-          <p className="text-sm text-muted-foreground mt-1">Camada 2 · Apuração de receitas por tipo e canal</p>
+          <p className="text-sm text-muted-foreground mt-1">Categoria 2 · Apuração de receitas por tipo e canal</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Receita</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Registrar Receita</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div>
-                <Label className="text-xs text-muted-foreground">Data *</Label>
-                <Input type="date" value={form.referenceDate} onChange={e => set("referenceDate")(e.target.value)} className="mt-1 h-8 text-xs" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Period selector */}
+          <div className="flex items-center p-0.5 bg-muted/30 rounded-lg">
+            {PERIODS.map((p, i) => (
+              <button key={p.label} onClick={() => setPeriodIdx(i)}
+                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
+                  periodIdx === i ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {/* Type filter */}
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-36 h-8 text-xs">
+              <Filter className="w-3 h-3 mr-1" /><SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todos os tipos</SelectItem>
+              {REVENUE_TYPES.map(t => <SelectItem key={t} value={t} className="text-xs">{TYPE_LABELS[t]}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Receita</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Registrar Receita</DialogTitle></DialogHeader>
+              <div className="space-y-3 py-2">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Tipo *</Label>
-                  <Select value={form.type} onValueChange={set("type")}>
-                    <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {REVENUE_TYPES.map(t => <SelectItem key={t} value={t} className="text-xs">{TYPE_LABELS[t]}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs text-muted-foreground">Data *</Label>
+                  <Input type="date" value={form.referenceDate} onChange={e => set("referenceDate")(e.target.value)} className="mt-1 h-8 text-xs" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Tipo *</Label>
+                    <Select value={form.type} onValueChange={set("type")}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{REVENUE_TYPES.map(t => <SelectItem key={t} value={t} className="text-xs">{TYPE_LABELS[t]}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Status</Label>
+                    <Select value={form.status} onValueChange={set("status")}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{STATUS_LIST.map(s => <SelectItem key={s} value={s} className="text-xs">{getStatusLabel(s)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">Status</Label>
-                  <Select value={form.status} onValueChange={set("status")}>
-                    <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {STATUS_LIST.map(s => <SelectItem key={s} value={s} className="text-xs">{getStatusLabel(s)}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs text-muted-foreground">Valor (R$) *</Label>
+                  <Input type="number" step="0.01" placeholder="0,00" value={form.amount}
+                    onChange={e => set("amount")(e.target.value)} className="mt-1 h-8 text-xs font-mono" />
                 </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Descrição</Label>
+                  <Input value={form.description} onChange={e => set("description")(e.target.value)}
+                    className="mt-1 h-8 text-xs" placeholder="Descreva a receita..." />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Cliente</Label>
+                  <Input value={form.clientName} onChange={e => set("clientName")(e.target.value)}
+                    className="mt-1 h-8 text-xs" placeholder="Nome do cliente" />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Observações</Label>
+                  <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)}
+                    className="mt-1 text-xs min-h-14 resize-none" rows={2} />
+                </div>
+                <Button
+                  onClick={() => createMutation.mutate({
+                    referenceDate: form.referenceDate, type: form.type, amount: form.amount,
+                    description: form.description || undefined,
+                    clientName: form.clientName || undefined, status: form.status,
+                  })}
+                  disabled={!form.amount || !form.type || createMutation.isPending}
+                  className="w-full"
+                >
+                  {createMutation.isPending ? "Salvando..." : "Salvar Receita"}
+                </Button>
               </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Valor (R$) *</Label>
-                <Input type="number" step="0.01" placeholder="0,00" value={form.amount}
-                  onChange={e => set("amount")(e.target.value)} className="mt-1 h-8 text-xs font-mono" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Descrição</Label>
-                <Input value={form.description} onChange={e => set("description")(e.target.value)}
-                  className="mt-1 h-8 text-xs" placeholder="Descreva a receita..." />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Cliente</Label>
-                <Input value={form.clientName} onChange={e => set("clientName")(e.target.value)}
-                  className="mt-1 h-8 text-xs" placeholder="Nome do cliente" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Observações</Label>
-                <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)}
-                  className="mt-1 text-xs min-h-14 resize-none" rows={2} />
-              </div>
-              <Button
-                onClick={() => createMutation.mutate({
-                  referenceDate: form.referenceDate, type: form.type, amount: form.amount,
-                  description: form.description || undefined, clientId: form.clientId || undefined,
-                  clientName: form.clientName || undefined, status: form.status,
-                })}
-                disabled={!form.amount || !form.type || createMutation.isPending}
-                className="w-full"
-              >
-                {createMutation.isPending ? "Salvando..." : "Salvar Receita"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total do Mês",    value: formatCurrencyCompact(total),    color: "text-emerald-400", icon: DollarSign, sub: "acumulado" },
-          { label: "Realizado",       value: formatCurrencyCompact(received), color: "text-emerald-400", icon: TrendingUp, sub: "confirmado" },
-          { label: "Pendente",        value: formatCurrencyCompact(pending),  color: "text-amber-400",   icon: Calendar,  sub: "a confirmar" },
-          { label: "Lançamentos",     value: count,                           color: "text-foreground",  icon: Hash,      sub: "no período" },
+          { label: "Total",      value: formatCurrencyCompact(total),    color: "text-emerald-400", icon: DollarSign, sub: "no período" },
+          { label: "Realizado",  value: formatCurrencyCompact(received), color: "text-emerald-400", icon: TrendingUp, sub: "confirmado" },
+          { label: "Previsto",   value: formatCurrencyCompact(pending),  color: "text-amber-400",   icon: Calendar,  sub: "a confirmar" },
+          { label: "Lançamentos",value: count,                           color: "text-foreground",  icon: Hash,      sub: "registros" },
         ].map(({ label, value, color, icon: Icon, sub }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="bg-card border border-border rounded-xl p-4 kpi-card">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</span>
               <Icon className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
-            <p className={cn("text-2xl font-bold font-mono", color)}>{value}</p>
+            <p className={cn("text-2xl font-bold font-mono tracking-tight", color)}>{value}</p>
             <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Chart */}
+      {/* Charts + Breakdown */}
       {chartData.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            Receitas por Tipo — Mês Atual
-          </h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={chartData} margin={{ left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#5c7099" }} />
-              <YAxis tick={{ fontSize: 10, fill: "#5c7099" }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="valor" fill="#10b981" radius={[4,4,0,0]} name="Receita" opacity={0.85} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Bar chart */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              Receitas por Tipo
+            </h3>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={chartData} margin={{ left: -10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#5c7099" }} />
+                <YAxis tick={{ fontSize: 9, fill: "#5c7099" }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="valor" radius={[4,4,0,0]} name="Receita" opacity={0.88}>
+                  {chartData.map((e: any, i: number) => <Cell key={i} fill={e.color} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Breakdown table */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Mix de Receitas</h3>
+            <div className="space-y-2.5">
+              {chartData.map((item: any) => (
+                <div key={item.type} className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded", TYPE_COLORS[item.type] ?? "text-gray-400 bg-gray-500/10")}>
+                      {item.name}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-foreground">{formatCurrencyCompact(item.valor)}</span>
+                      <span className="text-[10px] text-muted-foreground w-8 text-right">{item.pct}%</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-border/40 rounded-full overflow-hidden">
+                    <div className="h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${item.pct}%`, background: item.color }} />
+                  </div>
+                </div>
+              ))}
+              {chartData.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-8">Nenhuma receita no período</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -232,6 +325,38 @@ export default function Revenues() {
         emptyDescription="Registre uma nova receita usando o botão acima."
         defaultPageSize={25}
       />
+      {/* Edit Dialog */}
+      <Dialog open={editRow !== null} onOpenChange={v => !v && setEditRow(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Editar Receita</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div><Label className="text-xs text-muted-foreground">Data</Label>
+              <Input type="date" value={form.referenceDate} onChange={e => set("referenceDate")(e.target.value)} className="mt-1 h-8 text-xs" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs text-muted-foreground">Tipo</Label>
+                <Select value={form.type} onValueChange={set("type")}>
+                  <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{REVENUE_TYPES.map(t => <SelectItem key={t} value={t} className="text-xs">{TYPE_LABELS[t]}</SelectItem>)}</SelectContent>
+                </Select></div>
+              <div><Label className="text-xs text-muted-foreground">Status</Label>
+                <Select value={form.status} onValueChange={set("status")}>
+                  <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{STATUS_LIST.map(s => <SelectItem key={s} value={s} className="text-xs">{getStatusLabel(s)}</SelectItem>)}</SelectContent>
+                </Select></div>
+            </div>
+            <div><Label className="text-xs text-muted-foreground">Valor (R$)</Label>
+              <Input type="number" step="0.01" value={form.amount} onChange={e => set("amount")(e.target.value)} className="mt-1 h-8 text-xs font-mono" /></div>
+            <div><Label className="text-xs text-muted-foreground">Descrição</Label>
+              <Input value={form.description} onChange={e => set("description")(e.target.value)} className="mt-1 h-8 text-xs" /></div>
+            <div><Label className="text-xs text-muted-foreground">Cliente</Label>
+              <Input value={form.clientName} onChange={e => set("clientName")(e.target.value)} className="mt-1 h-8 text-xs" /></div>
+            <Button onClick={() => updateMutation.mutate({ id: editRow.id, ...form })}
+              disabled={updateMutation.isPending} className="w-full">
+              {updateMutation.isPending ? "Salvando..." : "Salvar Alterações"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
