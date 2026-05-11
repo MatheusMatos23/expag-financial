@@ -208,12 +208,11 @@ export default function Dashboard() {
 
       {/* Primary KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Saldo nos Bancos" accent="blue" value={formatCurrencyCompact(bankBalance)} subtitle="Custódia total" delta={2.4} icon={Wallet} />
-        <KPICard title="Caixa Real" accent="teal" value={formatCurrencyCompact(realCash)} subtitle="Bancos − Clientes − Comprometido" delta={-1.1} icon={Activity} />
-        <KPICard title="Receita do Mês" accent="purple" value={formatCurrencyCompact(totalRev)} subtitle="Realizado" delta={8.3} icon={TrendingUp} />
+        <KPICard title="Saldo nos Bancos" accent="blue" value={formatCurrencyCompact(bankBalance)} subtitle="Custódia total" icon={Wallet} />
+        <KPICard title="Caixa Real" accent="teal" value={formatCurrencyCompact(realCash)} subtitle="Bancos − Clientes − Comprometido" icon={Activity} />
+        <KPICard title="Receita do Mês" accent="purple" value={formatCurrencyCompact(totalRev)} subtitle="Realizado" icon={TrendingUp} />
         <KPICard title="Resultado Líquido" accent={netResult >= 0 ? "green" : "red"}
           value={formatCurrencyCompact(netResult)} subtitle="Receitas − Despesas"
-          delta={netResult >= 0 ? 5.2 : -5.2}
           icon={netResult >= 0 ? ArrowUpRight : ArrowDownRight} />
       </div>
 
