@@ -401,14 +401,26 @@ function DashboardLayoutContent({
       <div className="relative" ref={sidebarRef}>
         <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar" disableTransition={isResizing}>
           <SidebarHeader className="h-16 justify-center border-b border-sidebar-border">
-            <div className="flex items-center gap-3 px-2 w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-sidebar-accent rounded-lg transition-colors focus:outline-none shrink-0"
-              >
-                <PanelLeft className="h-4 w-4 text-sidebar-foreground/60" />
-              </button>
-              <ExpagLogo collapsed={isCollapsed} />
+            <div className={cn("flex items-center px-2 w-full", isCollapsed ? "justify-center" : "gap-3")}>
+              {!isCollapsed && (
+                <button
+                  onClick={toggleSidebar}
+                  className="h-8 w-8 flex items-center justify-center hover:bg-sidebar-accent rounded-lg transition-colors focus:outline-none shrink-0"
+                >
+                  <PanelLeft className="h-4 w-4 text-sidebar-foreground/60" />
+                </button>
+              )}
+              {isCollapsed ? (
+                <button
+                  onClick={toggleSidebar}
+                  className="h-8 w-8 flex items-center justify-center hover:bg-sidebar-accent rounded-lg transition-colors focus:outline-none"
+                  title="Expandir menu"
+                >
+                  <ExpagLogo collapsed={true} />
+                </button>
+              ) : (
+                <ExpagLogo collapsed={false} />
+              )}
             </div>
           </SidebarHeader>
 
@@ -450,7 +462,10 @@ function DashboardLayoutContent({
           <SidebarFooter className="p-3 border-t border-sidebar-border">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-sidebar-accent transition-colors w-full text-left focus:outline-none">
+                <button className={cn(
+                  "flex items-center rounded-lg px-2 py-2 hover:bg-sidebar-accent transition-colors w-full focus:outline-none",
+                  isCollapsed ? "justify-center" : "gap-3 text-left"
+                )}>
                   <Avatar className="h-8 w-8 border border-sidebar-border shrink-0">
                     <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
                       {user?.name?.charAt(0).toUpperCase() ?? 'U'}
