@@ -5,10 +5,6 @@
     "buildCommand": "pnpm install --frozen-lockfile"
   },
   "deploy": {
-    "startCommand": "pnpm run build && pnpm run db:push && pnpm start",
-    "healthcheckPath": "/api/auth/has-users",
-    "healthcheckTimeout": 300,
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "startCommand": "pnpm run db:push && pnpm start"
   }
 }
