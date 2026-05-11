@@ -129,7 +129,7 @@ export default function Dashboard() {
 
   const isDemo = !(summary?.latestBalance);
 
-  // Chart data — real or demo
+  // Chart data — real only (sem demo)
   const balanceData = (balanceHistory ?? []).length > 0
     ? [...(balanceHistory as any[])].reverse().map((b) => ({
         date: new Date(b.referenceDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
@@ -137,7 +137,7 @@ export default function Dashboard() {
         caixaReal: safeNumber(b.realCash),
         caixaLivre: safeNumber(b.freeCash),
       }))
-    : DEMO_BALANCE;
+    : [];
 
   const cashData = (cashFlowData ?? []).length > 0
     ? [...(cashFlowData as any[])].reverse().map((c) => ({
@@ -145,55 +145,41 @@ export default function Dashboard() {
         entradas: safeNumber(c.realizedInflows),
         saidas: safeNumber(c.realizedOutflows),
       }))
-    : DEMO_CASHFLOW;
+    : [];
 
   const mixData = (summary?.revenueSummary ?? []).length > 0
     ? (summary!.revenueSummary as any[]).map((r, i) => ({
         name: r.type, value: safeNumber(r.total),
         color: DEMO_MIX[i % DEMO_MIX.length].color,
       }))
-    : DEMO_MIX;
+    : [];
 
-  // Metrics
-  const bankBalance = safeNumber(summary?.latestBalance?.bankBalance ?? "4850000");
-  const realCash    = safeNumber(summary?.latestBalance?.realCash    ?? "2340000");
-  const freeCash    = safeNumber(summary?.latestBalance?.freeCash    ?? "820000");
-  const clientBal   = safeNumber(summary?.latestBalance?.clientBalance ?? "2100000");
-  const totalRev    = safeNumber(summary?.totalRevenue  ?? 2_180_000);
-  const totalExp    = safeNumber(summary?.totalExpenses ?? 1_340_000);
+  // Metrics — zeros quando não há dados reais
+  const bankBalance = safeNumber(summary?.latestBalance?.bankBalance);
+  const realCash    = safeNumber(summary?.latestBalance?.realCash);
+  const freeCash    = safeNumber(summary?.latestBalance?.freeCash);
+  const clientBal   = safeNumber(summary?.latestBalance?.clientBalance);
+  const totalRev    = safeNumber(summary?.totalRevenue);
+  const totalExp    = safeNumber(summary?.totalExpenses);
   const netResult   = totalRev - totalExp;
-  const divCount    = safeNumber(summary?.activeDivergences ?? 12, 0);
-  const overduePayables = safeNumber(summary?.overduePayables ?? 2, 0);
-  const alertCount  = safeNumber(summary?.activeAlerts ?? 5, 0);
+  const divCount    = safeNumber(summary?.activeDivergences, 0);
+  const overduePayables = safeNumber(summary?.overduePayables, 0);
+  const alertCount  = safeNumber(summary?.activeAlerts, 0);
   const criticalAlerts = (alerts ?? []).filter((a: any) => a.severity === "critical");
 
   const latestSession = ((sessions ?? []) as any[])[0];
   const matchRate = latestSession?.matchedCount
     ? Math.round((latestSession.matchedCount / Math.max(1, latestSession.matchedCount + latestSession.divergentCount)) * 100)
-    : 85;
+    : 0;
 
-  // Revenue breakdown (real or demo)
+  // Revenue breakdown — real only
   const revRows = (summary?.revenueSummary ?? []).length > 0
     ? (summary!.revenueSummary as any[]).map((r) => ({ label: r.type, amount: safeNumber(r.total), pct: totalRev > 0 ? (safeNumber(r.total) / totalRev) * 100 : 0 }))
-    : [
-        { label: "PIX",        amount: 910_000, pct: 42 },
-        { label: "TED",        amount: 479_600, pct: 22 },
-        { label: "Boleto",     amount: 327_000, pct: 15 },
-        { label: "Antecipação",amount: 261_600, pct: 12 },
-        { label: "Crédito",    amount: 130_800, pct: 6  },
-        { label: "Tarifa",     amount: 65_400,  pct: 3  },
-      ];
+    : [];
 
   const expRows = (summary?.expenseSummary ?? []).length > 0
     ? (summary!.expenseSummary as any[]).map((e) => ({ label: e.category, amount: safeNumber(e.total), pct: totalExp > 0 ? (safeNumber(e.total) / totalExp) * 100 : 0 }))
-    : [
-        { label: "Folha",       amount: 540_000, pct: 40 },
-        { label: "Impostos",    amount: 283_500, pct: 21 },
-        { label: "Tecnologia",  amount: 189_000, pct: 14 },
-        { label: "Operacional", amount: 148_500, pct: 11 },
-        { label: "Infra",       amount: 94_500,  pct: 7  },
-        { label: "Marketing",   amount: 94_500,  pct: 7  },
-      ];
+    : [];
 
   return (
     <div className="space-y-6">
