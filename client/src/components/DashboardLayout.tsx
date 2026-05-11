@@ -48,7 +48,6 @@ function AuthScreen() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Verificar se já tem usuários cadastrados
   useEffect(() => {
     fetch("/api/auth/has-users")
       .then(r => r.json())
@@ -67,7 +66,7 @@ function AuthScreen() {
       });
       const text = await res.text();
       let data: any;
-      try { data = JSON.parse(text); } catch { 
+      try { data = JSON.parse(text); } catch {
         setError(`Resposta inválida do servidor (${res.status}): ${text.slice(0, 100)}`);
         return;
       }
@@ -91,7 +90,6 @@ function AuthScreen() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Erro ao criar usuário."); return; }
-      // Após setup, fazer login automaticamente
       const loginRes = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -116,126 +114,173 @@ function AuthScreen() {
 
   const isSetup = mode === "setup";
 
+  const FEATURES = [
+    { icon: ArrowLeftRight, label: "Conciliação bancária", sub: "Motor O(n log n) com confidence scoring" },
+    { icon: BarChart3,      label: "Dashboard executivo", sub: "KPIs em tempo real com alertas automáticos" },
+    { icon: TrendingUp,     label: "Controladoria completa", sub: "DRE, fluxo de caixa e carteira de crédito" },
+    { icon: CreditCard,     label: "Carteira de Crédito", sub: "Controle de operações e inadimplência" },
+  ];
+
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-[420px] xl:w-[480px] bg-sidebar border-r border-sidebar-border flex-col justify-between p-10 shrink-0">
-        <ExpagLogo collapsed={false} />
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-sidebar-foreground leading-tight">
-            Sistema de Gestão<br />Financeira Institucional
-          </h2>
-          <p className="text-sm text-sidebar-foreground/60 leading-relaxed">
-            Conciliação bancária, controladoria, DRE, fluxo de caixa e carteira de crédito em um único painel.
-          </p>
-        </div>
-        <div className="space-y-3">
-          {["Motor de conciliação O(n log n)", "Classificação automática de divergências", "Dashboard executivo em tempo real"].map(f => (
-            <div key={f} className="flex items-center gap-2.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-              <span className="text-xs text-sidebar-foreground/60">{f}</span>
-            </div>
-          ))}
+    <div className="flex min-h-screen bg-background overflow-hidden">
+
+      {/* ── LEFT — Branding premium ── */}
+      <div className="hidden lg:flex lg:w-[480px] xl:w-[540px] shrink-0 flex-col relative overflow-hidden"
+        style={{ background: "linear-gradient(160deg, #0d1a38 0%, #060c18 60%, #0a1628 100%)" }}>
+
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage: "linear-gradient(rgba(59,130,246,1) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,1) 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+          }} />
+
+        {/* Blue glow top-right */}
+        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full opacity-10"
+          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
+        {/* Blue glow bottom-left */}
+        <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full opacity-8"
+          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
+
+        <div className="relative z-10 flex flex-col h-full p-10 xl:p-12">
+          {/* Logo */}
+          <ExpagLogo collapsed={false} />
+
+          {/* Main headline */}
+          <div className="mt-auto mb-10">
+            <p className="text-[11px] font-semibold tracking-widest text-primary/80 uppercase mb-3">
+              Sistema Financeiro Institucional
+            </p>
+            <h2 className="text-3xl xl:text-4xl font-bold text-white leading-tight tracking-tight">
+              Gestão financeira<br />de nível institucional
+            </h2>
+            <p className="text-sm text-white/40 mt-4 leading-relaxed max-w-sm">
+              Conciliação bancária, controladoria, DRE e carteira de crédito — tudo integrado em um único painel.
+            </p>
+          </div>
+
+          {/* Feature cards */}
+          <div className="grid grid-cols-2 gap-3 mb-8">
+            {FEATURES.map(({ icon: Icon, label, sub }) => (
+              <div key={label}
+                className="rounded-xl p-3.5 border"
+                style={{ background: "rgba(59,130,246,0.06)", borderColor: "rgba(59,130,246,0.12)" }}>
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center mb-2.5"
+                  style={{ background: "rgba(59,130,246,0.15)" }}>
+                  <Icon className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <p className="text-xs font-semibold text-white/90 leading-tight">{label}</p>
+                <p className="text-[10px] text-white/35 mt-1 leading-relaxed">{sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom badge */}
+          <div className="flex items-center gap-2 pt-6 border-t"
+            style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[11px] text-white/40">Sistema operacional · Todos os serviços ativos</span>
+          </div>
         </div>
       </div>
 
-      {/* Right panel — form */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-sm space-y-8">
+      {/* ── RIGHT — Form ── */}
+      <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
+
+        {/* Subtle top border glow */}
+        <div className="absolute top-0 left-0 right-0 h-px"
+          style={{ background: "linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent)" }} />
+
+        <div className="w-full max-w-sm">
           {/* Mobile logo */}
-          <div className="lg:hidden flex justify-center">
+          <div className="lg:hidden mb-10 flex justify-center">
             <ExpagLogo collapsed={false} />
           </div>
 
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">
-              {isSetup ? "Criar conta administrador" : "Bem-vindo de volta"}
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {isSetup ? "Configurar acesso" : "Bem-vindo de volta"}
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm text-muted-foreground mt-1.5">
               {isSetup
-                ? "Configure o primeiro acesso ao sistema."
+                ? "Configure o primeiro administrador do sistema."
                 : "Entre com suas credenciais para acessar o painel."}
             </p>
           </div>
 
+          {/* Form */}
           <form onSubmit={isSetup ? handleSetup : handleLogin} className="space-y-4">
             {isSetup && (
-              <div>
-                <Label htmlFor="name" className="text-xs text-muted-foreground">Nome</Label>
-                <Input
-                  id="name" type="text" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Seu nome completo" className="mt-1 h-10"
-                  autoComplete="name"
-                />
+              <div className="space-y-1.5">
+                <Label htmlFor="name" className="text-xs font-medium text-muted-foreground">Nome completo</Label>
+                <Input id="name" type="text" value={name} onChange={e => setName(e.target.value)}
+                  placeholder="Seu nome" className="h-11 bg-card border-border"
+                  autoComplete="name" />
               </div>
             )}
 
-            <div>
-              <Label htmlFor="email" className="text-xs text-muted-foreground">Email *</Label>
-              <div className="relative mt-1">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  id="email" type="email" value={email}
-                  onChange={e => setEmail(e.target.value)}
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-medium text-muted-foreground">Email *</Label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
+                <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="admin@expag.com.br"
-                  className="pl-9 h-10"
-                  required autoComplete="email"
-                />
+                  className="pl-10 h-11 bg-card border-border"
+                  required autoComplete="email" />
               </div>
             </div>
 
-            <div>
-              <Label htmlFor="password" className="text-xs text-muted-foreground">
-                Senha * {isSetup && <span className="text-muted-foreground/60">(mínimo 8 caracteres)</span>}
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">
+                Senha * {isSetup && <span className="text-muted-foreground/50 font-normal">(mín. 8 caracteres)</span>}
               </Label>
-              <div className="relative mt-1">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  id="password"
-                  type={showPass ? "text" : "password"}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
+                <Input id="password" type={showPass ? "text" : "password"}
+                  value={password} onChange={e => setPassword(e.target.value)}
                   placeholder={isSetup ? "Crie uma senha segura" : "Sua senha"}
-                  className="pl-9 pr-9 h-10"
-                  required autoComplete={isSetup ? "new-password" : "current-password"}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
+                  className="pl-10 pr-10 h-11 bg-card border-border"
+                  required autoComplete={isSetup ? "new-password" : "current-password"} />
+                <button type="button" onClick={() => setShowPass(v => !v)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <p className="text-xs text-red-400">{error}</p>
+              <div className="flex items-start gap-2.5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-400 leading-relaxed">{error}</p>
               </div>
             )}
 
-            <Button type="submit" disabled={loading} className="w-full h-10 font-semibold">
-              {loading
-                ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Aguarde...</span>
-                : isSetup ? "Criar Administrador" : "Entrar"}
+            <Button type="submit" disabled={loading}
+              className="w-full h-11 font-semibold text-sm mt-2">
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Aguarde...
+                </span>
+              ) : isSetup ? "Criar Administrador" : "Entrar no Sistema"}
             </Button>
           </form>
 
-          {/* Dev mode button */}
+          {/* Dev bypass */}
           {import.meta.env.VITE_APP_ID === "local-dev" && (
-            <div className="pt-2 border-t border-border">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full text-xs text-muted-foreground"
-                onClick={() => { window.location.href = "/api/dev-login"; }}
-              >
-                Entrar em modo dev local
+            <div className="mt-6 pt-5 border-t border-border/50">
+              <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground/60 hover:text-muted-foreground"
+                onClick={() => { window.location.href = "/api/dev-login"; }}>
+                Entrar como dev local
               </Button>
             </div>
           )}
+
+          {/* Footer */}
+          <p className="text-center text-[11px] text-muted-foreground/40 mt-8">
+            Expag Financial System · Uso interno e exclusivo
+          </p>
         </div>
       </div>
     </div>
