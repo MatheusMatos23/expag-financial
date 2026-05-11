@@ -142,46 +142,46 @@ function AuthScreen() {
         <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full opacity-8"
           style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
 
-        <div className="relative z-10 flex flex-col h-full p-10 xl:p-12">
-          {/* Logo maior */}
-          <div className="mb-auto">
-            <ExpagLogo collapsed={false} className="scale-[1.4] origin-left" />
+        <div className="relative z-10 flex flex-col justify-between h-full p-10 xl:p-14">
+          {/* Logo — maior e com tagline */}
+          <div>
+            <ExpagLogo collapsed={false} className="scale-[1.6] origin-left mb-2" />
+            <p className="text-[10px] text-white/30 tracking-widest uppercase mt-5 ml-0.5">Financial System</p>
           </div>
 
-          {/* Main headline — centralizado verticalmente */}
-          <div className="my-10">
-            <p className="text-[11px] font-semibold tracking-widest text-primary/80 uppercase mb-3">
+          {/* Main headline — meio do painel */}
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.2em] text-primary/70 uppercase mb-4">
               Sistema Financeiro Institucional
             </p>
-            <h2 className="text-3xl xl:text-4xl font-bold text-white leading-tight tracking-tight">
+            <h2 className="text-3xl xl:text-[2.5rem] font-bold text-white leading-[1.15] tracking-tight">
               Gestão financeira<br />de nível institucional
             </h2>
-            <p className="text-sm text-white/40 mt-4 leading-relaxed max-w-sm">
-              Conciliação bancária, controladoria, DRE e carteira de crédito — tudo integrado em um único painel.
+            <p className="text-sm text-white/35 mt-5 leading-relaxed max-w-[300px]">
+              Conciliação bancária, controladoria, DRE e carteira de crédito integrados em um único painel operacional.
             </p>
           </div>
 
           {/* Feature cards */}
-          <div className="grid grid-cols-2 gap-3 mb-8">
+          <div className="grid grid-cols-2 gap-3">
             {FEATURES.map(({ icon: Icon, label, sub }) => (
-              <div key={label}
-                className="rounded-xl p-4 border"
-                style={{ background: "rgba(59,130,246,0.06)", borderColor: "rgba(59,130,246,0.12)" }}>
+              <div key={label} className="rounded-xl p-4 border"
+                style={{ background: "rgba(59,130,246,0.07)", borderColor: "rgba(59,130,246,0.15)" }}>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
-                  style={{ background: "rgba(59,130,246,0.15)" }}>
+                  style={{ background: "rgba(59,130,246,0.18)" }}>
                   <Icon className="w-4 h-4 text-primary" />
                 </div>
-                <p className="text-xs font-semibold text-white/90 leading-tight">{label}</p>
-                <p className="text-[10px] text-white/35 mt-1 leading-relaxed">{sub}</p>
+                <p className="text-xs font-semibold text-white/85 leading-tight">{label}</p>
+                <p className="text-[10px] text-white/35 mt-1.5 leading-relaxed">{sub}</p>
               </div>
             ))}
           </div>
 
-          {/* Bottom badge */}
-          <div className="flex items-center gap-2 pt-6 border-t"
-            style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] text-white/40">Sistema operacional · Todos os serviços ativos</span>
+          {/* Bottom status */}
+          <div className="flex items-center gap-2.5 pt-5 border-t"
+            style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-[10px] text-white/35 tracking-wide">Sistema operacional · Todos os serviços ativos</span>
           </div>
         </div>
       </div>
