@@ -91084,6 +91084,7 @@ var accountingRouter = router({
     realizedInflows: external_exports.string().optional(),
     projectedOutflows: external_exports.string().optional(),
     realizedOutflows: external_exports.string().optional(),
+    fundingNeeded: external_exports.string().optional(),
     projectionD7: external_exports.string().optional(),
     projectionD15: external_exports.string().optional(),
     projectionD30: external_exports.string().optional()

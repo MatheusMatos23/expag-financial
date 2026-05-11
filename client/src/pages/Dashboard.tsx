@@ -127,8 +127,6 @@ export default function Dashboard() {
   const { data: cashFlowData } = trpc.accounting.getCashFlow.useQuery({ days: 14 });
   const { data: sessions } = trpc.reconciliation.getSessions.useQuery();
 
-  const isDemo = !(summary?.latestBalance);
-
   // Chart data — real only (sem demo)
   const balanceData = (balanceHistory ?? []).length > 0
     ? [...(balanceHistory as any[])].reverse().map((b) => ({

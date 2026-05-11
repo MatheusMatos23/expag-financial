@@ -153,6 +153,7 @@ function CashFlowFormDialog({
               realizedOutflows: form.realizedOutflows || undefined,
               projectedInflows: form.projectedInflows || undefined,
               projectedOutflows: form.projectedOutflows || undefined,
+              fundingNeeded: form.fundingNeeded || undefined,
             })}
             disabled={!form.referenceDate || upsertMutation.isPending}
             className="w-full"

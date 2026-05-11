@@ -481,6 +481,7 @@ const accountingRouter = router({
       referenceDate: z.string(), openingBalance: z.string().optional(),
       projectedInflows: z.string().optional(), realizedInflows: z.string().optional(),
       projectedOutflows: z.string().optional(), realizedOutflows: z.string().optional(),
+      fundingNeeded: z.string().optional(),
       projectionD7: z.string().optional(), projectionD15: z.string().optional(), projectionD30: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
