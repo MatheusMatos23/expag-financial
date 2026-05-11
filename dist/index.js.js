@@ -91193,6 +91193,7 @@ function nanoid3(size = 21) {
 
 // server/_core/vite.ts
 import path2 from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
 import { createServer as createViteServer } from "vite";
 
 // vite.config.ts
@@ -91201,6 +91202,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs2 from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 // node_modules/.pnpm/vite-plugin-manus-runtime@0.0.57/node_modules/vite-plugin-manus-runtime/dist/index.js
@@ -91236,7 +91238,7 @@ ${loadContentSource()}`,
 }
 
 // vite.config.ts
-var PROJECT_ROOT = import.meta.dirname;
+var PROJECT_ROOT = typeof import.meta.dirname !== "undefined" ? import.meta.dirname : path.dirname(fileURLToPath(import.meta.url));
 var LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 var MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024;
 var TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6);
@@ -91348,16 +91350,16 @@ var vite_config_default = defineConfig({
   plugins,
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets")
+      "@": path.resolve(PROJECT_ROOT, "client", "src"),
+      "@shared": path.resolve(PROJECT_ROOT, "shared"),
+      "@assets": path.resolve(PROJECT_ROOT, "attached_assets")
     }
   },
-  envDir: path.resolve(import.meta.dirname),
-  root: path.resolve(import.meta.dirname, "client"),
-  publicDir: path.resolve(import.meta.dirname, "client", "public"),
+  envDir: path.resolve(PROJECT_ROOT),
+  root: path.resolve(PROJECT_ROOT, "client"),
+  publicDir: path.resolve(PROJECT_ROOT, "client", "public"),
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(PROJECT_ROOT, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 600,
     rollupOptions: {
@@ -91393,6 +91395,10 @@ var vite_config_default = defineConfig({
 });
 
 // server/_core/vite.ts
+function getModuleDir() {
+  if (typeof import.meta.dirname !== "undefined") return import.meta.dirname;
+  return path2.dirname(fileURLToPath2(import.meta.url));
+}
 async function setupVite(app, server) {
   const serverOptions = {
     middlewareMode: true,
@@ -91410,7 +91416,7 @@ async function setupVite(app, server) {
     const url3 = req.originalUrl;
     try {
       const clientTemplate = path2.resolve(
-        import.meta.dirname,
+        getModuleDir(),
         "../..",
         "client",
         "index.html"
@@ -91429,11 +91435,9 @@ async function setupVite(app, server) {
   });
 }
 function serveStatic(app) {
-  const distPath = process.env.NODE_ENV === "development" ? path2.resolve(import.meta.dirname, "../..", "dist", "public") : path2.resolve(import.meta.dirname, "public");
+  const distPath = process.env.NODE_ENV === "development" ? path2.resolve(getModuleDir(), "../..", "dist", "public") : path2.resolve(getModuleDir(), "public");
   if (!fs3.existsSync(distPath)) {
-    console.error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
-    );
+    console.error(`Could not find the build directory: ${distPath}`);
   }
   app.use(import_express.default.static(distPath));
   app.use("*", (_req, res) => {

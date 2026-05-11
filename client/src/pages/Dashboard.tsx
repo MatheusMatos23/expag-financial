@@ -70,10 +70,13 @@ function KPICard({ title, value, subtitle, delta, icon: Icon, accent, onClick }:
   );
 
   return (
-    <div onClick={onClick} className={cn(
-      "bg-card border border-border rounded-xl p-5 flex flex-col gap-3 transition-all duration-200",
-      onClick && "cursor-pointer hover:border-border/60 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5"
-    )}>
+    <div
+      onClick={onClick}
+      className={cn(
+        "kpi-card bg-card border border-border rounded-xl p-5 flex flex-col gap-3",
+        onClick && "cursor-pointer"
+      )}
+    >
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{title}</span>
         <div className={cn("w-8 h-8 rounded-lg border flex items-center justify-center", bgBorderCls.join(" "))}>
@@ -81,8 +84,8 @@ function KPICard({ title, value, subtitle, delta, icon: Icon, accent, onClick }:
         </div>
       </div>
       <div>
-        <p className={cn("text-2xl font-bold font-mono", textCls.join(" "))}>{value}</p>
-        <div className="flex items-center gap-2 mt-1">
+        <p className={cn("text-2xl font-bold font-mono tracking-tight", textCls.join(" "))}>{value}</p>
+        <div className="flex items-center gap-2 mt-1.5">
           {subtitle && <p className="text-[11px] text-muted-foreground">{subtitle}</p>}
           {delta !== undefined && (
             <span className={cn(
@@ -199,11 +202,6 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard Executivo</h1>
-            {isDemo && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider">
-                <Zap className="w-2.5 h-2.5" /> Demo
-              </span>
-            )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {new Date().toLocaleDateString("pt-BR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}

@@ -115,16 +115,77 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   .font-mono { font-family: 'JetBrains Mono', monospace; }
-  .value-positive { @apply text-green-400 font-semibold; }
+  .value-positive { @apply text-emerald-400 font-semibold; }
   .value-negative { @apply text-red-400 font-semibold; }
-  .value-neutral { @apply text-blue-400 font-semibold; }
-  .badge-success { @apply bg-green-500/15 text-green-400 border border-green-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-warning { @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-danger { @apply bg-red-500/15 text-red-400 border border-red-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-info { @apply bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-neutral { @apply bg-gray-500/15 text-gray-400 border border-gray-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .value-neutral  { @apply text-blue-400 font-semibold; }
+  .badge-success  { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-warning  { @apply bg-amber-500/15  text-amber-400  border border-amber-500/30  text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-danger   { @apply bg-red-500/15    text-red-400    border border-red-500/30    text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-info     { @apply bg-blue-500/15   text-blue-400   border border-blue-500/30   text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+  .badge-neutral  { @apply bg-gray-500/15   text-gray-400   border border-gray-500/30   text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
+
+  /* Scrollbar premium */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1a2d50; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2a4070; }
+
+  /* Selection */
+  ::selection { background: rgba(59, 130, 246, 0.25); }
+
+  /* Premium card glow on hover */
+  .card-hover {
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  }
+  .card-hover:hover {
+    border-color: rgba(59, 130, 246, 0.2) !important;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.08), 0 8px 32px rgba(0, 0, 0, 0.3);
+    transform: translateY(-1px);
+  }
+
+  /* Page header consistency */
+  .page-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #e8edf5;
+    line-height: 1.2;
+  }
+  .page-subtitle {
+    font-size: 0.8125rem;
+    color: #5c7099;
+    margin-top: 0.25rem;
+  }
+
+  /* KPI card accent lines */
+  .kpi-card {
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .kpi-card:hover::before { opacity: 1; }
+
+  /* Smooth table rows */
+  tr { transition: background-color 0.1s; }
+
+  /* Input focus ring */
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+  }
+
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [type="button"]:not(:disabled),
