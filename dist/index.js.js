@@ -91209,7 +91209,12 @@ var controllershipRouter = router({
     status: external_exports.string().optional(),
     outstandingBalance: external_exports.string().optional(),
     paidInstallments: external_exports.number().optional(),
-    notes: external_exports.string().optional()
+    notes: external_exports.string().optional(),
+    principal: external_exports.string().optional(),
+    interestRate: external_exports.string().optional(),
+    totalInstallments: external_exports.number().optional(),
+    expectedEndDate: external_exports.string().optional(),
+    fundingSource: external_exports.string().optional()
   })).mutation(async ({ input }) => {
     await updateCreditPortfolio(input.id, input);
     return { success: true };

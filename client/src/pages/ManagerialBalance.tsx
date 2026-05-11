@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useState } from "react";
-import { Wallet, TrendingUp, TrendingDown, Lock, Plus } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, Lock, Plus, Trash2, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,12 +11,33 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 
 export default function ManagerialBalance() {
   const [open, setOpen] = useState(false);
+  const [editRow, setEditRow] = useState<any>(null);
   const [form, setForm] = useState({ referenceDate: new Date().toISOString().split("T")[0], bankBalance: "", clientBalance: "", committedBalance: "", divergenceBalance: "0", thirdPartyResources: "", futureObligations: "", fundingNeeded: "", openDivergences: "0" });
+
+  const handleEdit = (row: any) => {
+    setForm({
+      referenceDate: typeof row.referenceDate === "string" ? row.referenceDate.slice(0,10) : new Date(row.referenceDate).toISOString().split("T")[0],
+      bankBalance: String(row.bankBalance ?? ""),
+      clientBalance: String(row.clientBalance ?? ""),
+      committedBalance: String(row.committedBalance ?? ""),
+      divergenceBalance: String(row.divergenceBalance ?? "0"),
+      thirdPartyResources: String(row.thirdPartyResources ?? ""),
+      futureObligations: String(row.futureObligations ?? ""),
+      fundingNeeded: String(row.fundingNeeded ?? ""),
+      openDivergences: String(row.openDivergences ?? "0"),
+    });
+    setEditRow(row);
+    setOpen(true);
+  };
 
   const { data: latest, refetch: refetchLatest } = trpc.reconciliation.getManagerialBalance.useQuery();
   const { data: history, refetch: refetchHistory } = trpc.reconciliation.getManagerialBalanceHistory.useQuery({ days: 30 });
   const upsertMutation = trpc.reconciliation.upsertManagerialBalance.useMutation({
-    onSuccess: () => { toast.success("Saldo gerencial atualizado!"); setOpen(false); refetchLatest(); refetchHistory(); },
+    onSuccess: () => { toast.success("Saldo gerencial atualizado!"); setOpen(false); refetchLatest(); refetchHistory(); setEditRow(null); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteMutation = trpc.accounting.deleteManagerialBalance.useMutation({
+    onSuccess: () => { toast.success("Registro removido."); refetchLatest(); refetchHistory(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -121,6 +142,36 @@ export default function ManagerialBalance() {
           </div>
         )}
       </div>
+
+      {/* History table */}
+      {(history ?? []).length > 0 && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-border">
+            <h3 className="text-sm font-semibold text-foreground">Histórico de Registros</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {(history as any[]).map((row) => (
+              <div key={row.id} className="flex items-center px-5 py-3 gap-4 hover:bg-accent/30 transition-colors">
+                <span className="text-xs text-muted-foreground w-20 shrink-0">{formatDate(row.referenceDate)}</span>
+                <span className="text-xs font-mono text-blue-400">{formatCurrency(row.bankBalance)}</span>
+                <span className="text-xs text-muted-foreground">banco</span>
+                <span className="text-xs font-mono text-green-400 ml-4">{formatCurrency(row.realCash)}</span>
+                <span className="text-xs text-muted-foreground">caixa real</span>
+                <div className="flex items-center gap-1 ml-auto">
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    onClick={() => handleEdit(row)}>
+                    <Edit2 className="w-3 h-3" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                    onClick={() => { if(confirm("Remover este registro?")) deleteMutation.mutate({ id: row.id }); }}>
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

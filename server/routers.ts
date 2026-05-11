@@ -422,6 +422,9 @@ const controllershipRouter = router({
     .input(z.object({
       id: z.number(), status: z.string().optional(), outstandingBalance: z.string().optional(),
       paidInstallments: z.number().optional(), notes: z.string().optional(),
+      principal: z.string().optional(), interestRate: z.string().optional(),
+      totalInstallments: z.number().optional(), expectedEndDate: z.string().optional(),
+      fundingSource: z.string().optional(),
     }))
     .mutation(async ({ input }) => { await db.updateCreditPortfolio(input.id, input); return { success: true }; }),
 

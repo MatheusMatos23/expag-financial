@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatCurrencyCompact, formatDate, getStatusLabel, safeNumber } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, AlertTriangle, CheckCircle, Clock, DollarSign } from "lucide-react";
+import { Plus, AlertTriangle, CheckCircle, Clock, DollarSign, Trash2, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,19 +63,45 @@ export default function Payables() {
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [editRow, setEditRow] = useState<any>(null);
   const set = (k: string) => (v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleEdit = (row: any) => {
+    setForm({
+      dueDate: typeof row.dueDate === "string" ? row.dueDate.slice(0, 10) : new Date(row.dueDate).toISOString().split("T")[0],
+      description: row.description ?? "",
+      category: row.category ?? "operacional",
+      amount: String(row.amount ?? ""),
+      supplier: row.supplier ?? "",
+      recurrent: !!row.recurrent,
+      recurrenceDay: row.recurrenceDay ? String(row.recurrenceDay) : "",
+      notes: row.notes ?? "",
+    });
+    setEditRow(row);
+    setOpen(true);
+  };
 
   const { data: payables, refetch, isLoading } = trpc.controllership.getPayables.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
   });
 
   const createMutation = trpc.controllership.createPayable.useMutation({
-    onSuccess: () => { toast.success("Conta a pagar registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
+    onSuccess: () => { toast.success("Conta registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updateMutation = trpc.controllership.updatePayable.useMutation({
+    onSuccess: () => { toast.success("Conta atualizada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
     onError: (e) => toast.error(e.message),
   });
 
   const markPaidMutation = trpc.controllership.markPayablePaid.useMutation({
     onSuccess: () => { toast.success("✓ Marcada como paga!"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteMutation = trpc.controllership.deletePayable.useMutation({
+    onSuccess: () => { toast.success("Conta removida."); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -125,18 +151,27 @@ export default function Payables() {
       cell: (r) => <StatusBadge status={r.status} dueDate={r.dueDate} />,
     },
     {
-      key: "id", header: "Ação", align: "center", width: "90px", searchable: false,
-      cell: (r) => r.status !== "pago" ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 text-[10px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-          onClick={(e) => { e.stopPropagation(); markPaidMutation.mutate({ id: r.id }); }}
-          disabled={markPaidMutation.isPending}
-        >
-          Pagar
-        </Button>
-      ) : <span className="text-[10px] text-muted-foreground/40">—</span>,
+      key: "id", header: "Ações", align: "center", width: "120px", searchable: false,
+      cell: (r) => (
+        <div className="flex items-center justify-center gap-1">
+          {r.status !== "pago" && (
+            <Button size="sm" variant="ghost"
+              className="h-6 text-[10px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+              onClick={(e) => { e.stopPropagation(); markPaidMutation.mutate({ id: r.id }); }}
+              disabled={markPaidMutation.isPending}>
+              Pagar
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+            onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
+            <Edit2 className="w-3 h-3" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+            onClick={(e) => { e.stopPropagation(); if(confirm("Remover esta conta?")) deleteMutation.mutate({ id: r.id }); }}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      ),
     },
   ];
 
@@ -146,7 +181,7 @@ export default function Payables() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Contas a Pagar</h1>
-          <p className="text-sm text-muted-foreground mt-1">Camada 2 · Gestão de obrigações financeiras</p>
+          <p className="text-sm text-muted-foreground mt-1">Categoria 2 · Gestão de obrigações financeiras</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -158,12 +193,12 @@ export default function Payables() {
               <SelectItem value="pago" className="text-xs">Pago</SelectItem>
             </SelectContent>
           </Select>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
             <DialogTrigger asChild>
               <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Conta</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Registrar Conta a Pagar</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{editRow ? "Editar Conta a Pagar" : "Registrar Conta a Pagar"}</DialogTitle></DialogHeader>
               <div className="space-y-3 py-2">
                 <div>
                   <Label className="text-xs text-muted-foreground">Vencimento *</Label>
@@ -212,17 +247,25 @@ export default function Payables() {
                     className="mt-1 text-xs min-h-14 resize-none" rows={2} />
                 </div>
                 <Button
-                  onClick={() => createMutation.mutate({
-                    dueDate: form.dueDate, description: form.description,
-                    category: form.category, amount: form.amount,
-                    supplier: form.supplier || undefined, recurrent: form.recurrent,
-                    recurrenceDay: form.recurrenceDay ? parseInt(form.recurrenceDay) : undefined,
-                    notes: form.notes || undefined,
-                  })}
-                  disabled={!form.dueDate || !form.description || !form.amount || createMutation.isPending}
+                  onClick={() => editRow
+                    ? updateMutation.mutate({
+                        id: editRow.id, dueDate: form.dueDate, description: form.description,
+                        category: form.category, amount: form.amount,
+                        supplier: form.supplier || undefined,
+                        notes: form.notes || undefined,
+                      })
+                    : createMutation.mutate({
+                        dueDate: form.dueDate, description: form.description,
+                        category: form.category, amount: form.amount,
+                        supplier: form.supplier || undefined, recurrent: form.recurrent,
+                        recurrenceDay: form.recurrenceDay ? parseInt(form.recurrenceDay) : undefined,
+                        notes: form.notes || undefined,
+                      })
+                  }
+                  disabled={!form.dueDate || !form.description || !form.amount || createMutation.isPending || updateMutation.isPending}
                   className="w-full"
                 >
-                  {createMutation.isPending ? "Salvando..." : "Salvar Conta"}
+                  {(createMutation.isPending || updateMutation.isPending) ? "Salvando..." : editRow ? "Salvar Alterações" : "Salvar Conta"}
                 </Button>
               </div>
             </DialogContent>

@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatCurrencyCompact, formatDate, getStatusLabel, safeNumber } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, CreditCard, TrendingUp, AlertTriangle, CheckCircle, Users } from "lucide-react";
+import { Plus, CreditCard, TrendingUp, AlertTriangle, CheckCircle, Users, Trash2, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,7 +50,24 @@ export default function CreditPortfolio() {
   const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [editRow, setEditRow] = useState<any>(null);
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleEdit = (row: any) => {
+    setForm({
+      clientId: row.clientId ?? "",
+      clientName: row.clientName ?? "",
+      principal: String(row.principal ?? ""),
+      interestRate: String(Math.round(safeNumber(row.interestRate) * 10000) / 100),
+      totalInstallments: String(row.totalInstallments ?? "12"),
+      startDate: typeof row.startDate === "string" ? row.startDate.slice(0,10) : new Date(row.startDate).toISOString().split("T")[0],
+      expectedEndDate: typeof row.expectedEndDate === "string" ? row.expectedEndDate.slice(0,10) : new Date(row.expectedEndDate).toISOString().split("T")[0],
+      fundingSource: row.fundingSource ?? "capital_proprio",
+      notes: row.notes ?? "",
+    });
+    setEditRow(row);
+    setOpen(true);
+  };
 
   const { data: loans, refetch, isLoading } = trpc.controllership.getLoans.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -58,7 +75,17 @@ export default function CreditPortfolio() {
   const { data: summary } = trpc.controllership.getLoanSummary.useQuery();
 
   const createMutation = trpc.controllership.createLoan.useMutation({
-    onSuccess: () => { toast.success("Operação registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
+    onSuccess: () => { toast.success("Operação registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updateLoanMutation = trpc.controllership.updateLoan.useMutation({
+    onSuccess: () => { toast.success("Operação atualizada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteLoanMutation = trpc.controllership.deleteLoan.useMutation({
+    onSuccess: () => { toast.success("Operação removida."); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -132,6 +159,21 @@ export default function CreditPortfolio() {
         </span>
       ),
     },
+    {
+      key: "id", header: "Ações", align: "center", width: "80px", searchable: false,
+      cell: (r) => (
+        <div className="flex items-center justify-center gap-1">
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+            onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
+            <Edit2 className="w-3 h-3" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+            onClick={(e) => { e.stopPropagation(); if (confirm("Remover esta operação?")) deleteLoanMutation.mutate({ id: r.id }); }}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -140,7 +182,7 @@ export default function CreditPortfolio() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Carteira de Crédito</h1>
-          <p className="text-sm text-muted-foreground mt-1">Camada 2 · Controle de empréstimos e operações de crédito</p>
+          <p className="text-sm text-muted-foreground mt-1">Categoria 2 · Controle de empréstimos e operações de crédito</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -153,12 +195,12 @@ export default function CreditPortfolio() {
               <SelectItem value="renegociado" className="text-xs">Renegociado</SelectItem>
             </SelectContent>
           </Select>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
             <DialogTrigger asChild>
               <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Operação</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Registrar Operação de Crédito</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{editRow ? "Editar Operação de Crédito" : "Registrar Operação de Crédito"}</DialogTitle></DialogHeader>
               <div className="space-y-3 py-2">
                 <div>
                   <Label className="text-xs text-muted-foreground">Cliente *</Label>
@@ -216,21 +258,32 @@ export default function CreditPortfolio() {
                     className="mt-1 h-8 text-xs" placeholder="Detalhes da operação..." />
                 </div>
                 <Button
-                  onClick={() => createMutation.mutate({
-                    clientId: form.clientId || form.clientName,
-                    clientName: form.clientName,
-                    principal: form.principal,
-                    interestRate: (parseFloat(form.interestRate) / 100).toFixed(4),
-                    totalInstallments: parseInt(form.totalInstallments),
-                    startDate: form.startDate,
-                    expectedEndDate: form.expectedEndDate || form.startDate,
-                    fundingSource: form.fundingSource,
-                    notes: form.notes || undefined,
-                  })}
-                  disabled={!form.clientName || !form.principal || !form.interestRate || createMutation.isPending}
+                  onClick={() => editRow
+                    ? updateLoanMutation.mutate({
+                        id: editRow.id,
+                        principal: form.principal,
+                        interestRate: (parseFloat(form.interestRate) / 100).toFixed(4),
+                        totalInstallments: parseInt(form.totalInstallments),
+                        expectedEndDate: form.expectedEndDate || form.startDate,
+                        fundingSource: form.fundingSource,
+                        notes: form.notes || undefined,
+                      })
+                    : createMutation.mutate({
+                        clientId: form.clientId || form.clientName,
+                        clientName: form.clientName,
+                        principal: form.principal,
+                        interestRate: (parseFloat(form.interestRate) / 100).toFixed(4),
+                        totalInstallments: parseInt(form.totalInstallments),
+                        startDate: form.startDate,
+                        expectedEndDate: form.expectedEndDate || form.startDate,
+                        fundingSource: form.fundingSource,
+                        notes: form.notes || undefined,
+                      })
+                  }
+                  disabled={!form.clientName || !form.principal || !form.interestRate || createMutation.isPending || updateLoanMutation.isPending}
                   className="w-full"
                 >
-                  {createMutation.isPending ? "Registrando..." : "Registrar Operação"}
+                  {(createMutation.isPending || updateLoanMutation.isPending) ? "Salvando..." : editRow ? "Salvar Alterações" : "Registrar Operação"}
                 </Button>
               </div>
             </DialogContent>
