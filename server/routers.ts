@@ -576,7 +576,7 @@ const accountingRouter = router({
     .query(async ({ input }) => db.getCostCenterSummary(input.dateFrom, input.dateTo)),
 
   createCostCenter: protectedProcedure
-    .input(z.object({ name: z.string(), type: z.string(), description: z.string().optional() }))
+    .input(z.object({ name: z.string(), type: z.string(), description: z.string().optional(), budget: z.string().optional() }))
     .mutation(async ({ input }) => {
       const id = await db.createCostCenter(input);
       return { id };

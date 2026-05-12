@@ -589,11 +589,15 @@ export async function getCostCenters() {
   return db.select().from(costCenters).where(eq(costCenters.active, true));
 }
 
-export async function createCostCenter(data: { name: string; type: string; description?: string }) {
+export async function createCostCenter(data: { name: string; type: string; description?: string; budget?: string }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(costCenters).values({ ...data, type: data.type as any });
-  return result[0].insertId;
+  const budget = data.budget && data.budget !== "" ? data.budget : null;
+  const result = await db.execute(sql`
+    INSERT INTO cost_centers (name, type, description, budget)
+    VALUES (${data.name}, ${data.type}, ${data.description || null}, ${budget})
+  `);
+  return (result as any)[0]?.insertId ?? 0;
 }
 
 export async function deleteCostCenter(id: number) {

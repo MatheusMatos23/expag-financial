@@ -326,8 +326,9 @@ export const creditInstallments = mysqlTable("credit_installments", {
 export const costCenters = mysqlTable("cost_centers", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 200 }).notNull(),
-  type: mysqlEnum("type", ["receita", "despesa_fixa", "despesa_variavel", "imposto", "credito"]).notNull(),
+  type: mysqlEnum("type", ["receita", "despesa_fixa", "despesa_variavel", "imposto", "investimento", "credito"]).notNull(),
   description: text("description"),
+  budget: decimal("budget", { precision: 18, scale: 2 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
