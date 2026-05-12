@@ -231,7 +231,7 @@ export default function Revenues() {
                   <Select value={form.costCenterId} onValueChange={set("costCenterId")}>
                     <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="Selecionar (opcional)" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="" className="text-xs">Nenhum</SelectItem>
+                      <SelectItem value="none" className="text-xs">Nenhum</SelectItem>
                       {(costCenters ?? []).map((cc: any) => (
                         <SelectItem key={cc.id} value={String(cc.id)} className="text-xs">{cc.name}</SelectItem>
                       ))}
@@ -248,7 +248,7 @@ export default function Revenues() {
                     referenceDate: form.referenceDate, type: form.type, amount: form.amount,
                     description: form.description || undefined,
                     clientName: form.clientName || undefined, status: form.status,
-                    costCenterId: form.costCenterId ? parseInt(form.costCenterId) : undefined,
+                    costCenterId: form.costCenterId && form.costCenterId !== "none" ? parseInt(form.costCenterId) : undefined,
                   })}
                   disabled={!form.amount || !form.type || createMutation.isPending}
                   className="w-full"

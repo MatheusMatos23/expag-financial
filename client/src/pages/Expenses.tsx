@@ -216,7 +216,7 @@ export default function Expenses() {
                 <Select value={form.costCenterId} onValueChange={set("costCenterId")}>
                   <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="Selecionar (opcional)" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="" className="text-xs">Nenhum</SelectItem>
+                    <SelectItem value="none" className="text-xs">Nenhum</SelectItem>
                     {(costCenters ?? []).map((cc: any) => (
                       <SelectItem key={cc.id} value={String(cc.id)} className="text-xs">{cc.name}</SelectItem>
                     ))}
@@ -235,7 +235,7 @@ export default function Expenses() {
                   description: form.description || undefined,
                   amount: form.amount, supplier: form.supplier || undefined,
                   status: form.status,
-                  costCenterId: form.costCenterId ? parseInt(form.costCenterId) : undefined,
+                  costCenterId: form.costCenterId && form.costCenterId !== "none" ? parseInt(form.costCenterId) : undefined,
                 })}
                 disabled={!form.amount || !form.category || createMutation.isPending}
                 className="w-full"
