@@ -334,7 +334,7 @@ export async function createExpense(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const status = data.status ?? 'realizado';
+  const expStatus = (data.status === 'previsto' || data.status === 'cancelado') ? data.status : 'realizado';
   const result = await db.execute(sql`
     INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName)
     VALUES (
@@ -344,7 +344,7 @@ export async function createExpense(data: {
       ${data.description || null},
       ${data.amount},
       ${data.supplier || null},
-      ${status},
+      ${expStatus},
       ${data.costCenterId || null},
       ${data.createdByName || null}
     )
