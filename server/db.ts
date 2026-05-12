@@ -288,7 +288,7 @@ export async function createRevenue(data: {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(revenues).values({
-    referenceDate: new Date(data.referenceDate) as unknown as Date,
+    referenceDate: data.referenceDate as unknown as Date,
     type: data.type as any,
     description: data.description ?? null,
     amount: data.amount,
@@ -341,7 +341,7 @@ export async function createExpense(data: {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(expenses).values({
-    referenceDate: new Date(data.referenceDate) as unknown as Date,
+    referenceDate: data.referenceDate as unknown as Date,
     category: data.category as any,
     subcategory: data.subcategory ?? null,
     description: data.description ?? null,
@@ -398,7 +398,7 @@ export async function createPayable(data: {
     supplier: data.supplier ?? null,
     category: data.category as any,
     amount: data.amount,
-    dueDate: new Date(data.dueDate) as unknown as Date,
+    dueDate: data.dueDate as unknown as Date,
     recurrent: data.recurrent ?? false,
     recurrenceDay: data.recurrenceDay ?? null,
     notes: data.notes ?? null,
