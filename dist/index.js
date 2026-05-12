@@ -71770,17 +71770,7 @@ async function createRevenue(data) {
   const status = data.status ?? "realizado";
   const result = await db.execute(sql`
     INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName)
-    VALUES (
-      ${data.referenceDate},
-      ${data.type},
-      ${data.description || null},
-      ${data.amount},
-      ${data.clientId || null},
-      ${data.clientName || null},
-      ${status},
-      ${data.costCenterId || null},
-      ${data.createdByName || null}
-    )
+    VALUES (${data.referenceDate}, ${data.type}, ${data.description || null}, ${data.amount}, ${data.clientId || null}, ${data.clientName || null}, ${status}, ${data.costCenterId ?? null}, ${data.createdByName || null})
   `);
   return result[0]?.insertId ?? 0;
 }
