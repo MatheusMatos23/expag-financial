@@ -327,8 +327,8 @@ const controllershipRouter = router({
       amount: z.string(), clientId: z.string().optional(), clientName: z.string().optional(),
       status: z.string().optional(), costCenterId: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const id = await db.createRevenue(input);
+    .mutation(async ({ input, ctx }) => {
+      const id = await db.createRevenue({ ...input, createdByName: ctx.user.name ?? ctx.user.email ?? undefined });
       return { id };
     }),
 
@@ -357,8 +357,8 @@ const controllershipRouter = router({
       description: z.string().optional(), amount: z.string(), supplier: z.string().optional(),
       status: z.string().optional(), costCenterId: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const id = await db.createExpense(input);
+    .mutation(async ({ input, ctx }) => {
+      const id = await db.createExpense({ ...input, createdByName: ctx.user.name ?? ctx.user.email ?? undefined });
       return { id };
     }),
 
@@ -386,8 +386,8 @@ const controllershipRouter = router({
       amount: z.string(), dueDate: z.string(), recurrent: z.boolean().optional(),
       recurrenceDay: z.number().optional(), notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const id = await db.createPayable(input);
+    .mutation(async ({ input, ctx }) => {
+      const id = await db.createPayable({ ...input, createdByName: ctx.user.name ?? ctx.user.email ?? undefined });
       return { id };
     }),
 
@@ -603,30 +603,6 @@ const dashboardRouter = router({
   getAlerts: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => db.getAlerts(input.status)),
-
-  getUsers: protectedProcedure.query(async () => db.getUsers()),
-
-  createUser: protectedProcedure
-    .input(z.object({ name: z.string(), email: z.string().email(), password: z.string().min(8), role: z.enum(["user","admin"]).default("user") }))
-    .mutation(async ({ input }) => {
-      const { hashPassword, emailToOpenId } = await import("./_core/localAuth");
-      const existing = await db.getUserByEmail(input.email.toLowerCase());
-      if (existing) throw new Error("Usuário já existe com este email.");
-      const openId       = emailToOpenId(input.email);
-      const passwordHash = await hashPassword(input.password);
-      await db.upsertUser({ openId, email: input.email.toLowerCase(), name: input.name, loginMethod: "local", role: input.role, lastSignedIn: new Date() });
-      const user = await db.getUserByOpenId(openId);
-      if (user) await db.updateUserPassword(user.id, passwordHash);
-      return { success: true };
-    }),
-
-  deleteUser: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      if (ctx.user.id === input.id) throw new Error("Não é possível excluir o próprio usuário.");
-      await db.deleteUser(input.id);
-      return { success: true };
-    }),
 
   acknowledgeAlert: protectedProcedure
     .input(z.object({ id: z.number() }))
