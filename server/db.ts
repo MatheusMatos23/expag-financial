@@ -230,40 +230,28 @@ export async function upsertManagerialBalance(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const bankBal = parseFloat(data.bankBalance);
-  const clientBal = parseFloat(data.clientBalance);
-  const committedBal = parseFloat(data.committedBalance);
-  const divBal = parseFloat(data.divergenceBalance);
-  // realCash = saldo que efetivamente pertence à empresa após obrigações e divergências
-  const realCash = bankBal - clientBal - committedBal + divBal;
-  // ownCash = capital próprio antes do comprometimento
-  const ownCash = bankBal - clientBal;
-  // freeCash = capital próprio disponível após compromissos (pode ser negativo — isso é crítico)
-  const freeCash = ownCash - committedBal;
-  await db.insert(managerialBalances).values({
-    referenceDate: data.referenceDate as unknown as Date,
-    bankBalance: data.bankBalance,
-    clientBalance: data.clientBalance,
-    committedBalance: data.committedBalance,
-    divergenceBalance: data.divergenceBalance,
-    realCash: realCash.toFixed(2),
-    ownCash: ownCash.toFixed(2),
-    committedCash: committedBal.toFixed(2),
-    freeCash: freeCash.toFixed(2),
-    thirdPartyResources: data.thirdPartyResources,
-    futureObligations: data.futureObligations,
-    fundingNeeded: data.fundingNeeded,
-    openDivergences: data.openDivergences,
-  }).onDuplicateKeyUpdate({
-    set: {
-      bankBalance: data.bankBalance, clientBalance: data.clientBalance,
-      committedBalance: data.committedBalance, divergenceBalance: data.divergenceBalance,
-      realCash: realCash.toFixed(2), ownCash: ownCash.toFixed(2),
-      committedCash: committedBal.toFixed(2), freeCash: freeCash.toFixed(2),
-      thirdPartyResources: data.thirdPartyResources, futureObligations: data.futureObligations,
-      fundingNeeded: data.fundingNeeded, openDivergences: data.openDivergences,
-    }
-  });
+  const bankBal = parseFloat(data.bankBalance || '0');
+  const clientBal = parseFloat(data.clientBalance || '0');
+  const committedBal = parseFloat(data.committedBalance || '0');
+  const divBal = parseFloat(data.divergenceBalance || '0');
+  const realCash = (bankBal - clientBal - committedBal + divBal).toFixed(2);
+  const ownCash = (bankBal - clientBal).toFixed(2);
+  const freeCash = (bankBal - clientBal - committedBal).toFixed(2);
+  const thirdParty = data.thirdPartyResources || null;
+  const futureObl = data.futureObligations || null;
+  const fundNeeded = data.fundingNeeded || null;
+  const openDiv = data.openDivergences ?? 0;
+  await db.execute(sql`
+    INSERT INTO managerial_balances (referenceDate, bankBalance, clientBalance, committedBalance, divergenceBalance, realCash, ownCash, committedCash, freeCash, thirdPartyResources, futureObligations, fundingNeeded, openDivergences)
+    VALUES (${data.referenceDate}, ${data.bankBalance}, ${data.clientBalance}, ${data.committedBalance}, ${data.divergenceBalance}, ${realCash}, ${ownCash}, ${committedBal.toFixed(2)}, ${freeCash}, ${thirdParty}, ${futureObl}, ${fundNeeded}, ${openDiv})
+    ON DUPLICATE KEY UPDATE
+      bankBalance = VALUES(bankBalance), clientBalance = VALUES(clientBalance),
+      committedBalance = VALUES(committedBalance), divergenceBalance = VALUES(divergenceBalance),
+      realCash = VALUES(realCash), ownCash = VALUES(ownCash),
+      committedCash = VALUES(committedCash), freeCash = VALUES(freeCash),
+      thirdPartyResources = VALUES(thirdPartyResources), futureObligations = VALUES(futureObligations),
+      fundingNeeded = VALUES(fundingNeeded), openDivergences = VALUES(openDivergences)
+  `);
 }
 
 export async function getManagerialBalances(days = 30) {
@@ -433,7 +421,7 @@ export async function updatePayableStatus(id: number, status: string, paidDate?:
 export async function deletePayable(id: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(payables).where(eq(payables.id, id));
+  await db.execute(sql`DELETE FROM payables WHERE id = ${id}`);
 }
 
 // ─── CARTEIRA DE CRÉDITO ──────────────────────────────────────────────────────
@@ -444,15 +432,12 @@ export async function createCreditEntry(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(creditPortfolio).values({
-    ...data,
-    startDate: data.startDate as unknown as Date,
-    expectedEndDate: data.expectedEndDate as unknown as Date,
-    fundingSource: (data.fundingSource ?? 'capital_proprio') as any,
-    outstandingBalance: data.principal,
-    status: 'ativo',
-  });
-  return result[0].insertId;
+  const fundingSource = data.fundingSource ?? 'capital_proprio';
+  const result = await db.execute(sql`
+    INSERT INTO credit_portfolio (clientId, clientName, principal, interestRate, totalInstallments, startDate, expectedEndDate, fundingSource, outstandingBalance, status, notes)
+    VALUES (${data.clientId}, ${data.clientName}, ${data.principal}, ${data.interestRate}, ${data.totalInstallments}, ${data.startDate}, ${data.expectedEndDate}, ${fundingSource}, ${data.principal}, 'ativo', ${data.notes || null})
+  `);
+  return (result as any)[0]?.insertId ?? 0;
 }
 
 export async function getCreditPortfolio(filters?: { status?: string }) {
@@ -509,28 +494,16 @@ export async function upsertDRE(data: {
   const net = gross - finCosts;
   const opResult = net - opCosts - adminExp - commExp - taxesVal;
   const margin = gross > 0 ? (opResult / gross) : 0;
-  await db.insert(dre).values({
-    referenceMonth: data.referenceMonth,
-    grossRevenue: gross.toFixed(2),
-    netRevenue: net.toFixed(2),
-    financialCosts: finCosts.toFixed(2),
-    operationalCosts: opCosts.toFixed(2),
-    adminExpenses: adminExp.toFixed(2),
-    commercialExpenses: commExp.toFixed(2),
-    taxes: taxesVal.toFixed(2),
-    operationalResult: opResult.toFixed(2),
-    financialResult: '0',
-    netProfit: opResult.toFixed(2),
-    margin: margin.toFixed(4),
-  }).onDuplicateKeyUpdate({
-    set: {
-      grossRevenue: gross.toFixed(2), netRevenue: net.toFixed(2),
-      financialCosts: finCosts.toFixed(2), operationalCosts: opCosts.toFixed(2),
-      adminExpenses: adminExp.toFixed(2), commercialExpenses: commExp.toFixed(2),
-      taxes: taxesVal.toFixed(2), operationalResult: opResult.toFixed(2),
-      netProfit: opResult.toFixed(2), margin: margin.toFixed(4),
-    }
-  });
+  await db.execute(sql`
+    INSERT INTO dre (referenceMonth, grossRevenue, netRevenue, financialCosts, operationalCosts, adminExpenses, commercialExpenses, taxes, operationalResult, financialResult, netProfit, margin)
+    VALUES (${data.referenceMonth}, ${gross.toFixed(2)}, ${net.toFixed(2)}, ${finCosts.toFixed(2)}, ${opCosts.toFixed(2)}, ${adminExp.toFixed(2)}, ${commExp.toFixed(2)}, ${taxesVal.toFixed(2)}, ${opResult.toFixed(2)}, '0', ${opResult.toFixed(2)}, ${margin.toFixed(4)})
+    ON DUPLICATE KEY UPDATE
+      grossRevenue = VALUES(grossRevenue), netRevenue = VALUES(netRevenue),
+      financialCosts = VALUES(financialCosts), operationalCosts = VALUES(operationalCosts),
+      adminExpenses = VALUES(adminExpenses), commercialExpenses = VALUES(commercialExpenses),
+      taxes = VALUES(taxes), operationalResult = VALUES(operationalResult),
+      netProfit = VALUES(netProfit), margin = VALUES(margin)
+  `);
 }
 
 // ─── FLUXO DE CAIXA ───────────────────────────────────────────────────────────
@@ -551,29 +524,22 @@ export async function upsertCashFlow(data: {
   const realIn = parseFloat(data.realizedInflows ?? '0');
   const realOut = parseFloat(data.realizedOutflows ?? '0');
   const closing = opening + realIn - realOut;
-  await db.insert(cashFlow).values({
-    referenceDate: data.referenceDate as unknown as Date,
-    openingBalance: opening.toFixed(2),
-    projectedInflows: data.projectedInflows,
-    realizedInflows: realIn.toFixed(2),
-    projectedOutflows: data.projectedOutflows,
-    realizedOutflows: realOut.toFixed(2),
-    closingBalance: closing.toFixed(2),
-    freeCash: closing.toFixed(2),
-    committedCash: '0',
-    fundingNeeded: closing < 0 ? Math.abs(closing).toFixed(2) : '0',
-    projectionD7: data.projectionD7,
-    projectionD15: data.projectionD15,
-    projectionD30: data.projectionD30,
-  }).onDuplicateKeyUpdate({
-    set: {
-      openingBalance: opening.toFixed(2), projectedInflows: data.projectedInflows,
-      realizedInflows: realIn.toFixed(2), projectedOutflows: data.projectedOutflows,
-      realizedOutflows: realOut.toFixed(2), closingBalance: closing.toFixed(2),
-      freeCash: closing.toFixed(2), fundingNeeded: closing < 0 ? Math.abs(closing).toFixed(2) : '0',
-      projectionD7: data.projectionD7, projectionD15: data.projectionD15, projectionD30: data.projectionD30,
-    }
-  });
+  const fundingNeeded = closing < 0 ? Math.abs(closing).toFixed(2) : '0';
+  const projIn = data.projectedInflows || null;
+  const projOut = data.projectedOutflows || null;
+  const d7 = data.projectionD7 || null;
+  const d15 = data.projectionD15 || null;
+  const d30 = data.projectionD30 || null;
+  await db.execute(sql`
+    INSERT INTO cash_flow (referenceDate, openingBalance, projectedInflows, realizedInflows, projectedOutflows, realizedOutflows, closingBalance, freeCash, committedCash, fundingNeeded, projectionD7, projectionD15, projectionD30)
+    VALUES (${data.referenceDate}, ${opening.toFixed(2)}, ${projIn}, ${realIn.toFixed(2)}, ${projOut}, ${realOut.toFixed(2)}, ${closing.toFixed(2)}, ${closing.toFixed(2)}, '0', ${fundingNeeded}, ${d7}, ${d15}, ${d30})
+    ON DUPLICATE KEY UPDATE
+      openingBalance = VALUES(openingBalance), projectedInflows = VALUES(projectedInflows),
+      realizedInflows = VALUES(realizedInflows), projectedOutflows = VALUES(projectedOutflows),
+      realizedOutflows = VALUES(realizedOutflows), closingBalance = VALUES(closingBalance),
+      freeCash = VALUES(freeCash), fundingNeeded = VALUES(fundingNeeded),
+      projectionD7 = VALUES(projectionD7), projectionD15 = VALUES(projectionD15), projectionD30 = VALUES(projectionD30)
+  `);
 }
 
 // ─── ALERTAS ──────────────────────────────────────────────────────────────────
@@ -633,18 +599,20 @@ export async function createCostCenter(data: { name: string; type: string; descr
 export async function deleteCostCenter(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(costCenters).where(eq(costCenters.id, id));
+  await db.execute(sql`DELETE FROM cost_centers WHERE id = ${id}`);
 }
 
 export async function updateCostCenter(id: number, data: { name?: string; type?: string; description?: string; budget?: string }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const updateData: any = {};
-  if (data.name !== undefined) updateData.name = data.name;
-  if (data.type !== undefined) updateData.type = data.type;
-  if (data.description !== undefined) updateData.description = data.description;
-  if (data.budget !== undefined) updateData.budget = data.budget;
-  await db.update(costCenters).set(updateData).where(eq(costCenters.id, id));
+  await db.execute(sql`
+    UPDATE cost_centers SET
+      name = ${data.name ?? sql`name`},
+      type = ${data.type ?? sql`type`},
+      description = ${data.description ?? null},
+      budget = ${data.budget ?? null}
+    WHERE id = ${id}
+  `);
 }
 
 export async function getCostCenterSummary(dateFrom: string, dateTo: string) {
@@ -812,25 +780,25 @@ export async function getUsers() {
 export async function deleteUser(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(users).where(eq(users.id, id));
+  await db.execute(sql`DELETE FROM users WHERE id = ${id}`);
 }
 
 export async function deleteManagerialBalance(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(managerialBalances).where(eq(managerialBalances.id, id));
+  await db.execute(sql`DELETE FROM managerial_balances WHERE id = ${id}`);
 }
 
 export async function deleteDRE(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(dre).where(eq(dre.id, id));
+  await db.execute(sql`DELETE FROM dre WHERE id = ${id}`);
 }
 
 export async function deleteCashFlow(referenceDate: string) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(cashFlow).where(eq(cashFlow.referenceDate, referenceDate as unknown as Date));
+  await db.execute(sql`DELETE FROM cash_flow WHERE referenceDate = ${referenceDate}`);
 }
 
 
