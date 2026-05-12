@@ -571,12 +571,20 @@ const accountingRouter = router({
 
   getCostCenters: protectedProcedure.query(async () => db.getCostCenters()),
 
+  getCostCenterSummary: protectedProcedure
+    .input(z.object({ dateFrom: z.string(), dateTo: z.string() }))
+    .query(async ({ input }) => db.getCostCenterSummary(input.dateFrom, input.dateTo)),
+
   createCostCenter: protectedProcedure
     .input(z.object({ name: z.string(), type: z.string(), description: z.string().optional() }))
     .mutation(async ({ input }) => {
       const id = await db.createCostCenter(input);
       return { id };
     }),
+
+  updateCostCenter: protectedProcedure
+    .input(z.object({ id: z.number(), name: z.string().optional(), type: z.string().optional(), description: z.string().optional(), budget: z.string().optional() }))
+    .mutation(async ({ input }) => { await db.updateCostCenter(input.id, input); return { success: true }; }),
 
   deleteCostCenter: protectedProcedure
     .input(z.object({ id: z.number() }))

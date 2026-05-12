@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql, between, like, or } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql, between, like, or, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -614,6 +614,34 @@ export async function deleteCostCenter(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.delete(costCenters).where(eq(costCenters.id, id));
+}
+
+export async function updateCostCenter(id: number, data: { name?: string; type?: string; description?: string; budget?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.type !== undefined) updateData.type = data.type;
+  if (data.description !== undefined) updateData.description = data.description;
+  if (data.budget !== undefined) updateData.budget = data.budget;
+  await db.update(costCenters).set(updateData).where(eq(costCenters.id, id));
+}
+
+export async function getCostCenterSummary(dateFrom: string, dateTo: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const [expRows, revRows] = await Promise.all([
+    db.select({ costCenterId: expenses.costCenterId, total: sql<string>`SUM(amount)` })
+      .from(expenses).where(and(gte(expenses.referenceDate, new Date(dateFrom)), lte(expenses.referenceDate, new Date(dateTo)), isNotNull(expenses.costCenterId)))
+      .groupBy(expenses.costCenterId),
+    db.select({ costCenterId: revenues.costCenterId, total: sql<string>`SUM(amount)` })
+      .from(revenues).where(and(gte(revenues.referenceDate, new Date(dateFrom)), lte(revenues.referenceDate, new Date(dateTo)), isNotNull(revenues.costCenterId)))
+      .groupBy(revenues.costCenterId),
+  ]);
+  const map: Record<number, { expenses: number; revenues: number }> = {};
+  for (const r of expRows) if (r.costCenterId) { map[r.costCenterId] = map[r.costCenterId] ?? { expenses: 0, revenues: 0 }; map[r.costCenterId].expenses += parseFloat(r.total ?? "0"); }
+  for (const r of revRows) if (r.costCenterId) { map[r.costCenterId] = map[r.costCenterId] ?? { expenses: 0, revenues: 0 }; map[r.costCenterId].revenues += parseFloat(r.total ?? "0"); }
+  return Object.entries(map).map(([id, v]) => ({ costCenterId: Number(id), totalExpenses: v.expenses.toFixed(2), totalRevenues: v.revenues.toFixed(2), total: (v.expenses + v.revenues).toFixed(2) }));
 }
 
 // ─── SYSTEM CONFIG ────────────────────────────────────────────────────────────

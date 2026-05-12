@@ -3,7 +3,7 @@ import { formatCurrency, formatCurrencyCompact, formatDate, safeNumber } from "@
 import { useState } from "react";
 import {
   Plus, TrendingUp, TrendingDown, Activity,
-  Edit2, AlertTriangle, ArrowUpRight, ArrowDownRight,
+  Edit2, AlertTriangle, ArrowUpRight, ArrowDownRight, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -172,6 +172,10 @@ export default function CashFlow() {
   const [editData, setEditData] = useState<typeof EMPTY_FORM | undefined>(undefined);
 
   const { data: cashFlow, refetch } = trpc.accounting.getCashFlow.useQuery({ days: 30 });
+  const deleteMutation = trpc.accounting.deleteCashFlow.useMutation({
+    onSuccess: () => { toast.success("Registro removido."); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const entries = (cashFlow ?? []) as any[];
   const handleEdit = (row: any) => {
@@ -271,16 +275,22 @@ export default function CashFlow() {
       },
     },
     {
-      key: "id", header: "Editar", align: "center", width: "70px", searchable: false,
+      key: "id", header: "Ações", align: "center", width: "80px", searchable: false,
       cell: (r) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-          onClick={(e) => { e.stopPropagation(); handleEdit(r); }}
-        >
-          <Edit2 className="w-3 h-3" />
-        </Button>
+        <div className="flex items-center justify-center gap-1">
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+            onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
+            <Edit2 className="w-3 h-3" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+            onClick={(e) => {
+              e.stopPropagation();
+              const date = typeof r.referenceDate === "string" ? r.referenceDate.slice(0,10) : new Date(r.referenceDate).toISOString().split("T")[0];
+              if (confirm("Remover este registro?")) deleteMutation.mutate({ referenceDate: date });
+            }}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -291,7 +301,7 @@ export default function CashFlow() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Fluxo de Caixa</h1>
-          <p className="text-sm text-muted-foreground mt-1">Camada 3 · Entradas, saídas, projeções e saldo</p>
+          <p className="text-sm text-muted-foreground mt-1">Categoria 3 · Entradas, saídas, projeções e saldo</p>
         </div>
         <Button className="gap-2 shrink-0" onClick={() => { setEditData(undefined); setDialogOpen(true); }}>
           <Plus className="w-4 h-4" /> Registrar Fluxo

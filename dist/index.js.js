@@ -72029,6 +72029,34 @@ async function deleteCostCenter(id) {
   if (!db) throw new Error("DB unavailable");
   await db.delete(costCenters).where(eq(costCenters.id, id));
 }
+async function updateCostCenter(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const updateData = {};
+  if (data.name !== void 0) updateData.name = data.name;
+  if (data.type !== void 0) updateData.type = data.type;
+  if (data.description !== void 0) updateData.description = data.description;
+  if (data.budget !== void 0) updateData.budget = data.budget;
+  await db.update(costCenters).set(updateData).where(eq(costCenters.id, id));
+}
+async function getCostCenterSummary(dateFrom, dateTo) {
+  const db = await getDb();
+  if (!db) return [];
+  const [expRows, revRows] = await Promise.all([
+    db.select({ costCenterId: expenses.costCenterId, total: sql`SUM(amount)` }).from(expenses).where(and(gte(expenses.referenceDate, new Date(dateFrom)), lte(expenses.referenceDate, new Date(dateTo)), isNotNull(expenses.costCenterId))).groupBy(expenses.costCenterId),
+    db.select({ costCenterId: revenues.costCenterId, total: sql`SUM(amount)` }).from(revenues).where(and(gte(revenues.referenceDate, new Date(dateFrom)), lte(revenues.referenceDate, new Date(dateTo)), isNotNull(revenues.costCenterId))).groupBy(revenues.costCenterId)
+  ]);
+  const map2 = {};
+  for (const r of expRows) if (r.costCenterId) {
+    map2[r.costCenterId] = map2[r.costCenterId] ?? { expenses: 0, revenues: 0 };
+    map2[r.costCenterId].expenses += parseFloat(r.total ?? "0");
+  }
+  for (const r of revRows) if (r.costCenterId) {
+    map2[r.costCenterId] = map2[r.costCenterId] ?? { expenses: 0, revenues: 0 };
+    map2[r.costCenterId].revenues += parseFloat(r.total ?? "0");
+  }
+  return Object.entries(map2).map(([id, v]) => ({ costCenterId: Number(id), totalExpenses: v.expenses.toFixed(2), totalRevenues: v.revenues.toFixed(2), total: (v.expenses + v.revenues).toFixed(2) }));
+}
 async function getSystemConfig(key) {
   const db = await getDb();
   if (!db) return null;
@@ -91343,9 +91371,14 @@ var accountingRouter = router({
     return { success: true };
   }),
   getCostCenters: protectedProcedure.query(async () => getCostCenters()),
+  getCostCenterSummary: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => getCostCenterSummary(input.dateFrom, input.dateTo)),
   createCostCenter: protectedProcedure.input(external_exports.object({ name: external_exports.string(), type: external_exports.string(), description: external_exports.string().optional() })).mutation(async ({ input }) => {
     const id = await createCostCenter(input);
     return { id };
+  }),
+  updateCostCenter: protectedProcedure.input(external_exports.object({ id: external_exports.number(), name: external_exports.string().optional(), type: external_exports.string().optional(), description: external_exports.string().optional(), budget: external_exports.string().optional() })).mutation(async ({ input }) => {
+    await updateCostCenter(input.id, input);
+    return { success: true };
   }),
   deleteCostCenter: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteCostCenter(input.id);
