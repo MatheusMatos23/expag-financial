@@ -41,7 +41,7 @@ const TOOLTIP_STYLE = { background:"#0d1528", border:"1px solid #1a2d50", border
 const DEFAULT_FORM = {
   referenceDate: new Date().toISOString().split("T")[0],
   category: "operacional", subcategory: "", description: "",
-  amount: "", status: "realizado", supplier: "", notes: "",
+  amount: "", status: "realizado", supplier: "", notes: "", costCenterId: "",
 };
 
 const PERIODS = [
@@ -68,6 +68,7 @@ export default function Expenses() {
     category: catFilter !== "all" ? catFilter : undefined,
   });
   const { data: summary } = trpc.controllership.getExpenseSummary.useQuery({ dateFrom, dateTo });
+  const { data: costCenters } = trpc.accounting.getCostCenters.useQuery();
 
   const createMutation = trpc.controllership.createExpense.useMutation({
     onSuccess: () => { toast.success("Despesa registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
@@ -91,6 +92,7 @@ export default function Expenses() {
       category: row.category ?? "operacional", subcategory: row.subcategory ?? "",
       description: row.description ?? "", amount: row.amount ?? "",
       status: row.status ?? "realizado", supplier: row.supplier ?? "", notes: "",
+      costCenterId: row.costCenterId ? String(row.costCenterId) : "",
     });
   };
 
@@ -210,6 +212,18 @@ export default function Expenses() {
                   className="mt-1 h-8 text-xs" placeholder="Ex: INSS, Tarifa..." />
               </div>
               <div>
+                <Label className="text-xs text-muted-foreground">Centro de Custo</Label>
+                <Select value={form.costCenterId} onValueChange={set("costCenterId")}>
+                  <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="Selecionar (opcional)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="" className="text-xs">Nenhum</SelectItem>
+                    {(costCenters ?? []).map((cc: any) => (
+                      <SelectItem key={cc.id} value={String(cc.id)} className="text-xs">{cc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <Label className="text-xs text-muted-foreground">Observações</Label>
                 <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)}
                   className="mt-1 text-xs min-h-14 resize-none" rows={2} />
@@ -221,6 +235,7 @@ export default function Expenses() {
                   description: form.description || undefined,
                   amount: form.amount, supplier: form.supplier || undefined,
                   status: form.status,
+                  costCenterId: form.costCenterId ? parseInt(form.costCenterId) : undefined,
                 })}
                 disabled={!form.amount || !form.category || createMutation.isPending}
                 className="w-full"
@@ -289,7 +304,7 @@ export default function Expenses() {
         open={!!selectedRow}
         record={selectedRow}
         onClose={() => setSelectedRow(null)}
-        onEdit={(row) => { setForm({ referenceDate: row.referenceDate?.slice(0,10) ?? "", category: row.category, subcategory: row.subcategory ?? "", description: row.description ?? "", amount: String(row.amount), supplier: row.supplier ?? "", status: row.status, notes: row.notes ?? "" }); setEditRow(row); }}
+        onEdit={(row) => { setForm({ referenceDate: row.referenceDate?.slice(0,10) ?? "", category: row.category, subcategory: row.subcategory ?? "", description: row.description ?? "", amount: String(row.amount), supplier: row.supplier ?? "", status: row.status, notes: row.notes ?? "", costCenterId: row.costCenterId ? String(row.costCenterId) : "" }); setEditRow(row); }}
         title="Detalhe da Despesa"
         fields={[
           { label: "Data", key: "referenceDate", format: "date" },
