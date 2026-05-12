@@ -17,7 +17,7 @@ import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { RecordDetail } from "@/components/RecordDetail";
 import { cn } from "@/lib/utils";
 
-const CATEGORIES = ["bancaria","api","tecnologia","infra","operacional","comercial","folha","comissao","impostos","reembolso","chargeback","estorno","outros","marketing","juridico","administrativo"];
+const CATEGORIES = ["bancaria","api","tecnologia","infra","operacional","comercial","folha","comissao","impostos","reembolso","chargeback","estorno","marketing","juridico","administrativo","outros"];
 const CAT_LABELS: Record<string,string> = {
   bancaria:"Bancária", api:"API", tecnologia:"Tecnologia", infra:"Infra",
   operacional:"Operacional", comercial:"Comercial", folha:"Folha", comissao:"Comissão",

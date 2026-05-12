@@ -11,10 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const CC_TYPES = ["receita","despesa_fixa","despesa_variavel","imposto","investimento"];
+const CC_TYPES = ["receita","despesa_fixa","despesa_variavel","imposto","investimento","credito"];
 const TYPE_LABELS: Record<string, string> = {
   receita: "Receita", despesa_fixa: "Despesa Fixa",
   despesa_variavel: "Despesa Variável", imposto: "Imposto", investimento: "Investimento",
+  credito: "Crédito",
 };
 const TYPE_COLORS: Record<string, string> = {
   receita: "text-green-400 bg-green-500/10 border-green-500/20",
@@ -22,6 +23,7 @@ const TYPE_COLORS: Record<string, string> = {
   despesa_variavel: "text-orange-400 bg-orange-500/10 border-orange-500/20",
   imposto: "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
   investimento: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  credito: "text-purple-400 bg-purple-500/10 border-purple-500/20",
 };
 
 const DEFAULT_FORM = { name: "", type: "despesa_fixa", description: "", budget: "" };

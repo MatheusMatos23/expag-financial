@@ -19,8 +19,15 @@
     {
       "idx": 2,
       "version": "5",
-      "when": 1778570000000,
-      "tag": "0002_fix_category_enums",
+      "when": 1778580000000,
+      "tag": "0002_fix_all_enums",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1778590000000,
+      "tag": "0003_sync_all_enums",
       "breakpoints": true
     }
   ]
