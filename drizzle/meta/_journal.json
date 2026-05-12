@@ -15,6 +15,13 @@
       "when": 1778560000000,
       "tag": "0001_add_created_by_name",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778570000000,
+      "tag": "0002_fix_category_enums",
+      "breakpoints": true
     }
   ]
 }

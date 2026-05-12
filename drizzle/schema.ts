@@ -198,6 +198,7 @@ export const revenues = mysqlTable("revenues", {
   status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
   bankTransactionId: int("bankTransactionId"),
   costCenterId: int("costCenterId"),
+  createdByName: varchar("createdByName", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -221,6 +222,9 @@ export const expenses = mysqlTable("expenses", {
     "reembolso",
     "chargeback",
     "estorno",
+    "marketing",
+    "juridico",
+    "administrativo",
     "outros",
   ]).notNull(),
   subcategory: varchar("subcategory", { length: 100 }),
@@ -230,6 +234,7 @@ export const expenses = mysqlTable("expenses", {
   status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
   bankTransactionId: int("bankTransactionId"),
   costCenterId: int("costCenterId"),
+  createdByName: varchar("createdByName", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -250,6 +255,9 @@ export const payables = mysqlTable("payables", {
     "comissao",
     "impostos",
     "reembolso",
+    "marketing",
+    "juridico",
+    "administrativo",
     "outros",
   ]).notNull(),
   amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
@@ -257,8 +265,9 @@ export const payables = mysqlTable("payables", {
   paidDate: date("paidDate"),
   status: mysqlEnum("status", ["pendente", "pago", "vencido", "cancelado"]).default("pendente").notNull(),
   recurrent: boolean("recurrent").default(false),
-  recurrenceDay: int("recurrenceDay"), // dia do mês para recorrência
+  recurrenceDay: int("recurrenceDay"),
   notes: text("notes"),
+  createdByName: varchar("createdByName", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
