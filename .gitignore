@@ -114,3 +114,7 @@ temp/
 client/public/__manus__/version.json
 
 !dist/index.js
+
+# Track built frontend
+!dist/public/
+!dist/public/**
