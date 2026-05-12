@@ -287,17 +287,18 @@ export async function createRevenue(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(revenues).values({
+  const values: any = {
     referenceDate: data.referenceDate as unknown as Date,
     type: data.type as any,
-    description: data.description ?? null,
     amount: data.amount,
-    clientId: data.clientId ?? null,
-    clientName: data.clientName ?? null,
     status: (data.status ?? 'realizado') as any,
-    costCenterId: data.costCenterId ?? null,
-    createdByName: data.createdByName ?? null,
-  });
+  };
+  if (data.description) values.description = data.description;
+  if (data.clientId) values.clientId = data.clientId;
+  if (data.clientName) values.clientName = data.clientName;
+  if (data.costCenterId) values.costCenterId = data.costCenterId;
+  if (data.createdByName) values.createdByName = data.createdByName;
+  const result = await db.insert(revenues).values(values);
   return result[0].insertId;
 }
 
@@ -340,17 +341,18 @@ export async function createExpense(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(expenses).values({
+  const values: any = {
     referenceDate: data.referenceDate as unknown as Date,
     category: data.category as any,
-    subcategory: data.subcategory ?? null,
-    description: data.description ?? null,
     amount: data.amount,
-    supplier: data.supplier ?? null,
     status: (data.status ?? 'realizado') as any,
-    costCenterId: data.costCenterId ?? null,
-    createdByName: data.createdByName ?? null,
-  });
+  };
+  if (data.subcategory) values.subcategory = data.subcategory;
+  if (data.description) values.description = data.description;
+  if (data.supplier) values.supplier = data.supplier;
+  if (data.costCenterId) values.costCenterId = data.costCenterId;
+  if (data.createdByName) values.createdByName = data.createdByName;
+  const result = await db.insert(expenses).values(values);
   return result[0].insertId;
 }
 
@@ -393,18 +395,19 @@ export async function createPayable(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(payables).values({
+  const values: any = {
     description: data.description,
-    supplier: data.supplier ?? null,
     category: data.category as any,
     amount: data.amount,
     dueDate: data.dueDate as unknown as Date,
     recurrent: data.recurrent ?? false,
-    recurrenceDay: data.recurrenceDay ?? null,
-    notes: data.notes ?? null,
-    createdByName: data.createdByName ?? null,
     status: 'pendente',
-  });
+  };
+  if (data.supplier) values.supplier = data.supplier;
+  if (data.recurrenceDay) values.recurrenceDay = data.recurrenceDay;
+  if (data.notes) values.notes = data.notes;
+  if (data.createdByName) values.createdByName = data.createdByName;
+  const result = await db.insert(payables).values(values);
   return result[0].insertId;
 }
 

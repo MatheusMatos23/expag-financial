@@ -71767,17 +71767,18 @@ async function getLatestManagerialBalance() {
 async function createRevenue(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(revenues).values({
+  const values = {
     referenceDate: data.referenceDate,
     type: data.type,
-    description: data.description ?? null,
     amount: data.amount,
-    clientId: data.clientId ?? null,
-    clientName: data.clientName ?? null,
-    status: data.status ?? "realizado",
-    costCenterId: data.costCenterId ?? null,
-    createdByName: data.createdByName ?? null
-  });
+    status: data.status ?? "realizado"
+  };
+  if (data.description) values.description = data.description;
+  if (data.clientId) values.clientId = data.clientId;
+  if (data.clientName) values.clientName = data.clientName;
+  if (data.costCenterId) values.costCenterId = data.costCenterId;
+  if (data.createdByName) values.createdByName = data.createdByName;
+  const result = await db.insert(revenues).values(values);
   return result[0].insertId;
 }
 async function getRevenues(filters) {
@@ -71806,17 +71807,18 @@ async function getRevenueSummary(dateFrom, dateTo) {
 async function createExpense(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(expenses).values({
+  const values = {
     referenceDate: data.referenceDate,
     category: data.category,
-    subcategory: data.subcategory ?? null,
-    description: data.description ?? null,
     amount: data.amount,
-    supplier: data.supplier ?? null,
-    status: data.status ?? "realizado",
-    costCenterId: data.costCenterId ?? null,
-    createdByName: data.createdByName ?? null
-  });
+    status: data.status ?? "realizado"
+  };
+  if (data.subcategory) values.subcategory = data.subcategory;
+  if (data.description) values.description = data.description;
+  if (data.supplier) values.supplier = data.supplier;
+  if (data.costCenterId) values.costCenterId = data.costCenterId;
+  if (data.createdByName) values.createdByName = data.createdByName;
+  const result = await db.insert(expenses).values(values);
   return result[0].insertId;
 }
 async function getExpenses(filters) {
@@ -71845,18 +71847,19 @@ async function getExpenseSummary(dateFrom, dateTo) {
 async function createPayable(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(payables).values({
+  const values = {
     description: data.description,
-    supplier: data.supplier ?? null,
     category: data.category,
     amount: data.amount,
     dueDate: data.dueDate,
     recurrent: data.recurrent ?? false,
-    recurrenceDay: data.recurrenceDay ?? null,
-    notes: data.notes ?? null,
-    createdByName: data.createdByName ?? null,
     status: "pendente"
-  });
+  };
+  if (data.supplier) values.supplier = data.supplier;
+  if (data.recurrenceDay) values.recurrenceDay = data.recurrenceDay;
+  if (data.notes) values.notes = data.notes;
+  if (data.createdByName) values.createdByName = data.createdByName;
+  const result = await db.insert(payables).values(values);
   return result[0].insertId;
 }
 async function getPayables(filters) {
