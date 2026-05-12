@@ -5,6 +5,6 @@
     "buildCommand": "pnpm install --frozen-lockfile && node_modules/.bin/vite build"
   },
   "deploy": {
-    "startCommand": "node_modules/.bin/esbuild server/_core/index.ts --platform=node --bundle --format=esm --outdir=dist --external:vite --external:@vitejs --external:lightningcss --external:esbuild --external:@tailwindcss --external:*.node --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\" && pnpm run db:push && pnpm start"
+    "startCommand": "rm -f dist/index.js && node_modules/.bin/esbuild server/_core/index.ts --platform=node --bundle --format=esm --outdir=dist --external:vite --external:@vitejs --external:lightningcss --external:esbuild --external:@tailwindcss --external:*.node --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\" && pnpm run db:push && pnpm start"
   }
 }
