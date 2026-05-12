@@ -708,20 +708,24 @@ export async function updateRevenue(id: number, data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(revenues).set({
-    ...(data.referenceDate && { referenceDate: data.referenceDate as unknown as Date }),
-    ...(data.type && { type: data.type as any }),
-    ...(data.description !== undefined && { description: data.description }),
-    ...(data.amount && { amount: data.amount }),
-    ...(data.clientName !== undefined && { clientName: data.clientName }),
-    ...(data.status && { status: data.status as any }),
-  }).where(eq(revenues.id, id));
+  const validStatus = ['previsto', 'realizado', 'cancelado'];
+  const status = data.status && validStatus.includes(data.status) ? data.status : 'realizado';
+  await db.execute(sql`
+    UPDATE revenues SET
+      referenceDate = ${data.referenceDate ?? sql`referenceDate`},
+      type = ${data.type ?? sql`type`},
+      description = ${data.description ?? null},
+      amount = ${data.amount ?? sql`amount`},
+      clientName = ${data.clientName ?? null},
+      status = ${status}
+    WHERE id = ${id}
+  `);
 }
 
 export async function deleteRevenue(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(revenues).where(eq(revenues.id, id));
+  await db.execute(sql`DELETE FROM revenues WHERE id = ${id}`);
 }
 
 export async function updateExpense(id: number, data: {
@@ -730,39 +734,51 @@ export async function updateExpense(id: number, data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(expenses).set({
-    ...(data.referenceDate && { referenceDate: data.referenceDate as unknown as Date }),
-    ...(data.category && { category: data.category as any }),
-    ...(data.description !== undefined && { description: data.description }),
-    ...(data.amount && { amount: data.amount }),
-    ...(data.supplier !== undefined && { supplier: data.supplier }),
-    ...(data.status && { status: data.status as any }),
-  }).where(eq(expenses.id, id));
+  const validStatus = ['previsto', 'realizado', 'cancelado'];
+  const status = data.status && validStatus.includes(data.status) ? data.status : 'realizado';
+  await db.execute(sql`
+    UPDATE expenses SET
+      referenceDate = ${data.referenceDate ?? sql`referenceDate`},
+      category = ${data.category ?? sql`category`},
+      description = ${data.description ?? null},
+      amount = ${data.amount ?? sql`amount`},
+      supplier = ${data.supplier ?? null},
+      status = ${status}
+    WHERE id = ${id}
+  `);
 }
 
 export async function deleteExpense(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(expenses).where(eq(expenses.id, id));
+  await db.execute(sql`DELETE FROM expenses WHERE id = ${id}`);
 }
 
 export async function updateCreditPortfolio(id: number, data: {
   status?: string; outstandingBalance?: string; paidInstallments?: number; notes?: string;
+  principal?: string; interestRate?: string; totalInstallments?: number; expectedEndDate?: string; fundingSource?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(creditPortfolio).set({
-    ...(data.status && { status: data.status as any }),
-    ...(data.outstandingBalance !== undefined && { outstandingBalance: data.outstandingBalance }),
-    ...(data.paidInstallments !== undefined && { paidInstallments: data.paidInstallments }),
-    ...(data.notes !== undefined && { notes: data.notes }),
-  }).where(eq(creditPortfolio.id, id));
+  await db.execute(sql`
+    UPDATE credit_portfolio SET
+      status = ${data.status ?? sql`status`},
+      outstandingBalance = ${data.outstandingBalance ?? sql`outstandingBalance`},
+      paidInstallments = ${data.paidInstallments ?? sql`paidInstallments`},
+      notes = ${data.notes ?? null},
+      principal = ${data.principal ?? sql`principal`},
+      interestRate = ${data.interestRate ?? sql`interestRate`},
+      totalInstallments = ${data.totalInstallments ?? sql`totalInstallments`},
+      expectedEndDate = ${data.expectedEndDate ?? sql`expectedEndDate`},
+      fundingSource = ${data.fundingSource ?? sql`fundingSource`}
+    WHERE id = ${id}
+  `);
 }
 
 export async function deleteCreditPortfolio(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(creditPortfolio).where(eq(creditPortfolio.id, id));
+  await db.execute(sql`DELETE FROM credit_portfolio WHERE id = ${id}`);
 }
 
 export async function updatePayable(id: number, data: {
@@ -771,14 +787,16 @@ export async function updatePayable(id: number, data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(payables).set({
-    ...(data.dueDate && { dueDate: data.dueDate as unknown as Date }),
-    ...(data.description !== undefined && { description: data.description }),
-    ...(data.category && { category: data.category as any }),
-    ...(data.amount && { amount: data.amount }),
-    ...(data.supplier !== undefined && { supplier: data.supplier }),
-    ...(data.notes !== undefined && { notes: data.notes }),
-  }).where(eq(payables.id, id));
+  await db.execute(sql`
+    UPDATE payables SET
+      dueDate = ${data.dueDate ?? sql`dueDate`},
+      description = ${data.description ?? sql`description`},
+      category = ${data.category ?? sql`category`},
+      amount = ${data.amount ?? sql`amount`},
+      supplier = ${data.supplier ?? null},
+      notes = ${data.notes ?? null}
+    WHERE id = ${id}
+  `);
 }
 
 export async function getUsers() {

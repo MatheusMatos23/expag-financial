@@ -35,7 +35,7 @@ const CAT_COLORS: Record<string,string> = {
   administrativo:"text-gray-400 bg-gray-500/10", outros:"text-gray-400 bg-gray-500/10",
 };
 const CHART_COLORS = ["#f87171","#fb923c","#fbbf24","#a3e635","#34d399","#38bdf8","#818cf8","#e879f9","#f472b6","#94a3b8","#10b981","#6ee7b7","#7dd3fc","#c4b5fd","#fca5a5","#fdba74"];
-const STATUS_LIST = ["realizado","pendente","cancelado"];
+const STATUS_LIST = ["realizado","previsto","cancelado"];
 const TOOLTIP_STYLE = { background:"#0d1528", border:"1px solid #1a2d50", borderRadius:"8px", fontSize:"11px", color:"#e8edf5" };
 
 const DEFAULT_FORM = {
