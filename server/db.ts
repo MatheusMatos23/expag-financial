@@ -287,19 +287,22 @@ export async function createRevenue(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const values: any = {
-    referenceDate: data.referenceDate as unknown as Date,
-    type: data.type as any,
-    amount: data.amount,
-    status: (data.status ?? 'realizado') as any,
-  };
-  if (data.description) values.description = data.description;
-  if (data.clientId) values.clientId = data.clientId;
-  if (data.clientName) values.clientName = data.clientName;
-  if (data.costCenterId) values.costCenterId = data.costCenterId;
-  if (data.createdByName) values.createdByName = data.createdByName;
-  const result = await db.insert(revenues).values(values);
-  return result[0].insertId;
+  const status = data.status ?? 'realizado';
+  const result = await db.execute(sql`
+    INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName)
+    VALUES (
+      ${data.referenceDate},
+      ${data.type},
+      ${data.description || null},
+      ${data.amount},
+      ${data.clientId || null},
+      ${data.clientName || null},
+      ${status},
+      ${data.costCenterId || null},
+      ${data.createdByName || null}
+    )
+  `);
+  return (result as any)[0]?.insertId ?? 0;
 }
 
 export async function getRevenues(filters?: {
@@ -341,19 +344,22 @@ export async function createExpense(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const values: any = {
-    referenceDate: data.referenceDate as unknown as Date,
-    category: data.category as any,
-    amount: data.amount,
-    status: (data.status ?? 'realizado') as any,
-  };
-  if (data.subcategory) values.subcategory = data.subcategory;
-  if (data.description) values.description = data.description;
-  if (data.supplier) values.supplier = data.supplier;
-  if (data.costCenterId) values.costCenterId = data.costCenterId;
-  if (data.createdByName) values.createdByName = data.createdByName;
-  const result = await db.insert(expenses).values(values);
-  return result[0].insertId;
+  const status = data.status ?? 'realizado';
+  const result = await db.execute(sql`
+    INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName)
+    VALUES (
+      ${data.referenceDate},
+      ${data.category},
+      ${data.subcategory || null},
+      ${data.description || null},
+      ${data.amount},
+      ${data.supplier || null},
+      ${status},
+      ${data.costCenterId || null},
+      ${data.createdByName || null}
+    )
+  `);
+  return (result as any)[0]?.insertId ?? 0;
 }
 
 export async function getExpenses(filters?: {
@@ -395,20 +401,22 @@ export async function createPayable(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const values: any = {
-    description: data.description,
-    category: data.category as any,
-    amount: data.amount,
-    dueDate: data.dueDate as unknown as Date,
-    recurrent: data.recurrent ?? false,
-    status: 'pendente',
-  };
-  if (data.supplier) values.supplier = data.supplier;
-  if (data.recurrenceDay) values.recurrenceDay = data.recurrenceDay;
-  if (data.notes) values.notes = data.notes;
-  if (data.createdByName) values.createdByName = data.createdByName;
-  const result = await db.insert(payables).values(values);
-  return result[0].insertId;
+  const result = await db.execute(sql`
+    INSERT INTO payables (description, supplier, category, amount, dueDate, recurrent, recurrenceDay, notes, status, createdByName)
+    VALUES (
+      ${data.description},
+      ${data.supplier || null},
+      ${data.category},
+      ${data.amount},
+      ${data.dueDate},
+      ${data.recurrent ? 1 : 0},
+      ${data.recurrenceDay || null},
+      ${data.notes || null},
+      'pendente',
+      ${data.createdByName || null}
+    )
+  `);
+  return (result as any)[0]?.insertId ?? 0;
 }
 
 export async function getPayables(filters?: { status?: string; dateFrom?: string; dateTo?: string }) {
