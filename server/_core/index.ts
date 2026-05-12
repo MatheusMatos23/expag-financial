@@ -43,11 +43,16 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // ── Funções de auth ───────────────────────────────────────────────────────
-  async function handleLogin(req: any, res: any) {
-    console.log("[AUTH] POST /api/auth/login →", req.body?.email);
+  async function handleLogin(req: any, body: any, res: any) {
+    console.log("[AUTH] POST /api/auth/login →", body?.email);
+    const jsonReply = (status: number, data: object) => {
+      const json = JSON.stringify(data);
+      res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(json) });
+      res.end(json);
+    };
     try {
-      const { email, password } = req.body as { email?: string; password?: string };
-      if (!email || !password) return res.status(400).json({ error: "Email e senha são obrigatórios." });
+      const { email, password } = body as { email?: string; password?: string };
+      if (!email || !password) return jsonReply(400, { error: "Email e senha são obrigatórios." });
       const adminEmail    = process.env.ADMIN_EMAIL    ?? "admin@expag.com.br";
       const adminPassword = process.env.ADMIN_PASSWORD ?? "Expag2026!";
       let user = await dbModule.getUserByEmail(email.trim().toLowerCase());
@@ -62,22 +67,29 @@ async function startServer() {
       }
       if (!user || !user.passwordHash) {
         console.log("[AUTH] Credenciais inválidas para:", email);
-        return res.status(401).json({ error: "Credenciais inválidas." });
+        return jsonReply(401, { error: "Credenciais inválidas." });
       }
       const valid = await verifyPassword(password, user.passwordHash);
       if (!valid) {
         console.log("[AUTH] Senha incorreta para:", email);
-        return res.status(401).json({ error: "Credenciais inválidas." });
+        return jsonReply(401, { error: "Credenciais inválidas." });
       }
       await dbModule.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
       const token = await sdk.createSessionToken(user.openId, { name: user.name ?? email, expiresInMs: ONE_YEAR_MS });
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      // Build Set-Cookie header manually
+      const isProduction = req.headers.host && !req.headers.host.includes("localhost");
+      const cookieValue = `${COOKIE_NAME}=${token}; Max-Age=${ONE_YEAR_MS / 1000}; Path=/; HttpOnly; SameSite=${isProduction ? "None" : "Lax"}${isProduction ? "; Secure" : ""}`;
+      const json = JSON.stringify({ ok: true, name: user.name, role: user.role });
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(json),
+        "Set-Cookie": cookieValue,
+      });
+      res.end(json);
       console.log("[AUTH] Login OK:", email);
-      res.json({ ok: true, name: user.name, role: user.role });
     } catch (err) {
       console.error("[AUTH] Login error:", err);
-      res.status(500).json({ error: "Erro interno no servidor." });
+      jsonReply(500, { error: "Erro interno no servidor." });
     }
   }
 
@@ -90,12 +102,9 @@ async function startServer() {
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", async () => {
-        try {
-          (req as any).body = body ? JSON.parse(body) : {};
-        } catch {
-          (req as any).body = {};
-        }
-        await handleLogin(req, res).catch((err) => {
+        let parsed: any = {};
+        try { parsed = body ? JSON.parse(body) : {}; } catch { parsed = {}; }
+        await handleLogin(req, parsed, res).catch((err) => {
           console.error("[AUTH] Unhandled:", err);
           if (!res.headersSent) {
             res.writeHead(500, { "Content-Type": "application/json" });
