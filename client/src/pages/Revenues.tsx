@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
+import { RecordDetail } from "@/components/RecordDetail";
 import { cn } from "@/lib/utils";
 
 const REVENUE_TYPES = ["pix","ted","boleto","credito","antecipacao","pos","white_label","receita_financeira","receita_operacional","outros"];
@@ -53,6 +54,7 @@ export default function Revenues() {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [periodIdx, setPeriodIdx] = useState(0);
   const [typeFilter, setTypeFilter] = useState("all");
+  const [selectedRow, setSelectedRow] = useState<any>(null);
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const { dateFrom, dateTo } = PERIODS[periodIdx].getValue();
@@ -324,7 +326,25 @@ export default function Revenues() {
         emptyTitle="Nenhuma receita no período"
         emptyDescription="Registre uma nova receita usando o botão acima."
         defaultPageSize={25}
+        onRowClick={(row) => setSelectedRow(row)}
       />
+
+      <RecordDetail
+        open={!!selectedRow}
+        record={selectedRow}
+        onClose={() => setSelectedRow(null)}
+        onEdit={(row) => { setForm({ referenceDate: row.referenceDate?.slice(0,10) ?? "", type: row.type, description: row.description ?? "", amount: String(row.amount), status: row.status, clientId: row.clientId ?? "", clientName: row.clientName ?? "", notes: "" }); setEditRow(row); }}
+        title="Detalhe da Receita"
+        fields={[
+          { label: "Data", key: "referenceDate", format: "date" },
+          { label: "Tipo", key: "type" },
+          { label: "Descrição", key: "description" },
+          { label: "Cliente", key: "clientName" },
+          { label: "Valor", key: "amount", format: "currency" },
+          { label: "Status", key: "status", format: "status" },
+        ]}
+      />
+
       {/* Edit Dialog */}
       <Dialog open={editRow !== null} onOpenChange={v => !v && setEditRow(null)}>
         <DialogContent className="max-w-md">

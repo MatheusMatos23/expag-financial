@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
+import { RecordDetail } from "@/components/RecordDetail";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = ["operacional","folha","impostos","tecnologia","infra","juridico","administrativo","marketing","bancaria","outros"];
@@ -64,6 +65,7 @@ export default function Payables() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [form, setForm] = useState(DEFAULT_FORM);
   const [editRow, setEditRow] = useState<any>(null);
+  const [selectedRow, setSelectedRow] = useState<any>(null);
   const set = (k: string) => (v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
   const handleEdit = (row: any) => {
@@ -319,11 +321,30 @@ export default function Payables() {
         emptyTitle="Nenhuma conta a pagar"
         emptyDescription="Registre uma nova conta usando o botão acima."
         defaultPageSize={25}
+        onRowClick={(row) => setSelectedRow(row)}
         rowClassName={(r) => {
           if (r.status === "vencido") return "bg-red-500/5";
           if (r.status === "pendente" && new Date(String(r.dueDate)) < new Date(Date.now() + 3*86400000)) return "bg-amber-500/5";
           return undefined;
         }}
+      />
+
+      <RecordDetail
+        open={!!selectedRow}
+        record={selectedRow}
+        onClose={() => setSelectedRow(null)}
+        onEdit={(row) => handleEdit(row)}
+        title="Detalhe da Conta a Pagar"
+        fields={[
+          { label: "Vencimento", key: "dueDate", format: "date" },
+          { label: "Descrição", key: "description" },
+          { label: "Categoria", key: "category" },
+          { label: "Fornecedor", key: "supplier" },
+          { label: "Valor", key: "amount", format: "currency" },
+          { label: "Status", key: "status", format: "status" },
+          { label: "Observações", key: "notes" },
+          { label: "Pago em", key: "paidDate", format: "date" },
+        ]}
       />
     </div>
   );

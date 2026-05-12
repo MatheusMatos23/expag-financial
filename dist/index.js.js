@@ -71348,6 +71348,7 @@ var revenues = mysqlTable("revenues", {
   status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
   bankTransactionId: int("bankTransactionId"),
   costCenterId: int("costCenterId"),
+  createdByName: varchar("createdByName", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
 }, (table) => ({
@@ -71380,6 +71381,7 @@ var expenses = mysqlTable("expenses", {
   status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
   bankTransactionId: int("bankTransactionId"),
   costCenterId: int("costCenterId"),
+  createdByName: varchar("createdByName", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
 });
@@ -71406,8 +71408,8 @@ var payables = mysqlTable("payables", {
   status: mysqlEnum("status", ["pendente", "pago", "vencido", "cancelado"]).default("pendente").notNull(),
   recurrent: boolean("recurrent").default(false),
   recurrenceDay: int("recurrenceDay"),
-  // dia do mês para recorrência
   notes: text("notes"),
+  createdByName: varchar("createdByName", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
 }, (table) => ({
@@ -91135,8 +91137,8 @@ var controllershipRouter = router({
     clientName: external_exports.string().optional(),
     status: external_exports.string().optional(),
     costCenterId: external_exports.number().optional()
-  })).mutation(async ({ input }) => {
-    const id = await createRevenue(input);
+  })).mutation(async ({ input, ctx }) => {
+    const id = await createRevenue({ ...input, createdByName: ctx.user.name ?? ctx.user.email ?? void 0 });
     return { id };
   }),
   updateRevenue: protectedProcedure.input(external_exports.object({
@@ -91170,8 +91172,8 @@ var controllershipRouter = router({
     supplier: external_exports.string().optional(),
     status: external_exports.string().optional(),
     costCenterId: external_exports.number().optional()
-  })).mutation(async ({ input }) => {
-    const id = await createExpense(input);
+  })).mutation(async ({ input, ctx }) => {
+    const id = await createExpense({ ...input, createdByName: ctx.user.name ?? ctx.user.email ?? void 0 });
     return { id };
   }),
   updateExpense: protectedProcedure.input(external_exports.object({
@@ -91204,8 +91206,8 @@ var controllershipRouter = router({
     recurrent: external_exports.boolean().optional(),
     recurrenceDay: external_exports.number().optional(),
     notes: external_exports.string().optional()
-  })).mutation(async ({ input }) => {
-    const id = await createPayable(input);
+  })).mutation(async ({ input, ctx }) => {
+    const id = await createPayable({ ...input, createdByName: ctx.user.name ?? ctx.user.email ?? void 0 });
     return { id };
   }),
   updatePayableStatus: protectedProcedure.input(external_exports.object({ id: external_exports.number(), status: external_exports.string(), paidDate: external_exports.string().optional() })).mutation(async ({ input }) => {

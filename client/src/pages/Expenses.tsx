@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
+import { RecordDetail } from "@/components/RecordDetail";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = ["bancaria","api","tecnologia","infra","operacional","comercial","folha","comissao","impostos","reembolso","chargeback","estorno","outros","marketing","juridico","administrativo"];
@@ -60,6 +61,7 @@ export default function Expenses() {
   const { dateFrom, dateTo } = PERIODS[periodIdx].getValue();
 
   const [editRow, setEditRow] = useState<any>(null);
+  const [selectedRow, setSelectedRow] = useState<any>(null);
 
   const { data: expenses, refetch, isLoading } = trpc.controllership.getExpenses.useQuery({
     dateFrom, dateTo,
@@ -280,6 +282,24 @@ export default function Expenses() {
         emptyTitle="Nenhuma despesa no período"
         emptyDescription="Registre uma nova despesa usando o botão acima."
         defaultPageSize={25}
+        onRowClick={(row) => setSelectedRow(row)}
+      />
+
+      <RecordDetail
+        open={!!selectedRow}
+        record={selectedRow}
+        onClose={() => setSelectedRow(null)}
+        onEdit={(row) => { setForm({ referenceDate: row.referenceDate?.slice(0,10) ?? "", category: row.category, subcategory: row.subcategory ?? "", description: row.description ?? "", amount: String(row.amount), supplier: row.supplier ?? "", status: row.status, notes: row.notes ?? "" }); setEditRow(row); }}
+        title="Detalhe da Despesa"
+        fields={[
+          { label: "Data", key: "referenceDate", format: "date" },
+          { label: "Categoria", key: "category" },
+          { label: "Subcategoria", key: "subcategory" },
+          { label: "Descrição", key: "description" },
+          { label: "Fornecedor", key: "supplier" },
+          { label: "Valor", key: "amount", format: "currency" },
+          { label: "Status", key: "status", format: "status" },
+        ]}
       />
 
       {/* Edit Dialog */}
