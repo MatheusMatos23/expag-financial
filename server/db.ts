@@ -283,14 +283,20 @@ export async function getLatestManagerialBalance() {
 export async function createRevenue(data: {
   referenceDate: string; type: string; description?: string; amount: string;
   clientId?: string; clientName?: string; status?: string; costCenterId?: number;
+  createdByName?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(revenues).values({
-    ...data,
-    referenceDate: data.referenceDate as unknown as Date,
+    referenceDate: new Date(data.referenceDate) as unknown as Date,
     type: data.type as any,
+    description: data.description ?? null,
+    amount: data.amount,
+    clientId: data.clientId ?? null,
+    clientName: data.clientName ?? null,
     status: (data.status ?? 'realizado') as any,
+    costCenterId: data.costCenterId ?? null,
+    createdByName: data.createdByName ?? null,
   });
   return result[0].insertId;
 }
@@ -330,14 +336,20 @@ export async function getRevenueSummary(dateFrom: string, dateTo: string) {
 export async function createExpense(data: {
   referenceDate: string; category: string; subcategory?: string;
   description?: string; amount: string; supplier?: string; status?: string; costCenterId?: number;
+  createdByName?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(expenses).values({
-    ...data,
-    referenceDate: data.referenceDate as unknown as Date,
+    referenceDate: new Date(data.referenceDate) as unknown as Date,
     category: data.category as any,
+    subcategory: data.subcategory ?? null,
+    description: data.description ?? null,
+    amount: data.amount,
+    supplier: data.supplier ?? null,
     status: (data.status ?? 'realizado') as any,
+    costCenterId: data.costCenterId ?? null,
+    createdByName: data.createdByName ?? null,
   });
   return result[0].insertId;
 }
@@ -377,13 +389,20 @@ export async function getExpenseSummary(dateFrom: string, dateTo: string) {
 export async function createPayable(data: {
   description: string; supplier?: string; category: string; amount: string;
   dueDate: string; recurrent?: boolean; recurrenceDay?: number; notes?: string;
+  createdByName?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(payables).values({
-    ...data,
-    dueDate: data.dueDate as unknown as Date,
+    description: data.description,
+    supplier: data.supplier ?? null,
     category: data.category as any,
+    amount: data.amount,
+    dueDate: new Date(data.dueDate) as unknown as Date,
+    recurrent: data.recurrent ?? false,
+    recurrenceDay: data.recurrenceDay ?? null,
+    notes: data.notes ?? null,
+    createdByName: data.createdByName ?? null,
     status: 'pendente',
   });
   return result[0].insertId;

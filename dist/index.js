@@ -71768,10 +71768,15 @@ async function createRevenue(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(revenues).values({
-    ...data,
-    referenceDate: data.referenceDate,
+    referenceDate: new Date(data.referenceDate),
     type: data.type,
-    status: data.status ?? "realizado"
+    description: data.description ?? null,
+    amount: data.amount,
+    clientId: data.clientId ?? null,
+    clientName: data.clientName ?? null,
+    status: data.status ?? "realizado",
+    costCenterId: data.costCenterId ?? null,
+    createdByName: data.createdByName ?? null
   });
   return result[0].insertId;
 }
@@ -71802,10 +71807,15 @@ async function createExpense(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(expenses).values({
-    ...data,
-    referenceDate: data.referenceDate,
+    referenceDate: new Date(data.referenceDate),
     category: data.category,
-    status: data.status ?? "realizado"
+    subcategory: data.subcategory ?? null,
+    description: data.description ?? null,
+    amount: data.amount,
+    supplier: data.supplier ?? null,
+    status: data.status ?? "realizado",
+    costCenterId: data.costCenterId ?? null,
+    createdByName: data.createdByName ?? null
   });
   return result[0].insertId;
 }
@@ -71836,9 +71846,15 @@ async function createPayable(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(payables).values({
-    ...data,
-    dueDate: data.dueDate,
+    description: data.description,
+    supplier: data.supplier ?? null,
     category: data.category,
+    amount: data.amount,
+    dueDate: new Date(data.dueDate),
+    recurrent: data.recurrent ?? false,
+    recurrenceDay: data.recurrenceDay ?? null,
+    notes: data.notes ?? null,
+    createdByName: data.createdByName ?? null,
     status: "pendente"
   });
   return result[0].insertId;
