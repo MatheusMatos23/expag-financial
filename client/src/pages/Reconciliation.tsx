@@ -202,6 +202,10 @@ export default function Reconciliation() {
 
   const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery();
 
+  // Auto-colapsa upload quando há sessões salvas
+  const hasSessions = (sessions as any[])?.length > 0;
+  const effectiveUploadCollapsed = uploadCollapsed || (!liveResult && hasSessions);
+
   // Auto-carrega a sessão mais recente quando não há resultado ao vivo
   const latestSessionId = (sessions as any[])?.[0]?.id ?? null;
   const { data: latestSessionData } = trpc.reconciliation.getSessionTransactions.useQuery(
@@ -283,14 +287,14 @@ export default function Reconciliation() {
       {/* Upload Panel */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <button className="w-full flex items-center justify-between px-5 py-3 hover:bg-accent/20"
-          onClick={() => setUploadCollapsed(!uploadCollapsed)}>
+          onClick={() => setUploadCollapsed(!effectiveUploadCollapsed)}>
           <h2 className="text-sm font-semibold text-foreground">
-            {uploadCollapsed ? "📥 Nova Conciliação" : "Importar Extratos"}
+            {effectiveUploadCollapsed ? "📥 Nova Conciliação" : "Importar Extratos"}
           </h2>
-          {uploadCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+          {effectiveUploadCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
         </button>
 
-        {!uploadCollapsed && (
+        {!effectiveUploadCollapsed && (
         <div className="px-5 pb-5 space-y-4 border-t border-border pt-4">
 
         {/* Data */}
