@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight,
   FileSpreadsheet, RefreshCw, ChevronDown, ChevronUp, Info,
@@ -132,7 +132,7 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-accent/10">
-                    {sec.key === "divs"  && ["Data","Banco","Tipo","Categoria","Valor","Status",""].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                    {sec.key === "divs"  && ["Data","Banco","Tipo","Descrição Banco","Cliente / API","END2END","Vlr Banco","Vlr API","Diferença","Status",""].map(c => <th key={c} className="text-left px-3 py-2 text-muted-foreground font-medium whitespace-nowrap">{c}</th>)}
                     {sec.key === "bank"  && ["Data","Banco","Descrição","Canal","Tipo","Valor"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
                     {sec.key === "api"   && ["Data","Cliente","Descrição","Tipo","Valor"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
                   </tr>
@@ -141,12 +141,20 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
                   {sec.items.slice(0, 300).map((item: any, i: number) => (
                     <tr key={i} className="hover:bg-accent/20">
                       {sec.key === "divs" && <>
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.divergenceDate)}</td>
-                        <td className="px-4 py-2 text-muted-foreground">{item.bankName}</td>
-                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.divergenceType === "bank_surplus" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400")}>{item.divergenceType === "bank_surplus" ? "Sobra" : "Falta"}</span></td>
-                        <td className="px-4 py-2 text-muted-foreground max-w-[140px] truncate">{item.category}</td>
-                        <td className="px-4 py-2 font-mono text-yellow-400">{formatCurrency(item.amount)}</td>
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.divergenceDate)}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{item.bankName}</td>
+                        <td className="px-3 py-2">
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.divergenceType === "bank_surplus" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400")}>
+                            {item.divergenceType === "bank_surplus" ? "Sobra" : "Falta"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 max-w-[150px] truncate text-foreground" title={item.bankDescription ?? ""}>{item.bankDescription ?? item.category}</td>
+                        <td className="px-3 py-2 max-w-[130px] truncate text-muted-foreground" title={item.clientName ?? item.apiDescription ?? ""}>{item.clientName ?? item.apiDescription ?? "—"}</td>
+                        <td className="px-3 py-2 max-w-[120px] truncate text-muted-foreground font-mono text-[10px]" title={item.externalId ?? ""}>{item.externalId ? item.externalId.slice(-16) : "—"}</td>
+                        <td className={cn("px-3 py-2 font-mono", item.transactionType === "credit" ? "text-emerald-400" : "text-red-400")}>{item.bankAmount ? formatCurrency(item.bankAmount) : "—"}</td>
+                        <td className={cn("px-3 py-2 font-mono", item.transactionType === "credit" ? "text-blue-400" : "text-orange-400")}>{item.apiAmount ? formatCurrency(item.apiAmount) : "—"}</td>
+                        <td className="px-3 py-2 font-mono text-yellow-400 font-semibold">{formatCurrency(item.amount)}</td>
+                        <td className="px-3 py-2">
                           <Select value={item.status} onValueChange={v => updateDivMutation.mutate({ id: item.id, status: v })}>
                             <SelectTrigger className="h-6 text-[10px] w-28"><SelectValue /></SelectTrigger>
                             <SelectContent>
@@ -154,7 +162,7 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-2">
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
                             onClick={() => { if (confirm("Remover?")) deleteDivMutation.mutate({ id: item.id }); }}>
                             <Trash2 className="w-3 h-3" />
@@ -199,15 +207,22 @@ export default function Reconciliation() {
   const [expanded, setExpanded] = useState<string | null>("matched");
   const [selectedSession, setSelectedSession] = useState<number | null>(null);
   const [uploadCollapsed, setUploadCollapsed] = useState(false);
+  const [manualBack, setManualBack] = useState(false);
 
   const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery();
 
+  // Auto-seleciona a última sessão ao carregar a página (quando não há resultado ao vivo e não clicou em voltar)
+  const latestSessionId = (sessions as any[])?.[0]?.id ?? null;
+  useEffect(() => {
+    if (!liveResult && latestSessionId && selectedSession === null && !manualBack) {
+      setSelectedSession(latestSessionId);
+    }
+  }, [latestSessionId, liveResult, manualBack]);
+
   // Auto-colapsa upload quando há sessões salvas
   const hasSessions = (sessions as any[])?.length > 0;
-  const effectiveUploadCollapsed = uploadCollapsed || (!liveResult && hasSessions);
+  const effectiveUploadCollapsed = uploadCollapsed || (!liveResult && hasSessions && !manualBack);
 
-  // Auto-carrega a sessão mais recente quando não há resultado ao vivo
-  const latestSessionId = (sessions as any[])?.[0]?.id ?? null;
   const { data: latestSessionData } = trpc.reconciliation.getSessionTransactions.useQuery(
     { id: latestSessionId! },
     { enabled: !!latestSessionId && !liveResult && selectedSession === null }
@@ -252,7 +267,7 @@ export default function Reconciliation() {
           <h1 className="text-2xl font-bold text-foreground">Conciliação Bancária</h1>
           <p className="text-sm text-muted-foreground mt-1">Categoria 1 · Detalhe da sessão</p>
         </div>
-        <SessionDetail sessionId={selectedSession} onBack={() => setSelectedSession(null)} />
+        <SessionDetail sessionId={selectedSession} onBack={() => { setSelectedSession(null); setManualBack(true); }} />
       </div>
     );
   }

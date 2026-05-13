@@ -143,6 +143,12 @@ export const divergences = mysqlTable("divergences", {
   actionTaken: text("actionTaken"),
   bankTransactionId: int("bankTransactionId"),
   apiTransactionId: int("apiTransactionId"),
+  bankDescription: varchar("bankDescription", { length: 500 }),
+  apiDescription: varchar("apiDescription", { length: 500 }),
+  externalId: varchar("externalId", { length: 200 }),
+  bankAmount: decimal("bankAmount", { precision: 18, scale: 2 }),
+  apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }),
+  transactionType: mysqlEnum("transactionType", ["credit", "debit"]),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

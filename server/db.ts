@@ -210,15 +210,24 @@ export async function createDivergence(data: {
   priority?: 'low' | 'medium' | 'high' | 'critical';
   slaDeadline?: string;
   bankTransactionId?: number; apiTransactionId?: number;
+  bankDescription?: string; apiDescription?: string;
+  externalId?: string; bankAmount?: string; apiAmount?: string;
+  transactionType?: 'credit' | 'debit';
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const result = await db.execute(sql`
-    INSERT INTO divergences (sessionId, divergenceDate, bankName, clientId, clientName, divergenceType, amount, origin, category, priority, status)
-    VALUES (
+    INSERT INTO divergences (
+      sessionId, divergenceDate, bankName, clientId, clientName,
+      divergenceType, amount, origin, category, priority, status,
+      bankDescription, apiDescription, externalId, bankAmount, apiAmount, transactionType
+    ) VALUES (
       ${data.sessionId}, ${data.divergenceDate}, ${data.bankName || null}, ${data.clientId || null},
       ${data.clientName || null}, ${data.divergenceType}, ${data.amount}, ${data.origin || null},
-      ${data.category}, ${data.priority || 'medium'}, 'pendente'
+      ${data.category}, ${data.priority || 'medium'}, 'pendente',
+      ${data.bankDescription || null}, ${data.apiDescription || null},
+      ${data.externalId || null}, ${data.bankAmount || null}, ${data.apiAmount || null},
+      ${data.transactionType || null}
     )
   `);
   return (result as any)[0]?.insertId ?? 0;

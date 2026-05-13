@@ -119,7 +119,13 @@ const reconciliationRouter = router({
             divergenceType: match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage",
             amount: String(match.difference?.toFixed(2) ?? "0"),
             origin: match.bankTx.externalId,
+            externalId: match.bankTx.externalId,
             category: "liquidacao_divergente", priority: "high",
+            bankDescription: match.bankTx.description,
+            apiDescription: match.apiTx?.description,
+            bankAmount: match.bankTx.amount.toFixed(2),
+            apiAmount: match.apiTx?.amount.toFixed(2),
+            transactionType: match.bankTx.type,
           });
         } else if (match.status === "unmatched_bank") {
           await db.createDivergence({
@@ -127,9 +133,13 @@ const reconciliationRouter = router({
             bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
             divergenceType: "bank_surplus",
             amount: match.bankTx.amount.toFixed(2),
+            bankAmount: match.bankTx.amount.toFixed(2),
             origin: match.bankTx.externalId,
+            externalId: match.bankTx.externalId,
+            bankDescription: match.bankTx.description,
             category: match.bankTx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
             priority: match.bankTx.amount > 1000 ? "high" : "medium",
+            transactionType: match.bankTx.type,
           });
         }
       }
@@ -140,9 +150,13 @@ const reconciliationRouter = router({
           clientName: tx.clientName,
           divergenceType: "bank_shortage",
           amount: tx.amount.toFixed(2),
+          apiAmount: tx.amount.toFixed(2),
           origin: tx.externalId,
+          externalId: tx.externalId,
+          apiDescription: tx.description,
           category: tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
           priority: tx.amount > 1000 ? "high" : "medium",
+          transactionType: tx.type,
         });
       }
 
