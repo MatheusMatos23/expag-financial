@@ -10,7 +10,6 @@ import { runReconciliationEngine } from "./modules/reconciliation/engine";
 import { classifyDivergence } from "./modules/divergence/classifier";
 import { audit } from "./modules/audit/logger";
 import { parseStatement } from "./reconciliation/parsers";
-import { reconcile } from "./reconciliation/engine";
 
 // ─── CONCILIAÇÃO ROUTER ───────────────────────────────────────────────────────
 const reconciliationRouter = router({
@@ -50,46 +49,53 @@ const reconciliationRouter = router({
       return { transactions, count: transactions.length };
     }),
 
-  // ── Novo: conciliar banco vs API ───────────────────────────────────────────
+  // ── Novo: conciliar múltiplos bancos vs API ────────────────────────────────
   runReconciliation: protectedProcedure
     .input(z.object({
       referenceDate: z.string(),
-      bankFileBase64: z.string(),
       apiFileBase64: z.string(),
-      bank: z.enum(["sicoob", "bb", "jd"]),
+      banks: z.array(z.object({
+        name: z.enum(["sicoob", "bb", "jd"]),
+        fileBase64: z.string(),
+      })).min(1).max(3),
     }))
     .mutation(async ({ input, ctx }) => {
-      const bankBuffer = Buffer.from(input.bankFileBase64, "base64");
-      const apiBuffer  = Buffer.from(input.apiFileBase64, "base64");
+      const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
+      const allApiTxs = parseStatement(apiBuffer, "api");
 
-      // Parse todos os dados
-      const allBankTxs = parseStatement(bankBuffer, input.bank);
-      const allApiTxs  = parseStatement(apiBuffer, "api");
+      // Parse cada banco
+      const parsedBanks = input.banks.map(b => {
+        const buffer = Buffer.from(b.fileBase64, "base64");
+        const txs = parseStatement(buffer, b.name);
+        return { name: b.name, txs, useE2E: b.name === "jd" };
+      });
 
-      // Detectar datas presentes no extrato bancário
-      const bankDates = new Set(allBankTxs.map(t => t.date));
+      // Detectar datas presentes nos extratos bancários
+      const bankDates = new Set(parsedBanks.flatMap(b => b.txs.map(t => t.date)));
 
-      // Filtrar API apenas para as datas do extrato bancário
+      // Filtrar API apenas para datas dos extratos
       const apiTxs = allApiTxs.filter(t => bankDates.has(t.date));
-      const bankTxs = allBankTxs;
 
-      const useE2E = input.bank === "jd";
-      const result = reconcile(bankTxs, apiTxs, useE2E);
+      // Rodar conciliação multi-banco
+      const { reconcileMultiBank } = await import("./reconciliation/engine");
+      const result = reconcileMultiBank(parsedBanks, apiTxs);
 
-      // Salvar sessão no banco
+      // Salvar sessão
       const sessionId = await db.createReconciliationSession({
         userId: ctx.user.id,
         referenceDate: input.referenceDate,
       });
 
-      // Persistir transações bancárias
-      for (const tx of bankTxs) {
-        await db.createBankTransaction({
-          sessionId, type: tx.type,
-          transactionDate: tx.date, description: tx.description,
-          amount: tx.amount.toFixed(2), channel: tx.channel,
-          bankName: input.bank, externalId: tx.externalId,
-        });
+      // Persistir transações de cada banco
+      for (const bank of parsedBanks) {
+        for (const tx of bank.txs) {
+          await db.createBankTransaction({
+            sessionId, type: tx.type,
+            transactionDate: tx.date, description: tx.description,
+            amount: tx.amount.toFixed(2), channel: tx.channel,
+            bankName: bank.name, externalId: tx.externalId,
+          });
+        }
       }
 
       // Persistir transações da API
@@ -102,29 +108,23 @@ const reconciliationRouter = router({
         });
       }
 
-      // Criar divergências para transações sem par ou com valores diferentes
-      const bankName = input.bank === "bb" ? "Banco do Brasil" : input.bank === "sicoob" ? "Sicoob" : "JD";
-
+      // Criar divergências
+      const BANK_LABELS: Record<string, string> = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
       for (const match of result.matches) {
         if (match.status === "divergent") {
-          // Valor diferente entre banco e API
           await db.createDivergence({
-            sessionId,
-            divergenceDate: match.bankTx.date,
-            bankName,
+            sessionId, divergenceDate: match.bankTx.date,
+            bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
             clientName: match.apiTx?.clientName,
             divergenceType: match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage",
             amount: String(match.difference?.toFixed(2) ?? "0"),
             origin: match.bankTx.externalId,
-            category: "liquidacao_divergente",
-            priority: "high",
+            category: "liquidacao_divergente", priority: "high",
           });
         } else if (match.status === "unmatched_bank") {
-          // Transação no banco sem correspondência na API
           await db.createDivergence({
-            sessionId,
-            divergenceDate: match.bankTx.date,
-            bankName,
+            sessionId, divergenceDate: match.bankTx.date,
+            bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
             divergenceType: "bank_surplus",
             amount: match.bankTx.amount.toFixed(2),
             origin: match.bankTx.externalId,
@@ -133,13 +133,10 @@ const reconciliationRouter = router({
           });
         }
       }
-
-      // Transações na API sem correspondência no banco
       for (const tx of result.unmatchedApi) {
         await db.createDivergence({
-          sessionId,
-          divergenceDate: tx.date,
-          bankName,
+          sessionId, divergenceDate: tx.date,
+          bankName: "API",
           clientName: tx.clientName,
           divergenceType: "bank_shortage",
           amount: tx.amount.toFixed(2),
@@ -149,7 +146,7 @@ const reconciliationRouter = router({
         });
       }
 
-      // Atualizar sessão com resultados
+      // Atualizar sessão
       await db.updateReconciliationSession(sessionId, {
         status: "completed",
         totalBankCredits: result.summary.totalBankCredits.toFixed(2),
@@ -161,7 +158,12 @@ const reconciliationRouter = router({
         pendingCount:     0,
       });
 
-      return { sessionId, result, bankDates: Array.from(bankDates), apiFilteredCount: apiTxs.length };
+      return {
+        sessionId, result,
+        bankDates: Array.from(bankDates).sort(),
+        apiFilteredCount: apiTxs.length,
+        banksProcessed: parsedBanks.map(b => ({ name: b.name, count: b.txs.length })),
+      };
     }),
 
   getSessionById: protectedProcedure

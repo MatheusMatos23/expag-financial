@@ -4,17 +4,19 @@ import { useState, useRef } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight,
   FileSpreadsheet, RefreshCw, ChevronDown, ChevronUp, Info,
-  Trash2, Eye, ArrowLeft
+  Trash2, Eye, ArrowLeft, X, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const BANKS = [
-  { value: "sicoob", label: "Sicoob" },
-  { value: "bb",     label: "Banco do Brasil" },
-  { value: "jd",     label: "JD (Expag)" },
+const BANK_OPTIONS = [
+  { value: "jd",     label: "JD (Expag)",       color: "text-blue-400",   bg: "bg-blue-500/10" },
+  { value: "sicoob", label: "Sicoob",            color: "text-green-400",  bg: "bg-green-500/10" },
+  { value: "bb",     label: "Banco do Brasil",   color: "text-yellow-400", bg: "bg-yellow-500/10" },
 ];
 
 function fileToBase64(file: File): Promise<string> {
@@ -26,74 +28,86 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function UploadZone({ label, file, onFile }: { label: string; file: File | null; onFile: (f: File) => void }) {
+function safeDate(val: any): string {
+  if (!val) return "—";
+  const s = String(val);
+  if (s.length >= 10) return s.slice(0, 10);
+  return s;
+}
+
+function UploadZone({ label, file, onFile, onRemove, color }: {
+  label: string; file: File | null; onFile: (f: File) => void; onRemove: () => void; color: string;
+}) {
   const ref = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   return (
-    <div
-      onClick={() => ref.current?.click()}
+    <div className={cn("relative rounded-xl border-2 border-dashed p-4 transition-all",
+      drag ? "border-primary bg-primary/5" : file ? "border-emerald-500/40 bg-emerald-500/5" : "border-border hover:border-primary/30"
+    )}
       onDragOver={e => { e.preventDefault(); setDrag(true); }}
       onDragLeave={() => setDrag(false)}
       onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}
-      className={cn("flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 cursor-pointer transition-all",
-        drag ? "border-primary bg-primary/5" : file ? "border-green-500/40 bg-green-500/5" : "border-border hover:border-primary/40 hover:bg-accent/20"
-      )}
     >
       <input ref={ref} type="file" accept=".xlsx,.xls" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
       {file ? (
-        <>
-          <FileSpreadsheet className="w-6 h-6 text-green-400" />
-          <p className="text-xs font-semibold text-green-400 truncate max-w-full px-2">{file.name}</p>
-          <p className="text-[10px] text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
-        </>
+        <div className="flex items-center gap-3">
+          <FileSpreadsheet className="w-5 h-5 text-emerald-400 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-emerald-400 truncate">{file.name}</p>
+            <p className="text-[10px] text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
+          </div>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0" onClick={onRemove}><X className="w-3.5 h-3.5" /></Button>
+        </div>
       ) : (
-        <>
-          <Upload className="w-6 h-6 text-muted-foreground" />
-          <p className="text-xs font-semibold text-foreground">{label}</p>
-          <p className="text-[10px] text-muted-foreground">Arraste ou clique • .xlsx</p>
-        </>
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => ref.current?.click()}>
+          <Upload className="w-5 h-5 text-muted-foreground shrink-0" />
+          <div>
+            <p className={cn("text-xs font-semibold", color)}>{label}</p>
+            <p className="text-[10px] text-muted-foreground">Clique ou arraste • .xlsx</p>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-// ── Session Detail View ────────────────────────────────────────────────────────
+// ── Session Detail ────────────────────────────────────────────────────────────
 function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () => void }) {
-  const [expanded, setExpanded] = useState<string | null>("bank");
+  const [expanded, setExpanded] = useState<string | null>("divs");
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionTransactions.useQuery({ id: sessionId });
+
   const deleteDivMutation = trpc.reconciliation.deleteDivergence.useMutation({
     onSuccess: () => { toast.success("Divergência removida."); refetch(); },
     onError: (e) => toast.error(e.message),
   });
   const updateDivMutation = trpc.reconciliation.updateDivergence.useMutation({
-    onSuccess: () => { toast.success("Divergência atualizada."); refetch(); },
+    onSuccess: () => { toast.success("Status atualizado."); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
-  if (isLoading) return <div className="text-center py-10 text-muted-foreground text-sm">Carregando...</div>;
-  if (!data) return <div className="text-center py-10 text-muted-foreground text-sm">Sessão não encontrada.</div>;
+  if (isLoading) return <div className="text-center py-12 text-muted-foreground text-sm">Carregando sessão...</div>;
+  if (!data) return <div className="text-center py-12 text-muted-foreground text-sm">Sessão não encontrada.</div>;
 
   const { session, bankTxs, apiTxs, divs } = data as any;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" className="gap-2" onClick={onBack}>
-          <ArrowLeft className="w-4 h-4" /> Voltar
+        <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={onBack}>
+          <ArrowLeft className="w-3.5 h-3.5" /> Voltar
         </Button>
         <div>
-          <h2 className="text-base font-semibold text-foreground">Sessão #{session.id} — {formatDate(session.referenceDate)}</h2>
+          <h2 className="text-sm font-semibold text-foreground">Sessão #{session.id} — {formatDate(session.referenceDate)}</h2>
           <p className="text-xs text-muted-foreground">{session.matchedCount} conciliados · {session.divergentCount} divergentes</p>
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Banco Entradas", value: session.totalBankCredits, color: "text-emerald-400" },
-          { label: "Total Banco Saídas",   value: session.totalBankDebits,  color: "text-red-400" },
-          { label: "Total API Entradas",   value: session.totalApiCredits,  color: "text-blue-400" },
-          { label: "Total API Saídas",     value: session.totalApiDebits,   color: "text-orange-400" },
+          { label: "Entradas Banco", value: session.totalBankCredits, color: "text-emerald-400" },
+          { label: "Saídas Banco",   value: session.totalBankDebits,  color: "text-red-400" },
+          { label: "Entradas API",   value: session.totalApiCredits,  color: "text-blue-400" },
+          { label: "Saídas API",     value: session.totalApiDebits,   color: "text-orange-400" },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-card border border-border rounded-xl p-4">
             <p className="text-xs text-muted-foreground mb-1">{label}</p>
@@ -102,11 +116,10 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
         ))}
       </div>
 
-      {/* Sections */}
       {[
-        { key: "bank",  label: `Transações Banco (${bankTxs?.length ?? 0})`, items: bankTxs ?? [], cols: ["Data", "Descrição", "Canal", "Tipo", "Valor"] },
-        { key: "api",   label: `Transações API (${apiTxs?.length ?? 0})`,   items: apiTxs ?? [],  cols: ["Data", "Cliente", "Descrição", "Tipo", "Valor"] },
-        { key: "divs",  label: `Divergências (${divs?.length ?? 0})`,        items: divs ?? [],    cols: ["Data", "Tipo", "Categoria", "Valor", "Status", "Ações"] },
+        { key: "divs",  label: `Divergências (${(divs ?? []).length})`,         items: divs ?? [] },
+        { key: "bank",  label: `Transações Banco (${(bankTxs ?? []).length})`,  items: bankTxs ?? [] },
+        { key: "api",   label: `Transações API (${(apiTxs ?? []).length})`,     items: apiTxs ?? [] },
       ].map(sec => (
         <div key={sec.key} className="bg-card border border-border rounded-xl overflow-hidden">
           <button className="w-full flex items-center justify-between px-5 py-3 border-b border-border hover:bg-accent/20"
@@ -119,34 +132,23 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-accent/10">
-                    {sec.cols.map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                    {sec.key === "divs"  && ["Data","Banco","Tipo","Categoria","Valor","Status",""].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                    {sec.key === "bank"  && ["Data","Banco","Descrição","Canal","Tipo","Valor"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                    {sec.key === "api"   && ["Data","Cliente","Descrição","Tipo","Valor"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {sec.items.slice(0, 200).map((item: any, i: number) => (
+                  {sec.items.slice(0, 300).map((item: any, i: number) => (
                     <tr key={i} className="hover:bg-accent/20">
-                      {sec.key === "bank" && <>
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{item.transactionDate?.slice(0,10)}</td>
-                        <td className="px-4 py-2 max-w-xs truncate">{item.description}</td>
-                        <td className="px-4 py-2 text-muted-foreground">{item.channel}</td>
-                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.type === "credit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>{item.type === "credit" ? "C" : "D"}</span></td>
-                        <td className={cn("px-4 py-2 font-mono", item.type === "credit" ? "text-emerald-400" : "text-red-400")}>{formatCurrency(item.amount)}</td>
-                      </>}
-                      {sec.key === "api" && <>
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{item.transactionDate?.slice(0,10)}</td>
-                        <td className="px-4 py-2 max-w-[140px] truncate text-muted-foreground">{item.clientName}</td>
-                        <td className="px-4 py-2 max-w-xs truncate">{item.description}</td>
-                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.type === "credit" ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400")}>{item.type === "credit" ? "C" : "D"}</span></td>
-                        <td className={cn("px-4 py-2 font-mono", item.type === "credit" ? "text-blue-400" : "text-orange-400")}>{formatCurrency(item.amount)}</td>
-                      </>}
                       {sec.key === "divs" && <>
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{item.divergenceDate?.slice(0,10)}</td>
-                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.divergenceType === "bank_surplus" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400")}>{item.divergenceType === "bank_surplus" ? "Sobra Banco" : "Falta Banco"}</span></td>
-                        <td className="px-4 py-2 text-muted-foreground">{item.category}</td>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.divergenceDate)}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{item.bankName}</td>
+                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.divergenceType === "bank_surplus" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400")}>{item.divergenceType === "bank_surplus" ? "Sobra" : "Falta"}</span></td>
+                        <td className="px-4 py-2 text-muted-foreground max-w-[140px] truncate">{item.category}</td>
                         <td className="px-4 py-2 font-mono text-yellow-400">{formatCurrency(item.amount)}</td>
                         <td className="px-4 py-2">
                           <Select value={item.status} onValueChange={v => updateDivMutation.mutate({ id: item.id, status: v })}>
-                            <SelectTrigger className="h-6 text-[10px] w-24"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="h-6 text-[10px] w-28"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {["pendente","em_analise","resolvido","ignorado"].map(s => <SelectItem key={s} value={s} className="text-[10px]">{s}</SelectItem>)}
                             </SelectContent>
@@ -154,16 +156,31 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
                         </td>
                         <td className="px-4 py-2">
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
-                            onClick={() => { if (confirm("Remover esta divergência?")) deleteDivMutation.mutate({ id: item.id }); }}>
+                            onClick={() => { if (confirm("Remover?")) deleteDivMutation.mutate({ id: item.id }); }}>
                             <Trash2 className="w-3 h-3" />
                           </Button>
                         </td>
+                      </>}
+                      {sec.key === "bank" && <>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.transactionDate)}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{item.bankName}</td>
+                        <td className="px-4 py-2 max-w-[160px] truncate">{item.description}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{item.channel}</td>
+                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.type === "credit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>{item.type === "credit" ? "C" : "D"}</span></td>
+                        <td className={cn("px-4 py-2 font-mono", item.type === "credit" ? "text-emerald-400" : "text-red-400")}>{formatCurrency(item.amount)}</td>
+                      </>}
+                      {sec.key === "api" && <>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.transactionDate)}</td>
+                        <td className="px-4 py-2 max-w-[140px] truncate text-muted-foreground">{item.clientName}</td>
+                        <td className="px-4 py-2 max-w-[160px] truncate">{item.description}</td>
+                        <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.type === "credit" ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400")}>{item.type === "credit" ? "C" : "D"}</span></td>
+                        <td className={cn("px-4 py-2 font-mono", item.type === "credit" ? "text-blue-400" : "text-orange-400")}>{formatCurrency(item.amount)}</td>
                       </>}
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {sec.items.length > 200 && <p className="text-center text-xs text-muted-foreground py-2 border-t border-border">Mostrando 200 de {sec.items.length}</p>}
+              {sec.items.length > 300 && <p className="text-center text-xs text-muted-foreground py-2 border-t border-border">Mostrando 300 de {sec.items.length}</p>}
             </div>
           )}
         </div>
@@ -172,11 +189,11 @@ function SessionDetail({ sessionId, onBack }: { sessionId: number; onBack: () =>
   );
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function Reconciliation() {
-  const [bank, setBank] = useState("jd");
-  const [bankFile, setBankFile] = useState<File | null>(null);
+  const [referenceDate, setReferenceDate] = useState(new Date().toISOString().split("T")[0]);
   const [apiFile, setApiFile] = useState<File | null>(null);
+  const [bankFiles, setBankFiles] = useState<Record<string, File | null>>({ jd: null, sicoob: null, bb: null });
   const [liveResult, setLiveResult] = useState<any>(null);
   const [liveMeta, setLiveMeta] = useState<any>(null);
   const [expanded, setExpanded] = useState<string | null>("matched");
@@ -192,7 +209,7 @@ export default function Reconciliation() {
   const reconcileMutation = trpc.reconciliation.runReconciliation.useMutation({
     onSuccess: (data) => {
       setLiveResult(data.result);
-      setLiveMeta({ bankDates: data.bankDates, apiFilteredCount: data.apiFilteredCount, sessionId: data.sessionId });
+      setLiveMeta(data);
       const s = data.result.summary;
       toast.success(`Concluído! ✅ ${s.matchedCount} · ⚠️ ${s.divergentCount} · ❓ ${s.unmatchedBankCount + s.unmatchedApiCount}`);
       refetchSessions();
@@ -201,15 +218,20 @@ export default function Reconciliation() {
   });
 
   const handleRun = async () => {
-    if (!bankFile || !apiFile) { toast.error("Selecione os dois arquivos."); return; }
+    const activeBanks = BANK_OPTIONS.filter(b => bankFiles[b.value]);
+    if (activeBanks.length === 0) { toast.error("Selecione ao menos 1 extrato bancário."); return; }
+    if (!apiFile) { toast.error("Selecione o arquivo API Clientes."); return; }
+    if (!referenceDate) { toast.error("Informe a data de referência."); return; }
     try {
-      const [bankB64, apiB64] = await Promise.all([fileToBase64(bankFile), fileToBase64(apiFile)]);
-      const today = new Date().toISOString().split("T")[0];
-      reconcileMutation.mutate({ referenceDate: today, bankFileBase64: bankB64, apiFileBase64: apiB64, bank: bank as any });
+      const apiB64 = await fileToBase64(apiFile);
+      const banks = await Promise.all(activeBanks.map(async b => ({
+        name: b.value as "sicoob" | "bb" | "jd",
+        fileBase64: await fileToBase64(bankFiles[b.value]!),
+      })));
+      reconcileMutation.mutate({ referenceDate, apiFileBase64: apiB64, banks });
     } catch { toast.error("Erro ao ler os arquivos."); }
   };
 
-  // Session detail view
   if (selectedSession !== null) {
     return (
       <div className="space-y-6">
@@ -240,51 +262,104 @@ export default function Reconciliation() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Conciliação Bancária</h1>
-        <p className="text-sm text-muted-foreground mt-1">Categoria 1 · Importação e cruzamento de extratos diários</p>
+        <p className="text-sm text-muted-foreground mt-1">Categoria 1 · Importação diária de extratos</p>
       </div>
 
-      {/* Upload */}
+      {/* Upload Panel */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-foreground">Importar Extratos do Dia</h2>
+        <h2 className="text-sm font-semibold text-foreground">Importar Extratos</h2>
+
+        {/* Data */}
+        <div className="flex items-end gap-4">
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1.5 block">Data de Referência *</Label>
+            <Input type="date" value={referenceDate} onChange={e => setReferenceDate(e.target.value)} className="h-9 text-xs w-44" />
+          </div>
+        </div>
+
+        {/* Bancos */}
         <div>
-          <label className="text-xs text-muted-foreground mb-1.5 block">Banco *</label>
-          <Select value={bank} onValueChange={v => { setBank(v); setBankFile(null); setLiveResult(null); }}>
-            <SelectTrigger className="h-9 text-xs w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>{BANKS.map(b => <SelectItem key={b.value} value={b.value} className="text-xs">{b.label}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Extrato {BANKS.find(b => b.value === bank)?.label}</label>
-            <UploadZone label={`Extrato ${BANKS.find(b => b.value === bank)?.label}`} file={bankFile} onFile={setBankFile} />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">API Clientes (Expag)</label>
-            <UploadZone label="API Clientes" file={apiFile} onFile={setApiFile} />
+          <Label className="text-xs text-muted-foreground mb-2 block">Extratos Bancários (selecione 1 a 3)</Label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {BANK_OPTIONS.map(b => (
+              <UploadZone
+                key={b.value}
+                label={b.label}
+                color={b.color}
+                file={bankFiles[b.value]}
+                onFile={f => setBankFiles(prev => ({ ...prev, [b.value]: f }))}
+                onRemove={() => setBankFiles(prev => ({ ...prev, [b.value]: null }))}
+              />
+            ))}
           </div>
         </div>
+
+        {/* API */}
+        <div>
+          <Label className="text-xs text-muted-foreground mb-2 block">API Clientes Expag *</Label>
+          <UploadZone
+            label="API Clientes (Expag)"
+            color="text-purple-400"
+            file={apiFile}
+            onFile={setApiFile}
+            onRemove={() => setApiFile(null)}
+          />
+        </div>
+
+        {/* Info */}
         {liveMeta && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
             <Info className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
             <p className="text-xs text-blue-300">
-              Datas detectadas: <span className="font-semibold">{liveMeta.bankDates?.sort().join(", ")}</span> · API filtrada: <span className="font-semibold">{liveMeta.apiFilteredCount} transações</span>
+              Bancos: <span className="font-semibold">{liveMeta.banksProcessed?.map((b: any) => `${b.name} (${b.count})`).join(" · ")}</span>
+              {" · "}API filtrada: <span className="font-semibold">{liveMeta.apiFilteredCount} transações</span>
+              {" · "}Datas: <span className="font-semibold">{liveMeta.bankDates?.join(", ")}</span>
             </p>
           </div>
         )}
-        <Button onClick={handleRun} disabled={!bankFile || !apiFile || reconcileMutation.isPending} className="w-full gap-2">
-          {reconcileMutation.isPending ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processando...</> : <><ArrowRight className="w-4 h-4" /> Conciliar</>}
+
+        <Button
+          onClick={handleRun}
+          disabled={!apiFile || Object.values(bankFiles).every(f => !f) || reconcileMutation.isPending}
+          className="w-full gap-2"
+        >
+          {reconcileMutation.isPending
+            ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processando...</>
+            : <><ArrowRight className="w-4 h-4" /> Conciliar</>}
         </Button>
       </div>
 
       {/* Live Results */}
       {liveResult && s && (
         <div className="space-y-4">
+          {/* Por banco */}
+          {Object.keys(s.byBank ?? {}).length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {Object.entries(s.byBank).map(([name, stats]: any) => (
+                <div key={name} className="bg-card border border-border rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-xs font-semibold text-foreground uppercase">{name}</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Entradas</span><span className="font-mono text-emerald-400">{formatCurrency(stats.credits)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Saídas</span><span className="font-mono text-red-400">{formatCurrency(stats.debits)}</span></div>
+                    <div className="flex justify-between pt-1 border-t border-border/40"><span className="text-muted-foreground">Conciliados</span><span className="text-emerald-400">{stats.matched}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Divergentes</span><span className="text-yellow-400">{stats.divergent}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Sem par</span><span className="text-orange-400">{stats.unmatched}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* KPIs totais */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: "Conciliados", value: s.matchedCount, color: "text-emerald-400", bg: "bg-emerald-500/10", icon: CheckCircle },
-              { label: "Divergentes", value: s.divergentCount, color: "text-yellow-400", bg: "bg-yellow-500/10", icon: AlertTriangle },
-              { label: "Só no Banco", value: s.unmatchedBankCount, color: "text-orange-400", bg: "bg-orange-500/10", icon: XCircle },
-              { label: "Só na API",   value: s.unmatchedApiCount, color: "text-red-400", bg: "bg-red-500/10", icon: XCircle },
+              { label: "Conciliados", value: s.matchedCount,       color: "text-emerald-400", bg: "bg-emerald-500/10", icon: CheckCircle },
+              { label: "Divergentes", value: s.divergentCount,     color: "text-yellow-400",  bg: "bg-yellow-500/10",  icon: AlertTriangle },
+              { label: "Só no Banco", value: s.unmatchedBankCount, color: "text-orange-400",  bg: "bg-orange-500/10",  icon: XCircle },
+              { label: "Só na API",   value: s.unmatchedApiCount,  color: "text-red-400",     bg: "bg-red-500/10",     icon: XCircle },
             ].map(({ label, value, color, bg, icon: Icon }) => (
               <div key={label} className="bg-card border border-border rounded-xl p-4">
                 <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center mb-2", bg)}><Icon className={cn("w-4 h-4", color)} /></div>
@@ -293,19 +368,8 @@ export default function Reconciliation() {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: "Entradas Banco", value: s.totalBankCredits, color: "text-emerald-400" },
-              { label: "Saídas Banco",   value: s.totalBankDebits,  color: "text-red-400" },
-              { label: "Entradas API",   value: s.totalApiCredits,  color: "text-blue-400" },
-              { label: "Saídas API",     value: s.totalApiDebits,   color: "text-orange-400" },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="bg-card border border-border rounded-xl p-4">
-                <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                <p className={cn("text-base font-bold font-mono", color)}>{formatCurrency(value)}</p>
-              </div>
-            ))}
-          </div>
+
+          {/* Tabelas */}
           {SECTIONS.map(sec => (
             <div key={sec.key} className="bg-card border border-border rounded-xl overflow-hidden">
               <button className="w-full flex items-center justify-between px-5 py-3 border-b border-border hover:bg-accent/20"
@@ -323,6 +387,7 @@ export default function Reconciliation() {
                     <thead>
                       <tr className="border-b border-border bg-accent/10">
                         <th className="text-left px-4 py-2 text-muted-foreground font-medium">Data</th>
+                        <th className="text-left px-4 py-2 text-muted-foreground font-medium">Banco</th>
                         <th className="text-left px-4 py-2 text-muted-foreground font-medium">Descrição</th>
                         <th className="text-left px-4 py-2 text-muted-foreground font-medium">Cliente</th>
                         <th className="text-center px-4 py-2 text-muted-foreground font-medium">Tipo</th>
@@ -338,8 +403,9 @@ export default function Reconciliation() {
                         return (
                           <tr key={i} className="hover:bg-accent/20">
                             <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{tx?.date}</td>
-                            <td className="px-4 py-2 max-w-[160px] truncate">{bk?.description ?? ap?.description}</td>
-                            <td className="px-4 py-2 max-w-[130px] truncate text-muted-foreground">{ap?.clientName ?? "—"}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{item.bankName ?? "—"}</td>
+                            <td className="px-4 py-2 max-w-[140px] truncate">{bk?.description ?? ap?.description}</td>
+                            <td className="px-4 py-2 max-w-[120px] truncate text-muted-foreground">{ap?.clientName ?? "—"}</td>
                             <td className="px-4 py-2 text-center">
                               <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", tx?.type === "credit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>
                                 {tx?.type === "credit" ? "C" : "D"}
@@ -359,8 +425,10 @@ export default function Reconciliation() {
               )}
             </div>
           ))}
+
           <div className="flex justify-end">
-            <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={() => { if (liveMeta?.sessionId) setSelectedSession(liveMeta.sessionId); }}>
+            <Button variant="outline" size="sm" className="gap-2 text-xs"
+              onClick={() => { if (liveMeta?.sessionId) setSelectedSession(liveMeta.sessionId); }}>
               <Eye className="w-3.5 h-3.5" /> Ver sessão salva
             </Button>
           </div>
@@ -380,7 +448,6 @@ export default function Reconciliation() {
                 <span className="text-muted-foreground w-24 shrink-0">{formatDate(sess.referenceDate)}</span>
                 <span className="text-emerald-400 shrink-0">✅ {sess.matchedCount}</span>
                 <span className="text-yellow-400 shrink-0">⚠️ {sess.divergentCount}</span>
-                <span className="text-muted-foreground">#{sess.id}</span>
                 <div className="flex items-center gap-1 ml-auto">
                   <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
                     onClick={() => setSelectedSession(sess.id)}>
