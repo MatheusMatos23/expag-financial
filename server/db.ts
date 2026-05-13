@@ -204,14 +204,15 @@ export async function createDivergence(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const result = await db.insert(divergences).values({
-    ...data,
-    divergenceDate: data.divergenceDate as unknown as Date,
-    slaDeadline: data.slaDeadline as unknown as Date | undefined,
-    category: data.category as any,
-    status: 'pendente',
-  });
-  return result[0].insertId;
+  const result = await db.execute(sql`
+    INSERT INTO divergences (sessionId, divergenceDate, bankName, clientId, clientName, divergenceType, amount, origin, category, priority, status)
+    VALUES (
+      ${data.sessionId}, ${data.divergenceDate}, ${data.bankName || null}, ${data.clientId || null},
+      ${data.clientName || null}, ${data.divergenceType}, ${data.amount}, ${data.origin || null},
+      ${data.category}, ${data.priority || 'medium'}, 'pendente'
+    )
+  `);
+  return (result as any)[0]?.insertId ?? 0;
 }
 
 export async function getDivergences(filters?: {
