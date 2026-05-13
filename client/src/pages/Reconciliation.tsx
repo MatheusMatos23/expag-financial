@@ -198,8 +198,16 @@ export default function Reconciliation() {
   const [liveMeta, setLiveMeta] = useState<any>(null);
   const [expanded, setExpanded] = useState<string | null>("matched");
   const [selectedSession, setSelectedSession] = useState<number | null>(null);
+  const [uploadCollapsed, setUploadCollapsed] = useState(false);
 
   const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery();
+
+  // Auto-carrega a sessão mais recente quando não há resultado ao vivo
+  const latestSessionId = (sessions as any[])?.[0]?.id ?? null;
+  const { data: latestSessionData } = trpc.reconciliation.getSessionTransactions.useQuery(
+    { id: latestSessionId! },
+    { enabled: !!latestSessionId && !liveResult && selectedSession === null }
+  );
 
   const deleteSessionMutation = trpc.reconciliation.deleteSession.useMutation({
     onSuccess: () => { toast.success("Sessão removida."); refetchSessions(); setSelectedSession(null); },
@@ -210,6 +218,7 @@ export default function Reconciliation() {
     onSuccess: (data) => {
       setLiveResult(data.result);
       setLiveMeta(data);
+      setUploadCollapsed(true);
       const s = data.result.summary;
       toast.success(`Concluído! ✅ ${s.matchedCount} · ⚠️ ${s.divergentCount} · ❓ ${s.unmatchedBankCount + s.unmatchedApiCount}`);
       refetchSessions();
@@ -244,9 +253,15 @@ export default function Reconciliation() {
     );
   }
 
-  const s = liveResult?.summary;
-  const matches = liveResult?.matches ?? [];
-  const unmatchedApi = liveResult?.unmatchedApi ?? [];
+  // Usa resultado ao vivo OU dados da sessão mais recente do DB
+  const displaySession = liveResult ? null : (latestSessionData as any);
+  const displaySummary = liveResult?.summary ?? null;
+  const displayMatches = liveResult?.matches ?? [];
+  const displayUnmatchedApi = liveResult?.unmatchedApi ?? [];
+
+  const s = displaySummary;
+  const matches = displayMatches;
+  const unmatchedApi = displayUnmatchedApi;
   const conciliados = matches.filter((m: any) => m.status === "matched");
   const divergentes = matches.filter((m: any) => m.status === "divergent");
   const semParBanco = matches.filter((m: any) => m.status === "unmatched_bank");
@@ -266,8 +281,17 @@ export default function Reconciliation() {
       </div>
 
       {/* Upload Panel */}
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-foreground">Importar Extratos</h2>
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <button className="w-full flex items-center justify-between px-5 py-3 hover:bg-accent/20"
+          onClick={() => setUploadCollapsed(!uploadCollapsed)}>
+          <h2 className="text-sm font-semibold text-foreground">
+            {uploadCollapsed ? "📥 Nova Conciliação" : "Importar Extratos"}
+          </h2>
+          {uploadCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+        </button>
+
+        {!uploadCollapsed && (
+        <div className="px-5 pb-5 space-y-4 border-t border-border pt-4">
 
         {/* Data */}
         <div className="flex items-end gap-4">
@@ -327,7 +351,99 @@ export default function Reconciliation() {
             ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processando...</>
             : <><ArrowRight className="w-4 h-4" /> Conciliar</>}
         </Button>
+        </div>
+        )}
       </div>
+
+      {/* Sessão mais recente do DB (quando não há resultado ao vivo) */}
+      {!liveResult && displaySession && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Última Conciliação — {formatDate(displaySession.session.referenceDate)}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Sessão #{displaySession.session.id} · {displaySession.session.matchedCount} conciliados · {displaySession.session.divergentCount} divergentes</p>
+            </div>
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setSelectedSession(latestSessionId)}>
+              <Eye className="w-3.5 h-3.5" /> Ver detalhes
+            </Button>
+          </div>
+
+          {/* KPIs da sessão */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "Conciliados", value: displaySession.session.matchedCount,  color: "text-emerald-400", bg: "bg-emerald-500/10", icon: CheckCircle },
+              { label: "Divergentes", value: displaySession.session.divergentCount, color: "text-yellow-400",  bg: "bg-yellow-500/10",  icon: AlertTriangle },
+              { label: "Entradas Banco", value: null, amount: displaySession.session.totalBankCredits, color: "text-blue-400", bg: "bg-blue-500/10", icon: CheckCircle },
+              { label: "Saídas Banco",   value: null, amount: displaySession.session.totalBankDebits,  color: "text-red-400",  bg: "bg-red-500/10",  icon: XCircle },
+            ].map(({ label, value, amount, color, bg, icon: Icon }) => (
+              <div key={label} className="bg-card border border-border rounded-xl p-4">
+                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center mb-2", bg)}><Icon className={cn("w-4 h-4", color)} /></div>
+                <p className={cn("text-xl font-bold font-mono", color)}>
+                  {value != null ? value : formatCurrency(amount ?? 0)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Transações do banco */}
+          {[
+            { key: "bank", label: `Transações Banco (${displaySession.bankTxs?.length ?? 0})`, items: displaySession.bankTxs ?? [] },
+            { key: "api",  label: `Transações API (${displaySession.apiTxs?.length ?? 0})`,    items: displaySession.apiTxs ?? [] },
+            { key: "divs", label: `Divergências (${displaySession.divs?.length ?? 0})`,         items: displaySession.divs ?? [] },
+          ].map(sec => (
+            <div key={sec.key} className="bg-card border border-border rounded-xl overflow-hidden">
+              <button className="w-full flex items-center justify-between px-5 py-3 border-b border-border hover:bg-accent/20"
+                onClick={() => setExpanded(expanded === sec.key ? null : sec.key)}>
+                <span className="text-sm font-semibold text-foreground">{sec.label}</span>
+                {expanded === sec.key ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+              </button>
+              {expanded === sec.key && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-accent/10">
+                        {sec.key === "bank" && ["Data","Banco","Descrição","Canal","Tipo","Valor"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                        {sec.key === "api"  && ["Data","Cliente","Descrição","Tipo","Valor"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                        {sec.key === "divs" && ["Data","Banco","Tipo","Valor","Status"].map(c => <th key={c} className="text-left px-4 py-2 text-muted-foreground font-medium">{c}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {sec.items.slice(0, 100).map((item: any, i: number) => (
+                        <tr key={i} className="hover:bg-accent/20">
+                          {sec.key === "bank" && <>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.transactionDate)}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{item.bankName}</td>
+                            <td className="px-4 py-2 max-w-[160px] truncate">{item.description}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{item.channel}</td>
+                            <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.type === "credit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>{item.type === "credit" ? "C" : "D"}</span></td>
+                            <td className={cn("px-4 py-2 font-mono", item.type === "credit" ? "text-emerald-400" : "text-red-400")}>{formatCurrency(item.amount)}</td>
+                          </>}
+                          {sec.key === "api" && <>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.transactionDate)}</td>
+                            <td className="px-4 py-2 max-w-[140px] truncate text-muted-foreground">{item.clientName}</td>
+                            <td className="px-4 py-2 max-w-[160px] truncate">{item.description}</td>
+                            <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.type === "credit" ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400")}>{item.type === "credit" ? "C" : "D"}</span></td>
+                            <td className={cn("px-4 py-2 font-mono", item.type === "credit" ? "text-blue-400" : "text-orange-400")}>{formatCurrency(item.amount)}</td>
+                          </>}
+                          {sec.key === "divs" && <>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{safeDate(item.divergenceDate)}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{item.bankName}</td>
+                            <td className="px-4 py-2"><span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", item.divergenceType === "bank_surplus" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400")}>{item.divergenceType === "bank_surplus" ? "Sobra" : "Falta"}</span></td>
+                            <td className="px-4 py-2 font-mono text-yellow-400">{formatCurrency(item.amount)}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{item.status}</td>
+                          </>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {sec.items.length > 100 && <p className="text-center text-xs text-muted-foreground py-2 border-t border-border">Mostrando 100 de {sec.items.length}</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Live Results */}
       {liveResult && s && (
@@ -425,41 +541,42 @@ export default function Reconciliation() {
               )}
             </div>
           ))}
-
-          <div className="flex justify-end">
-            <Button variant="outline" size="sm" className="gap-2 text-xs"
-              onClick={() => { if (liveMeta?.sessionId) setSelectedSession(liveMeta.sessionId); }}>
-              <Eye className="w-3.5 h-3.5" /> Ver sessão salva
-            </Button>
-          </div>
         </div>
       )}
 
       {/* Histórico */}
       {(sessions ?? []).length > 0 && (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-border">
+          <div className="px-5 py-3 border-b border-border flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">Histórico de Conciliações</h2>
+            <span className="text-xs text-muted-foreground">{(sessions as any[]).length} sessões</span>
           </div>
           <div className="divide-y divide-border">
-            {(sessions as any[]).slice(0, 20).map((sess: any) => (
-              <div key={sess.id} className="flex items-center gap-3 px-5 py-3 hover:bg-accent/20 text-xs">
-                <div className={cn("w-2 h-2 rounded-full shrink-0", sess.divergentCount > 0 ? "bg-yellow-400" : "bg-emerald-400")} />
-                <span className="text-muted-foreground w-24 shrink-0">{formatDate(sess.referenceDate)}</span>
-                <span className="text-emerald-400 shrink-0">✅ {sess.matchedCount}</span>
-                <span className="text-yellow-400 shrink-0">⚠️ {sess.divergentCount}</span>
-                <div className="flex items-center gap-1 ml-auto">
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
-                    onClick={() => setSelectedSession(sess.id)}>
-                    <Eye className="w-3 h-3" />
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
-                    onClick={() => { if (confirm(`Remover sessão #${sess.id}?`)) deleteSessionMutation.mutate({ id: sess.id }); }}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+            {(sessions as any[]).slice(0, 30).map((sess: any) => {
+              const isCurrent = liveMeta?.sessionId === sess.id;
+              return (
+                <div key={sess.id}
+                  className={cn("flex items-center gap-3 px-5 py-3 hover:bg-accent/20 text-xs cursor-pointer", isCurrent && "bg-primary/5 border-l-2 border-primary")}
+                  onClick={() => setSelectedSession(sess.id)}
+                >
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", sess.divergentCount > 0 ? "bg-yellow-400" : "bg-emerald-400")} />
+                  <span className="text-muted-foreground w-24 shrink-0">{formatDate(sess.referenceDate)}</span>
+                  <span className="text-emerald-400 shrink-0">✅ {sess.matchedCount}</span>
+                  <span className="text-yellow-400 shrink-0">⚠️ {sess.divergentCount}</span>
+                  {isCurrent && <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-semibold">atual</span>}
+                  <div className="flex items-center gap-1 ml-auto" onClick={e => e.stopPropagation()}>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                      onClick={() => setSelectedSession(sess.id)}>
+                      <Eye className="w-3 h-3" />
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+                      onClick={() => { if (confirm(`Remover sessão #${sess.id}?`)) deleteSessionMutation.mutate({ id: sess.id }); }}>
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
