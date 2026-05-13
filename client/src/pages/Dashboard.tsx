@@ -221,9 +221,9 @@ export default function Dashboard() {
         {[
           { label: "Caixa Livre", value: formatCurrencyCompact(freeCash), color: freeCash < 0 ? "text-red-400" : "text-teal-400", sub: freeCash < 0 ? "⚠ NEGATIVO" : null, path: "/saldo-gerencial" },
           { label: "Custódia Clientes", value: formatCurrencyCompact(clientBal), color: "text-amber-400", sub: null, path: "/saldo-gerencial" },
-          { label: "Divergências", value: String(divCount), color: divCount > 10 ? "text-amber-400" : "text-foreground", sub: "ativas", path: "/divergencias" },
+          { label: "Divergências", value: String(divCount), color: divCount > 10 ? "text-amber-400" : divCount > 0 ? "text-yellow-400" : "text-emerald-400", sub: divCount > 0 ? "pendentes" : "ok", path: "/divergencias" },
           { label: "A Pagar Vencido", value: String(overduePayables), color: overduePayables > 0 ? "text-red-400" : "text-foreground", sub: overduePayables > 0 ? "REGULARIZAR" : null, path: "/contas-a-pagar" },
-          { label: "Taxa Matching", value: `${matchRate}%`, color: matchRate >= 90 ? "text-emerald-400" : "text-amber-400", sub: "última sessão", path: "/conciliacao" },
+          { label: "Taxa Matching", value: latestSession ? `${matchRate}%` : "—", color: !latestSession ? "text-muted-foreground" : matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-yellow-400" : "text-red-400", sub: latestSession ? `${latestSession.matchedCount} conciliados` : "sem sessão", path: "/conciliacao" },
           { label: "Alertas Ativos", value: String(alertCount), color: alertCount > 0 ? "text-orange-400" : "text-foreground", sub: "no sistema", path: "/alertas" },
         ].map(({ label, value, color, sub, path }) => (
           <div key={label} onClick={() => setLocation(path)}

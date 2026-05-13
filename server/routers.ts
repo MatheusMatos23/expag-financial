@@ -18,6 +18,26 @@ const reconciliationRouter = router({
     return db.getReconciliationSessions(30);
   }),
 
+  deleteSession: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      await db.deleteReconciliationSession(input.id);
+      return { success: true };
+    }),
+
+  getSessionTransactions: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const session = await db.getReconciliationSessionById(input.id);
+      if (!session) return null;
+      const [bankTxs, apiTxs, divs] = await Promise.all([
+        db.getBankTransactionsBySession(input.id),
+        db.getApiTransactionsBySession(input.id),
+        db.getDivergences({ sessionId: input.id }),
+      ]);
+      return { session, bankTxs, apiTxs, divs };
+    }),
+
   // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
   parseStatementFile: protectedProcedure
     .input(z.object({
@@ -395,6 +415,16 @@ const reconciliationRouter = router({
     }))
     .mutation(async ({ input }) => {
       await db.updateDivergenceStatus(input.id, input);
+      return { success: true };
+    }),
+
+  deleteDivergence: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) throw new Error("DB unavailable");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
       return { success: true };
     }),
 

@@ -97,6 +97,15 @@ export async function getReconciliationSessionById(id: number) {
   return result[0] ?? null;
 }
 
+export async function deleteReconciliationSession(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`DELETE FROM divergences WHERE sessionId = ${id}`);
+  await db.execute(sql`DELETE FROM bank_transactions WHERE sessionId = ${id}`);
+  await db.execute(sql`DELETE FROM api_transactions WHERE sessionId = ${id}`);
+  await db.execute(sql`DELETE FROM reconciliation_sessions WHERE id = ${id}`);
+}
+
 export async function insertBankTransactions(rows: Array<{
   sessionId: number; type: 'credit' | 'debit'; transactionDate: string;
   description: string; amount: string; channel?: string; bankName?: string; externalId?: string;
