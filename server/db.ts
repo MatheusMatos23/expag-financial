@@ -139,6 +139,30 @@ export async function getApiTransactionsBySession(sessionId: number, type?: 'cre
   return db.select().from(apiTransactions).where(and(...conditions));
 }
 
+export async function createBankTransaction(data: {
+  sessionId: number; type: 'credit' | 'debit'; transactionDate: string;
+  description: string; amount: string; channel?: string; bankName?: string; externalId?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.execute(sql`
+    INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId)
+    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null})
+  `);
+}
+
+export async function createApiTransaction(data: {
+  sessionId: number; type: 'credit' | 'debit'; transactionDate: string;
+  description: string; amount: string; channel?: string; clientName?: string; externalId?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.execute(sql`
+    INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId)
+    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.clientName || null}, ${data.externalId || null})
+  `);
+}
+
 export async function updateBankTransactionMatch(id: number, data: {
   matchStatus: 'matched' | 'divergent' | 'manual'; matchedApiTransactionId?: number;
   matchType?: 'exact' | 'partial' | 'approximate' | 'manual' | 'divergent';

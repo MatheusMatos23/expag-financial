@@ -9,12 +9,83 @@ import { processIngestion } from "./modules/ingestion";
 import { runReconciliationEngine } from "./modules/reconciliation/engine";
 import { classifyDivergence } from "./modules/divergence/classifier";
 import { audit } from "./modules/audit/logger";
+import { parseStatement } from "./reconciliation/parsers";
+import { reconcile } from "./reconciliation/engine";
 
 // ─── CONCILIAÇÃO ROUTER ───────────────────────────────────────────────────────
 const reconciliationRouter = router({
   getSessions: protectedProcedure.query(async () => {
     return db.getReconciliationSessions(30);
   }),
+
+  // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
+  parseStatementFile: protectedProcedure
+    .input(z.object({
+      fileBase64: z.string(),
+      bank: z.enum(["sicoob", "bb", "jd", "api"]),
+    }))
+    .mutation(async ({ input }) => {
+      const buffer = Buffer.from(input.fileBase64, "base64");
+      const transactions = parseStatement(buffer, input.bank);
+      return { transactions, count: transactions.length };
+    }),
+
+  // ── Novo: conciliar banco vs API ───────────────────────────────────────────
+  runReconciliation: protectedProcedure
+    .input(z.object({
+      referenceDate: z.string(),
+      bankFileBase64: z.string(),
+      apiFileBase64: z.string(),
+      bank: z.enum(["sicoob", "bb", "jd"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const bankBuffer = Buffer.from(input.bankFileBase64, "base64");
+      const apiBuffer  = Buffer.from(input.apiFileBase64, "base64");
+      const bankTxs = parseStatement(bankBuffer, input.bank);
+      const apiTxs  = parseStatement(apiBuffer, "api");
+      const useE2E  = input.bank === "jd";
+      const result  = reconcile(bankTxs, apiTxs, useE2E);
+
+      // Salvar sessão no banco
+      const sessionId = await db.createReconciliationSession({
+        userId: ctx.user.id,
+        referenceDate: input.referenceDate,
+      });
+
+      // Persistir transações bancárias
+      for (const tx of bankTxs) {
+        await db.createBankTransaction({
+          sessionId, type: tx.type,
+          transactionDate: tx.date, description: tx.description,
+          amount: tx.amount.toFixed(2), channel: tx.channel,
+          bankName: input.bank, externalId: tx.externalId,
+        });
+      }
+
+      // Persistir transações da API
+      for (const tx of apiTxs) {
+        await db.createApiTransaction({
+          sessionId, type: tx.type,
+          transactionDate: tx.date, description: tx.description,
+          amount: tx.amount.toFixed(2), channel: tx.channel,
+          clientName: tx.clientName, externalId: tx.externalId,
+        });
+      }
+
+      // Atualizar sessão com resultados
+      await db.updateReconciliationSession(sessionId, {
+        status: "completed",
+        totalBankCredits: result.summary.totalBankCredits.toFixed(2),
+        totalBankDebits:  result.summary.totalBankDebits.toFixed(2),
+        totalApiCredits:  result.summary.totalApiCredits.toFixed(2),
+        totalApiDebits:   result.summary.totalApiDebits.toFixed(2),
+        matchedCount:     result.summary.matchedCount,
+        divergentCount:   result.summary.divergentCount,
+        pendingCount:     result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
+      });
+
+      return { sessionId, result };
+    }),
 
   getSessionById: protectedProcedure
     .input(z.object({ id: z.number() }))
