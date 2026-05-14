@@ -163,7 +163,7 @@ const reconciliationRouter = router({
         // Tarifas internas: classificadas como baixa prioridade — não são divergências reais
         const isTariff   = tx.isTariff   ?? tx.channel === "TARIFA";
         const category   = isTariff
-          ? "tarifa_interna"
+          ? "tarifa_nao_apropriada"
           : tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada";
         const priority   = isTariff ? "low" : (tx.amount > 1000 ? "high" : "medium");
 
