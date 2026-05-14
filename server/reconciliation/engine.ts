@@ -8,6 +8,8 @@ export interface MatchResult {
   difference?: number;
   confidence: number;
   bankName?: string;
+  /** Sugestão de possível correspondência quando o valor bate mas não foi possível confirmar */
+  possibleMatchNote?: string;
 }
 
 export interface ReconciliationResult {
@@ -29,6 +31,27 @@ export interface ReconciliationResult {
 }
 
 const AMOUNT_TOLERANCE = 0.01;
+const APPROX_TOLERANCE = 1.00; // R$1.00 tolerance for approximate matches
+
+/** Returns an ISO date string offset by `days` days */
+function offsetDate(isoDate: string, days: number): string {
+  const d = new Date(isoDate + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Build an index key for date+type matching.
+ * Returns ALL candidate keys for a given bank transaction (same-day + D±1)
+ * to handle settlement lag (bank records D+1 while API records on transaction date).
+ */
+function dateTypeKeys(date: string, type: string): string[] {
+  return [
+    `${date}|${type}`,
+    `${offsetDate(date, -1)}|${type}`,
+    `${offsetDate(date, +1)}|${type}`,
+  ];
+}
 
 export function reconcileMultiBank(
   banks: Array<{ name: string; txs: ParsedTransaction[]; useE2E: boolean }>,
@@ -38,17 +61,16 @@ export function reconcileMultiBank(
   const usedApiIds = new Set<number>();
   const byBank: Record<string, any> = {};
 
-  // ── Para cada banco, roda o matching ──────────────────────────────────────
+  // ── Para cada banco, roda o matching ────────────────────────────────────────
   for (const bank of banks) {
     byBank[bank.name] = { credits: 0, debits: 0, matched: 0, divergent: 0, unmatched: 0 };
 
-    // Acumular totais do banco
     for (const tx of bank.txs) {
       if (tx.type === "credit") byBank[bank.name].credits += tx.amount;
-      else byBank[bank.name].debits += tx.amount;
+      else                      byBank[bank.name].debits  += tx.amount;
     }
 
-    // Passo 1: match por END2END (JD)
+    // ── Passo 1: match por END2END (apenas JD — externalId format E+32 chars) ──
     if (bank.useE2E) {
       const apiByE2E = new Map<string, { tx: ParsedTransaction; idx: number }>();
       apiTxs.forEach((tx, idx) => {
@@ -66,63 +88,154 @@ export function reconcileMultiBank(
         usedApiIds.add(apiMatch.idx);
         apiByE2E.delete(key);
         const diff = Math.abs(bankTx.amount - apiMatch.tx.amount);
-        const status = diff <= AMOUNT_TOLERANCE && bankTx.type === apiMatch.tx.type ? "matched" : "divergent";
-        allMatches.push({ bankTx, apiTx: apiMatch.tx, status, matchType: "exact_e2e", confidence: 100, difference: diff, bankName: bank.name });
+        const status =
+          diff <= AMOUNT_TOLERANCE && bankTx.type === apiMatch.tx.type
+            ? "matched"
+            : "divergent";
+        allMatches.push({
+          bankTx, apiTx: apiMatch.tx, status,
+          matchType: "exact_e2e", confidence: 100,
+          difference: diff, bankName: bank.name,
+        });
         if (status === "matched") byBank[bank.name].matched++;
-        else byBank[bank.name].divergent++;
+        else                      byBank[bank.name].divergent++;
       }
     }
 
-    // Passo 2: match por data + valor + tipo (BB, Sicoob — e JD sem E2E)
-    const matchedE2Es = new Set(allMatches.filter(m => m.bankName === bank.name).map(m => m.bankTx.externalId));
-    const unmatchedBankTxs = bank.txs.filter(tx => !matchedE2Es.has(tx.externalId) || !bank.useE2E);
+    // ── Passo 2: match por data + valor + tipo — com tolerância D±1 ──────────
+    //
+    // D±1 cobre lag de liquidação: um PIX recebido em 17/04 na API
+    // pode aparecer em 18/04 no extrato bancário (D+1 settlement).
+    //
+    const matchedE2Es = new Set(
+      allMatches.filter(m => m.bankName === bank.name).map(m => m.bankTx.externalId)
+    );
+    const unmatchedBankTxs = bank.txs.filter(
+      tx => !bank.useE2E || !matchedE2Es.has(tx.externalId)
+    );
 
-    // Índice da API disponível
+    // Build multi-date index: cada transação API aparece em 3 chaves (D-1, D, D+1)
     const apiIndex = new Map<string, Array<{ tx: ParsedTransaction; idx: number }>>();
     apiTxs.forEach((tx, idx) => {
       if (usedApiIds.has(idx)) return;
-      const key = `${tx.date}|${tx.type}`;
-      if (!apiIndex.has(key)) apiIndex.set(key, []);
-      apiIndex.get(key)!.push({ tx, idx });
+      // Index under D-1, D, D+1 so bank D can find API D-1 and D+1 too
+      for (const key of dateTypeKeys(tx.date, tx.type)) {
+        if (!apiIndex.has(key)) apiIndex.set(key, []);
+        apiIndex.get(key)!.push({ tx, idx });
+      }
     });
 
     for (const bankTx of unmatchedBankTxs) {
-      if (bank.useE2E && matchedE2Es.has(bankTx.externalId)) continue; // já conciliado por E2E
-      const key = `${bankTx.date}|${bankTx.type}`;
-      const candidates = (apiIndex.get(key) ?? []).filter(c => !usedApiIds.has(c.idx));
+      // Collect all candidates across D-1, D, D+1 — dedup by idx
+      const seen = new Set<number>();
+      const candidates: Array<{ tx: ParsedTransaction; idx: number }> = [];
+      for (const key of dateTypeKeys(bankTx.date, bankTx.type)) {
+        for (const c of apiIndex.get(key) ?? []) {
+          if (!usedApiIds.has(c.idx) && !seen.has(c.idx)) {
+            seen.add(c.idx);
+            candidates.push(c);
+          }
+        }
+      }
 
-      const exactIdx = candidates.findIndex(c => Math.abs(c.tx.amount - bankTx.amount) <= AMOUNT_TOLERANCE);
+      // Priority 1: exact value match (tolerance R$0.01)
+      const exactIdx = candidates.findIndex(
+        c => Math.abs(c.tx.amount - bankTx.amount) <= AMOUNT_TOLERANCE
+      );
       if (exactIdx >= 0) {
         const { tx: apiTx, idx } = candidates[exactIdx];
         usedApiIds.add(idx);
-        candidates.splice(exactIdx, 1);
-        allMatches.push({ bankTx, apiTx, status: "matched", matchType: "exact_value_date", confidence: 95, difference: 0, bankName: bank.name });
+        // Remove this idx from all keys in apiIndex
+        for (const key of dateTypeKeys(apiTx.date, apiTx.type)) {
+          const arr = apiIndex.get(key);
+          if (arr) {
+            const pos = arr.findIndex(c => c.idx === idx);
+            if (pos >= 0) arr.splice(pos, 1);
+          }
+        }
+        // Confidence 100 if same-day match, 85 if D±1
+        const sameDayKey = `${bankTx.date}|${bankTx.type}`;
+        const matchedOnSameDay = apiTx.date === bankTx.date;
+        const confidence = matchedOnSameDay ? 100 : 85;
+        const matchType  = matchedOnSameDay ? "exact_value_date" : "approximate";
+        allMatches.push({
+          bankTx, apiTx, status: "matched", matchType,
+          confidence, difference: 0, bankName: bank.name,
+        });
         byBank[bank.name].matched++;
         continue;
       }
 
-      const approxIdx = candidates.findIndex(c => Math.abs(c.tx.amount - bankTx.amount) <= 1.0);
+      // Priority 2: approximate value match (tolerance R$1.00)
+      const approxIdx = candidates.findIndex(
+        c => Math.abs(c.tx.amount - bankTx.amount) <= APPROX_TOLERANCE
+      );
       if (approxIdx >= 0) {
         const { tx: apiTx, idx } = candidates[approxIdx];
         usedApiIds.add(idx);
-        candidates.splice(approxIdx, 1);
+        for (const key of dateTypeKeys(apiTx.date, apiTx.type)) {
+          const arr = apiIndex.get(key);
+          if (arr) {
+            const pos = arr.findIndex(c => c.idx === idx);
+            if (pos >= 0) arr.splice(pos, 1);
+          }
+        }
         const diff = Math.abs(bankTx.amount - apiTx.amount);
         const status = diff > AMOUNT_TOLERANCE ? "divergent" : "matched";
-        allMatches.push({ bankTx, apiTx, status, matchType: "approximate", confidence: 75, difference: diff, bankName: bank.name });
+        allMatches.push({
+          bankTx, apiTx, status, matchType: "approximate",
+          confidence: 70, difference: diff, bankName: bank.name,
+        });
         if (status === "matched") byBank[bank.name].matched++;
-        else byBank[bank.name].divergent++;
+        else                      byBank[bank.name].divergent++;
         continue;
       }
 
-      allMatches.push({ bankTx, status: "unmatched_bank", confidence: 0, bankName: bank.name });
+      // No match found
+      allMatches.push({
+        bankTx, status: "unmatched_bank", confidence: 0, bankName: bank.name,
+      });
       byBank[bank.name].unmatched++;
     }
   }
 
-  // API sem par
+  // ── API sem par ──────────────────────────────────────────────────────────────
   const unmatchedApi = apiTxs.filter((_, idx) => !usedApiIds.has(idx));
 
-  // Totais gerais
+  // ── Detecção de possíveis correspondências entre não-conciliados ─────────────
+  //
+  // Quando um tx do banco não encontrou par na API (ou vice-versa),
+  // verificamos se existe um tx do lado oposto com o mesmo valor e tipo
+  // dentro de D±3 dias. Se sim, anotamos como "possível correspondência"
+  // para ajudar a investigação manual.
+
+  // Index unmatched API by amount+type for fast lookup
+  const unmatchedApiByAmountType = new Map<string, ParsedTransaction[]>();
+  for (const tx of unmatchedApi) {
+    if (tx.isTariff || tx.isInternal) continue; // tarifas não geram sugestão
+    const key = `${tx.amount.toFixed(2)}|${tx.type}`;
+    if (!unmatchedApiByAmountType.has(key)) unmatchedApiByAmountType.set(key, []);
+    unmatchedApiByAmountType.get(key)!.push(tx);
+  }
+
+  for (const match of allMatches) {
+    if (match.status !== "unmatched_bank") continue;
+    const key = `${match.bankTx.amount.toFixed(2)}|${match.bankTx.type}`;
+    const candidates = unmatchedApiByAmountType.get(key) ?? [];
+    // Find API tx within D±3
+    const suggestion = candidates.find(c => {
+      const diffDays = Math.abs(
+        (new Date(match.bankTx.date).getTime() - new Date(c.date).getTime()) /
+        86_400_000
+      );
+      return diffDays <= 3;
+    });
+    if (suggestion) {
+      match.possibleMatchNote = `Possível correspondência na API: R$ ${suggestion.amount.toFixed(2)} em ${suggestion.date}${suggestion.clientName ? ` (${suggestion.clientName})` : ""}`;
+    }
+  }
+
+  // ── Totais ───────────────────────────────────────────────────────────────────
   const allBankTxs = banks.flatMap(b => b.txs);
   const totalBankCredits = allBankTxs.filter(t => t.type === "credit").reduce((s, t) => s + t.amount, 0);
   const totalBankDebits  = allBankTxs.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0);
@@ -133,23 +246,24 @@ export function reconcileMultiBank(
     matches: allMatches,
     unmatchedApi,
     summary: {
-      totalBankCredits, totalBankDebits, totalApiCredits, totalApiDebits,
-      matchedCount:       allMatches.filter(m => m.status === "matched").length,
-      divergentCount:     allMatches.filter(m => m.status === "divergent").length,
-      unmatchedBankCount: allMatches.filter(m => m.status === "unmatched_bank").length,
-      unmatchedApiCount:  unmatchedApi.length,
-      differenceCredits:  totalBankCredits - totalApiCredits,
-      differenceDebits:   totalBankDebits - totalApiDebits,
+      totalBankCredits, totalBankDebits,
+      totalApiCredits,  totalApiDebits,
+      matchedCount:        allMatches.filter(m => m.status === "matched").length,
+      divergentCount:      allMatches.filter(m => m.status === "divergent").length,
+      unmatchedBankCount:  allMatches.filter(m => m.status === "unmatched_bank").length,
+      unmatchedApiCount:   unmatchedApi.length,
+      differenceCredits:   totalBankCredits - totalApiCredits,
+      differenceDebits:    totalBankDebits  - totalApiDebits,
       byBank,
     },
   };
 }
 
-// Compatibilidade com o engine antigo
+/** Compat wrapper para uso legado */
 export function reconcile(
   bankTxs: ParsedTransaction[],
   apiTxs: ParsedTransaction[],
-  useE2E: boolean = true
+  useE2E = true
 ) {
   return reconcileMultiBank([{ name: "banco", txs: bankTxs, useE2E }], apiTxs);
 }

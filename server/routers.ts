@@ -70,11 +70,22 @@ const reconciliationRouter = router({
         return { name: b.name, txs, useE2E: b.name === "jd" };
       });
 
-      // Detectar datas presentes nos extratos bancários
-      const bankDates = new Set(parsedBanks.flatMap(b => b.txs.map(t => t.date)));
+      // Detectar datas presentes nos extratos bancários (expandido para ±1 dia de lag de liquidação)
+      const bankDatesRaw = new Set(parsedBanks.flatMap(b => b.txs.map(t => t.date)));
+      const bankDates = new Set<string>();
+      for (const d of bankDatesRaw) {
+        bankDates.add(d);
+        // D-1 e D+1 para cobrir lag de liquidação
+        const dt = new Date(d + "T12:00:00Z");
+        const dm1 = new Date(dt); dm1.setUTCDate(dt.getUTCDate() - 1);
+        const dp1 = new Date(dt); dp1.setUTCDate(dt.getUTCDate() + 1);
+        bankDates.add(dm1.toISOString().slice(0, 10));
+        bankDates.add(dp1.toISOString().slice(0, 10));
+      }
 
-      // Filtrar API apenas para datas dos extratos
-      const apiTxs = allApiTxs.filter(t => bankDates.has(t.date));
+      // Filtrar API para datas dos extratos (inclusive D±1), excluindo APENAS transferências entre contas
+      // Tarifas são MANTIDAS para registro, mas classificadas separadamente
+      const apiTxs = allApiTxs.filter(t => bankDates.has(t.date) && !t.isInternal);
 
       // Rodar conciliação multi-banco
       const { reconcileMultiBank } = await import("./reconciliation/engine");
@@ -108,14 +119,15 @@ const reconciliationRouter = router({
         });
       }
 
-      // Criar divergências
+      // Criar divergências — com classificação inteligente por tipo
       const BANK_LABELS: Record<string, string> = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
+
       for (const match of result.matches) {
         if (match.status === "divergent") {
           await db.createDivergence({
             sessionId, divergenceDate: match.bankTx.date,
             bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
-            clientName: match.apiTx?.clientName,
+            clientName: match.apiTx?.clientName ?? match.bankTx.clientName,
             divergenceType: match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage",
             amount: String(match.difference?.toFixed(2) ?? "0"),
             origin: match.bankTx.externalId,
@@ -131,6 +143,7 @@ const reconciliationRouter = router({
           await db.createDivergence({
             sessionId, divergenceDate: match.bankTx.date,
             bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
+            clientName: match.bankTx.clientName,
             divergenceType: "bank_surplus",
             amount: match.bankTx.amount.toFixed(2),
             bankAmount: match.bankTx.amount.toFixed(2),
@@ -140,10 +153,20 @@ const reconciliationRouter = router({
             category: match.bankTx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
             priority: match.bankTx.amount > 1000 ? "high" : "medium",
             transactionType: match.bankTx.type,
+            // Sugestão de possível correspondência detectada automaticamente
+            observation: match.possibleMatchNote ?? undefined,
           });
         }
       }
+
       for (const tx of result.unmatchedApi) {
+        // Tarifas internas: classificadas como baixa prioridade — não são divergências reais
+        const isTariff   = tx.isTariff   ?? tx.channel === "TARIFA";
+        const category   = isTariff
+          ? "tarifa_interna"
+          : tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada";
+        const priority   = isTariff ? "low" : (tx.amount > 1000 ? "high" : "medium");
+
         await db.createDivergence({
           sessionId, divergenceDate: tx.date,
           bankName: "API",
@@ -154,9 +177,13 @@ const reconciliationRouter = router({
           origin: tx.externalId,
           externalId: tx.externalId,
           apiDescription: tx.description,
-          category: tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
-          priority: tx.amount > 1000 ? "high" : "medium",
+          category,
+          priority,
           transactionType: tx.type,
+          // Tarifas: nota explicativa automática
+          observation: isTariff
+            ? "Tarifa interna da plataforma — sem correspondência no extrato bancário (esperado)"
+            : undefined,
         });
       }
 
