@@ -170,8 +170,7 @@ const reconciliationRouter = router({
           description: match.bankTx.description,
           amount: match.bankTx.amount.toFixed(2),
           supplier: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
-          sessionId,
-          origin: "auto_tariff",
+          status: "realizado",
           createdByName: "Conciliação Automática",
         });
 
@@ -193,8 +192,7 @@ const reconciliationRouter = router({
             description: tx.description || tx.channel,
             amount: tx.amount.toFixed(2),
             clientName: tx.clientName,
-            sessionId,
-            origin: "auto_tariff",
+            status: "realizado",
             createdByName: "Conciliação Automática",
           });
           autoReceitaCount++;
