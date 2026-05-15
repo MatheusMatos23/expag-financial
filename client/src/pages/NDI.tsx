@@ -10,7 +10,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 function daysOpen(dateStr: string) {
-  const d = new Date(String(dateStr).slice(0, 10));
+  // Handle MySQL Date objects (returned as Date) or ISO strings
+  const s = String(dateStr);
+  const raw = s.length >= 10 && s[4] === "-" ? s.slice(0, 10) : s.slice(0, 10);
+  const d = new Date(raw + "T12:00:00Z");
   return Math.floor((Date.now() - d.getTime()) / 86400000);
 }
 

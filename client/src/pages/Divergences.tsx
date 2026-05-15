@@ -65,9 +65,19 @@ const PRIORITY_LABELS: Record<string, string> = {
   critical: "Crítica", high: "Alta", medium: "Média", low: "Baixa",
 };
 
-function daysOpen(dateStr: string): number {
+function daysOpen(dateStr: string | Date | null | undefined): number {
   if (!dateStr) return 0;
-  const d = new Date(String(dateStr).slice(0, 10));
+  // Handle MySQL Date objects: use toISOString() instead of String().slice()
+  let iso: string;
+  if (dateStr instanceof Date) {
+    iso = dateStr.toISOString().slice(0, 10);
+  } else {
+    const s = String(dateStr);
+    // Already ISO format (2026-04-17) or needs conversion
+    iso = s.length >= 10 && s[4] === "-" ? s.slice(0, 10) : s.slice(0, 10);
+  }
+  const d = new Date(iso + "T12:00:00Z");
+  if (isNaN(d.getTime())) return 0;
   return Math.floor((Date.now() - d.getTime()) / 86400000);
 }
 

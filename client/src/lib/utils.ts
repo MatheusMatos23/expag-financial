@@ -26,10 +26,18 @@ export function formatCurrencyCompact(value: number | string | null | undefined)
 // ─── FORMATAÇÃO DE DATAS ──────────────────────────────────────────────────────
 export function formatDate(date: Date | string | null | undefined): string {
   if (!date) return "-";
-  const d = new Date(date);
-  // Ajuste UTC para evitar problema de timezone (MySQL retorna date sem time)
-  const utc = new Date(d.getTime() + d.getTimezoneOffset() * 60000);
-  return utc.toLocaleDateString("pt-BR");
+  // MySQL DATE type comes back as Date object — use ISO to avoid locale string issues
+  let iso: string;
+  if (date instanceof Date) {
+    iso = date.toISOString().slice(0, 10);
+  } else {
+    const s = String(date);
+    // If already ISO (2026-04-17), use directly
+    iso = s.length >= 10 && s[4] === "-" ? s.slice(0, 10) : s;
+  }
+  const [y, m, d_] = iso.split("-");
+  if (!y || !m || !d_) return String(date);
+  return `${d_}/${m}/${y}`;
 }
 
 export function formatDateTime(date: Date | string | null | undefined): string {
