@@ -301,6 +301,13 @@ const reconciliationRouter = router({
       // ── FLUSH FINAL: todas as divergências em batch ───────────────────────
       await db.insertDivergencesBatch(divRows);
 
+      // ── Atualiza session com contagem REAL de divergências criadas ─────────
+      // session.divergentCount deve refletir apenas as divergências criadas,
+      // não incluindo tarifas que viraram receitas/despesas automaticamente
+      const realDivergentCount = divRows.length;
+      const realMatchedCount   = result.summary.matchedCount;
+      const realTotalBank      = bankRows.length; // total real de bank_transactions
+
       // Atualizar sessão
       await db.updateReconciliationSession(sessionId, {
         status: "completed",
@@ -308,9 +315,9 @@ const reconciliationRouter = router({
         totalBankDebits:  result.summary.totalBankDebits.toFixed(2),
         totalApiCredits:  result.summary.totalApiCredits.toFixed(2),
         totalApiDebits:   result.summary.totalApiDebits.toFixed(2),
-        matchedCount:     result.summary.matchedCount,
-        divergentCount:   result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
-        pendingCount:     result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
+        matchedCount:     realMatchedCount,
+        divergentCount:   realDivergentCount,   // conta real da tabela divergences
+        pendingCount:     realDivergentCount,    // igual ao criado inicialmente
       });
 
       db.invalidateReconciliationCache(); // atualiza cache após nova conciliação
@@ -586,6 +593,40 @@ const reconciliationRouter = router({
       return { success: true };
     }),
 
+  // ── Recalcula e corrige stats da sessão a partir dos dados reais ────────────
+  recalculateSessionStats: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) throw new Error("DB unavailable");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const { reconciliationSessions } = await import("../drizzle/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+
+      const [totalRes, matchedRes, pendingRes, totalDivRes] = await Promise.all([
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id}`),
+      ]);
+
+      const totalBank   = parseInt(String((totalRes   as any)[0]?.[0]?.cnt ?? 0));
+      const matchedBank = parseInt(String((matchedRes as any)[0]?.[0]?.cnt ?? 0));
+      const pending     = parseInt(String((pendingRes as any)[0]?.[0]?.cnt ?? 0));
+      const totalDivs   = parseInt(String((totalDivRes as any)[0]?.[0]?.cnt ?? 0));
+      const matchRate   = totalBank > 0 ? Math.round((matchedBank / totalBank) * 100) : 0;
+
+      await dbConn.update(reconciliationSessions)
+        .set({
+          matchedCount:  matchedBank,
+          divergentCount: totalDivs,
+          pendingCount:  pending,
+        })
+        .where(eqOp(reconciliationSessions.id, input.id));
+
+      return { matchedCount: matchedBank, divergentCount: totalDivs, pendingCount: pending, matchRate };
+    }),
+
   // ── Stats em tempo real da sessão ────────────────────────────────────────────
   getSessionStats: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -605,20 +646,27 @@ const reconciliationRouter = router({
       const matchedBankTxs  = parseInt(String((matchedRes as any)[0]?.[0]?.cnt ?? 0));
       const pendingDivs     = parseInt(String((pendingRes as any)[0]?.[0]?.cnt ?? 0));
       const sessionRow      = (sessionRes as any)[0]?.[0];
-      const sessionMatched  = parseInt(String(sessionRow?.matchedCount ?? 0));
+      const sessionMatched  = parseInt(String(sessionRow?.matchedCount  ?? 0));
       const sessionDivergent= parseInt(String(sessionRow?.divergentCount ?? 0));
 
-      // matchedCount: usa bank_transactions quando > 0 (conciliação nova),
-      // caso contrário usa session.matchedCount (conciliação antiga sem matchStatus)
+      // Taxa de matching CORRETA:
+      // - Numerador: bank_transactions com matchStatus matched/manual (ou session.matchedCount)
+      // - Denominador: TOTAL de bank_transactions (não matched+divergent, que inclui tarifas)
       const effectiveMatched = matchedBankTxs > 0 ? matchedBankTxs : sessionMatched;
-      const effectiveTotal   = totalBankTxs   > 0 ? totalBankTxs   : (sessionMatched + sessionDivergent);
+      // Usa total de bank_transactions como base (mais preciso que matched+divergent)
+      const effectiveTotal = totalBankTxs > 0
+        ? totalBankTxs
+        : (sessionMatched + sessionDivergent); // fallback sessão antiga
       const matchRate = effectiveTotal > 0 ? Math.round((effectiveMatched / effectiveTotal) * 100) : 0;
+      // divergentCount real = divergências pendentes na tabela + regularizadas
+      const realDivergent = effectiveTotal - effectiveMatched;
 
       return {
-        totalCount: effectiveTotal,
+        totalCount:   effectiveTotal,
         matchedCount: effectiveMatched,
         pendingCount: pendingDivs,
         matchRate,
+        divergentCount: realDivergent,
       };
     }),
 

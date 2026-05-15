@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import {
   formatCurrency, formatDate, formatDateTime,
   getStatusBadge, getStatusLabel, safeNumber,
@@ -6,7 +7,7 @@ import {
 import { useParams, useLocation } from "wouter";
 import {
   ArrowLeft, CheckCircle, AlertTriangle, Activity, ExternalLink,
-  Hash, Link2, Unlink, TrendingUp, BarChart3, Search,
+  Hash, Link2, Unlink, TrendingUp, BarChart3, Search, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
@@ -209,6 +210,13 @@ export default function ReconciliationSession() {
   const id = parseInt(params.id ?? "0");
 
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionById.useQuery({ id });
+  const recalcMutation = trpc.reconciliation.recalculateSessionStats.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Stats recalculados: ${r.matchedCount} conciliados · ${r.divergentCount} divergentes · ${r.matchRate}% taxa`);
+      refetch(); refetchStats();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const { data: liveStats, refetch: refetchStats } = trpc.reconciliation.getSessionStats.useQuery(
     { id },
     { refetchInterval: 5000 } // auto-refresh every 5s
@@ -290,7 +298,7 @@ export default function ReconciliationSession() {
   const matchRate        = liveStats?.matchRate     ?? (allBank.length > 0 ? Math.round((matchedBank.length / allBank.length) * 100) : 0);
   const liveMatchedCount = liveStats?.matchedCount  ?? matchedBank.length;
   const livePendingCount = liveStats?.pendingCount  ?? session?.pendingCount ?? 0;
-  const liveDivergentCount = (liveStats?.totalCount ?? allBank.length) - liveMatchedCount;
+  const liveDivergentCount = liveStats?.divergentCount ?? ((liveStats?.totalCount ?? allBank.length) - liveMatchedCount);
   const liveTotal        = liveStats?.totalCount    ?? allBank.length;
   const totalDiff     = (totalBankCred + totalBankDeb) - (totalApiCred + totalApiDeb);
 
@@ -382,6 +390,18 @@ export default function ReconciliationSession() {
           <AlertTriangle className="w-3.5 h-3.5" />
           Ver Divergências
           <ExternalLink className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* ── Recalcular stats para sessões antigas ── */}
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={() => recalcMutation.mutate({ id })}
+          disabled={recalcMutation.isPending}
+          className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 ${recalcMutation.isPending ? 'animate-spin' : ''}`} />
+          {recalcMutation.isPending ? 'Recalculando...' : 'Recalcular stats'}
         </button>
       </div>
 

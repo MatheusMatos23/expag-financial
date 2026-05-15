@@ -74,10 +74,17 @@ export default function Dashboard() {
 
   const sessionList = (sessions as any[]) ?? [];
   const lastSession = sessionList[0];
-  const lastMatched   = lastSession?.matchedCount  ?? 0;
-  const lastDivergent = lastSession?.divergentCount ?? 0;
-  const lastTotal     = lastMatched + lastDivergent;
-  const matchRate     = lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0;
+  const lastMatched   = lastSession?.matchedCount   ?? 0;
+  // divergentCount na sessão pode estar inflado (pré-fix de tarifas)
+  // Usa o menor valor entre divergentCount e pendingCount quando disponível
+  const lastDivergent = Math.min(
+    lastSession?.divergentCount ?? 0,
+    lastSession?.pendingCount ?? lastSession?.divergentCount ?? 0
+  );
+  // Total correto: usa matchedCount + divergentCount da sessão
+  // (divergentCount agora reflete o real após o fix)
+  const lastTotal = lastMatched + lastDivergent;
+  const matchRate = lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0;
 
   const PENDING_ST = ["pendente","em_analise","identificado","escalado_diretoria","em_aberto"];
   const divList      = (divAll as any[]) ?? [];
@@ -338,7 +345,8 @@ export default function Dashboard() {
             <p className={cn("text-4xl font-bold font-mono", matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400")}>{matchRate}%</p>
             <div className="flex-1 text-xs text-muted-foreground space-y-0.5">
               <div className="flex justify-between"><span>Conciliados</span><span className="text-emerald-400 font-mono">{lastMatched}</span></div>
-              <div className="flex justify-between"><span>Divergentes</span><span className="text-yellow-400 font-mono">{lastDivergent}</span></div>
+              <div className="flex justify-between"><span>Pendentes</span><span className="text-yellow-400 font-mono">{lastDivergent}</span></div>
+              <div className="flex justify-between"><span>Total banco</span><span className="text-muted-foreground font-mono">{lastTotal}</span></div>
             </div>
           </div>
           <div className="w-full bg-accent/20 rounded-full h-2 overflow-hidden mb-4">

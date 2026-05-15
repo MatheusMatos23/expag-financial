@@ -132003,15 +132003,20 @@ var reconciliationRouter = router({
       });
     }
     await insertDivergencesBatch(divRows);
+    const realDivergentCount = divRows.length;
+    const realMatchedCount = result.summary.matchedCount;
+    const realTotalBank = bankRows.length;
     await updateReconciliationSession(sessionId, {
       status: "completed",
       totalBankCredits: result.summary.totalBankCredits.toFixed(2),
       totalBankDebits: result.summary.totalBankDebits.toFixed(2),
       totalApiCredits: result.summary.totalApiCredits.toFixed(2),
       totalApiDebits: result.summary.totalApiDebits.toFixed(2),
-      matchedCount: result.summary.matchedCount,
-      divergentCount: result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
-      pendingCount: result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount
+      matchedCount: realMatchedCount,
+      divergentCount: realDivergentCount,
+      // conta real da tabela divergences
+      pendingCount: realDivergentCount
+      // igual ao criado inicialmente
     });
     invalidateReconciliationCache();
     return {
@@ -132269,6 +132274,31 @@ var reconciliationRouter = router({
     await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
     return { success: true };
   }),
+  // ── Recalcula e corrige stats da sessão a partir dos dados reais ────────────
+  recalculateSessionStats: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    const dbConn = await getDb();
+    if (!dbConn) throw new Error("DB unavailable");
+    const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const { reconciliationSessions: reconciliationSessions2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
+    const { eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const [totalRes, matchedRes, pendingRes, totalDivRes] = await Promise.all([
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id}`)
+    ]);
+    const totalBank = parseInt(String(totalRes[0]?.[0]?.cnt ?? 0));
+    const matchedBank = parseInt(String(matchedRes[0]?.[0]?.cnt ?? 0));
+    const pending = parseInt(String(pendingRes[0]?.[0]?.cnt ?? 0));
+    const totalDivs = parseInt(String(totalDivRes[0]?.[0]?.cnt ?? 0));
+    const matchRate = totalBank > 0 ? Math.round(matchedBank / totalBank * 100) : 0;
+    await dbConn.update(reconciliationSessions2).set({
+      matchedCount: matchedBank,
+      divergentCount: totalDivs,
+      pendingCount: pending
+    }).where(eqOp(reconciliationSessions2.id, input.id));
+    return { matchedCount: matchedBank, divergentCount: totalDivs, pendingCount: pending, matchRate };
+  }),
   // ── Stats em tempo real da sessão ────────────────────────────────────────────
   getSessionStats: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
     const dbConn = await getDb();
@@ -132289,11 +132319,13 @@ var reconciliationRouter = router({
     const effectiveMatched = matchedBankTxs > 0 ? matchedBankTxs : sessionMatched;
     const effectiveTotal = totalBankTxs > 0 ? totalBankTxs : sessionMatched + sessionDivergent;
     const matchRate = effectiveTotal > 0 ? Math.round(effectiveMatched / effectiveTotal * 100) : 0;
+    const realDivergent = effectiveTotal - effectiveMatched;
     return {
       totalCount: effectiveTotal,
       matchedCount: effectiveMatched,
       pendingCount: pendingDivs,
-      matchRate
+      matchRate,
+      divergentCount: realDivergent
     };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────
