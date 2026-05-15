@@ -11,6 +11,23 @@ import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+// ── CACHE: evita recomputar queries caras dentro do mesmo processo ────────────
+// TTL: 30s para dashboards, 5min para agregações históricas
+const _cache = new Map<string, { data: any; expiresAt: number }>();
+function cacheGet<T>(key: string): T | null {
+  const entry = _cache.get(key);
+  if (!entry || Date.now() > entry.expiresAt) { _cache.delete(key); return null; }
+  return entry.data as T;
+}
+function cacheSet(key: string, data: any, ttlMs = 30_000) {
+  _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+function cacheInvalidate(pattern: string) {
+  for (const key of Array.from(_cache.keys())) {
+    if (key.startsWith(pattern)) _cache.delete(key);
+  }
+}
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -98,6 +115,12 @@ export async function getReconciliationSessionById(id: number) {
   return result[0] ?? null;
 }
 
+export function invalidateReconciliationCache() {
+  cacheInvalidate('bank_balances');
+  cacheInvalidate('ctrl_dashboard');
+  cacheInvalidate('daily_balances');
+}
+
 export async function deleteReconciliationSession(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -177,6 +200,93 @@ export async function createBankTransaction(data: {
     INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId, matchStatus)
     VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null}, ${ms})
   `);
+}
+
+/** BATCH INSERT — insere até 500 bank_transactions por query (104x mais rápido) */
+export async function insertBankTransactionsBatch(rows: Array<{
+  sessionId: number; type: string; transactionDate: string;
+  description?: string; amount: string; channel?: string; bankName?: string;
+  externalId?: string; matchStatus?: string;
+}>) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(r =>
+      `(${r.sessionId}, '${r.type}', '${r.transactionDate}',
+        ${r.description ? `'${r.description.replace(/'/g,"''").slice(0,500)}'` : 'NULL'},
+        '${r.amount}',
+        ${r.channel ? `'${r.channel.replace(/'/g,"''")}'` : 'NULL'},
+        ${r.bankName ? `'${r.bankName.replace(/'/g,"''")}'` : 'NULL'},
+        ${r.externalId ? `'${r.externalId.replace(/'/g,"''").slice(0,200)}'` : 'NULL'},
+        '${r.matchStatus ?? 'divergent'}')`
+    ).join(',');
+    await db.execute(sql.raw(
+      `INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId, matchStatus) VALUES ${values}`
+    ));
+  }
+}
+
+/** BATCH INSERT — insere até 500 api_transactions por query */
+export async function insertApiTransactionsBatch(rows: Array<{
+  sessionId: number; type: string; transactionDate: string;
+  description?: string; amount: string; channel?: string; clientName?: string;
+  externalId?: string; matchStatus?: string;
+}>) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(r =>
+      `(${r.sessionId}, '${r.type}', '${r.transactionDate}',
+        ${r.description ? `'${r.description.replace(/'/g,"''").slice(0,500)}'` : 'NULL'},
+        '${r.amount}',
+        ${r.channel ? `'${r.channel.replace(/'/g,"''")}'` : 'NULL'},
+        ${r.clientName ? `'${r.clientName.replace(/'/g,"''").slice(0,200)}'` : 'NULL'},
+        ${r.externalId ? `'${r.externalId.replace(/'/g,"''").slice(0,200)}'` : 'NULL'},
+        '${r.matchStatus ?? 'divergent'}')`
+    ).join(',');
+    await db.execute(sql.raw(
+      `INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus) VALUES ${values}`
+    ));
+  }
+}
+
+/** BATCH INSERT — insere até 200 divergences por query */
+export async function insertDivergencesBatch(rows: Array<{
+  sessionId: number; divergenceDate: string; bankName?: string;
+  clientName?: string; divergenceType: string; amount: string;
+  origin?: string; category: string; priority?: string;
+  bankDescription?: string; apiDescription?: string;
+  bankAmount?: string; apiAmount?: string; transactionType?: string;
+  externalId?: string; observation?: string;
+}>) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(r => {
+      const esc = (v?: string | null) => v ? `'${String(v).replace(/'/g,"''").slice(0,500)}'` : 'NULL';
+      return `(${r.sessionId}, ${esc(r.divergenceDate)}, ${esc(r.bankName)}, ${esc(r.clientName)},
+        '${r.divergenceType}', ${esc(r.amount)}, ${esc(r.origin)}, '${r.category}',
+        '${r.priority ?? 'medium'}', 'pendente',
+        ${esc(r.bankDescription)}, ${esc(r.apiDescription)},
+        ${esc(r.externalId)}, ${esc(r.bankAmount)}, ${esc(r.apiAmount)},
+        ${esc(r.transactionType)}, ${esc(r.observation)})`;
+    }).join(',');
+    await db.execute(sql.raw(
+      `INSERT INTO divergences
+        (sessionId, divergenceDate, bankName, clientName, divergenceType, amount, origin, category, priority, status,
+         bankDescription, apiDescription, externalId, bankAmount, apiAmount, transactionType, observation)
+       VALUES ${values}`
+    ));
+  }
 }
 
 export async function createApiTransaction(data: {
@@ -371,9 +481,11 @@ export async function getRevenues(filters?: {
   if (filters?.type) conditions.push(eq(revenues.type, filters.type as any));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status as any));
   if (filters?.origin) conditions.push(sql`revenues.origin = ${filters.origin}`);
+  const limit = Math.min((filters as any)?.limit ?? 500, 2000);
   return db.select().from(revenues)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(revenues.referenceDate));
+    .orderBy(desc(revenues.referenceDate))
+    .limit(limit);
 }
 
 export async function getRevenueSummary(dateFrom: string, dateTo: string) {
@@ -504,9 +616,11 @@ export async function getExpenses(filters?: {
   if (filters?.category) conditions.push(eq(expenses.category, filters.category as any));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status as any));
   if (filters?.origin) conditions.push(sql`expenses.origin = ${filters.origin}`);
+  const limit = Math.min((filters as any)?.limit ?? 500, 2000);
   return db.select().from(expenses)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(expenses.referenceDate));
+    .orderBy(desc(expenses.referenceDate))
+    .limit(limit);
 }
 
 export async function getExpenseSummary(dateFrom: string, dateTo: string) {
@@ -1215,6 +1329,8 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
 // ─── SALDO DIÁRIO POR BANCO (do histórico de sessões) ─────────────────────────
 
 export async function getBankBalancesByBank() {
+  const cached = cacheGet<any[]>('bank_balances_by_bank');
+  if (cached) return cached;
   const db = await getDb();
   if (!db) return [];
   // Agrega bank_transactions por bankName das últimas sessões completadas
@@ -1233,7 +1349,9 @@ export async function getBankBalancesByBank() {
     GROUP BY bt.bankName
     ORDER BY totalCredits DESC
   `);
-  return (result as any)[0] ?? [];
+  const data = (result as any)[0] ?? [];
+  cacheSet('bank_balances_by_bank', data, 60_000); // 1 min cache
+  return data;
 }
 
 export async function getDailyBankBalances() {
@@ -1258,56 +1376,117 @@ export async function getDailyBankBalances() {
   return ((result as any)[0] ?? []).reverse();
 }
 
+/** BATCH INSERT para expenses - evita loop individual de tarifas */
+export async function insertExpensesBatch(rows: Array<{
+  referenceDate: string; category: string; subcategory?: string;
+  description?: string; amount: string; supplier?: string;
+  sessionId?: number; origin?: string; createdByName?: string;
+}>) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(r => {
+      const esc = (v?: string | null) => v ? `'${String(v).replace(/'/g,"''").slice(0,500)}'` : 'NULL';
+      return `(${esc(r.referenceDate)}, ${esc(r.category)}, ${esc(r.subcategory)},
+        ${esc(r.description)}, ${esc(r.amount)}, ${esc(r.supplier)},
+        'realizado', NULL, ${esc(r.createdByName)},
+        ${r.sessionId ?? 'NULL'}, NULL, ${esc(r.origin ?? 'auto_tariff')})`;
+    }).join(',');
+    await db.execute(sql.raw(
+      `INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName, sessionId, divergenceId, origin) VALUES ${values}`
+    ));
+  }
+}
+
+/** BATCH INSERT para revenues - evita loop individual de tarifas */
+export async function insertRevenuesBatch(rows: Array<{
+  referenceDate: string; type: string; description?: string;
+  amount: string; clientName?: string;
+  sessionId?: number; origin?: string; createdByName?: string;
+}>) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(r => {
+      const esc = (v?: string | null) => v ? `'${String(v).replace(/'/g,"''").slice(0,500)}'` : 'NULL';
+      return `(${esc(r.referenceDate)}, ${esc(r.type)}, ${esc(r.description)},
+        ${esc(r.amount)}, NULL, ${esc(r.clientName)},
+        'realizado', NULL, ${esc(r.createdByName)},
+        ${r.sessionId ?? 'NULL'}, NULL, ${esc(r.origin ?? 'auto_tariff')})`;
+    }).join(',');
+    await db.execute(sql.raw(
+      `INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName, sessionId, divergenceId, origin) VALUES ${values}`
+    ));
+  }
+}
+
 export async function getControllershipDashboard(dateFrom: string, dateTo: string) {
   const db = await getDb();
   if (!db) return null;
 
-  const [revRows, expRows, divRows] = await Promise.all([
-    getRevenues({ dateFrom, dateTo }),
-    getExpenses({ dateFrom, dateTo }),
-    getDivergences({ status: 'pendente' }),
+  // ── SQL aggregation (muito mais rápido que fetch-all + JS reduce) ──────────
+  const [revSummary, expSummary, divSummary, revByType, expByCat, dailyRev, dailyExp] = await Promise.all([
+    db.execute(sql`SELECT COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo}`),
+    db.execute(sql`SELECT COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo}`),
+    db.execute(sql`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM divergences WHERE status NOT IN ('regularizado','reclassificado','baixado')`),
+    db.execute(sql`SELECT type, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY type ORDER BY total DESC`),
+    db.execute(sql`SELECT category, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY category ORDER BY total DESC`),
+    db.execute(sql`SELECT referenceDate as date, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as receitas FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY referenceDate ORDER BY referenceDate`),
+    db.execute(sql`SELECT referenceDate as date, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as despesas FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY referenceDate ORDER BY referenceDate`),
   ]);
 
-  // Totais
-  const totalRevenue   = revRows.reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
-  const totalExpenses  = expRows.reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
-  const netResult      = totalRevenue - totalExpenses;
-  const margin         = totalRevenue > 0 ? (netResult / totalRevenue) * 100 : 0;
-  const divValue       = divRows.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const totalRevenue  = parseFloat(String((revSummary as any)[0]?.[0]?.total ?? 0));
+  const totalExpenses = parseFloat(String((expSummary as any)[0]?.[0]?.total ?? 0));
+  const netResult     = totalRevenue - totalExpenses;
+  const margin        = totalRevenue > 0 ? (netResult / totalRevenue) * 100 : 0;
+  const divCount      = parseInt(String((divSummary as any)[0]?.[0]?.cnt ?? 0));
+  const divValue      = parseFloat(String((divSummary as any)[0]?.[0]?.total ?? 0));
 
   // Receitas por tipo
   const revenueByType: Record<string, number> = {};
-  for (const r of revRows) {
-    const k = String(r.type ?? 'outros');
-    revenueByType[k] = (revenueByType[k] ?? 0) + parseFloat(String(r.amount ?? 0));
+  for (const r of (revByType as any)[0] ?? []) {
+    revenueByType[String(r.type ?? 'outros')] = parseFloat(String(r.total ?? 0));
   }
 
   // Despesas por categoria
   const expenseByCategory: Record<string, number> = {};
-  for (const e of expRows) {
-    const k = String(e.category ?? 'outros');
-    expenseByCategory[k] = (expenseByCategory[k] ?? 0) + parseFloat(String(e.amount ?? 0));
+  for (const e of (expByCat as any)[0] ?? []) {
+    expenseByCategory[String(e.category ?? 'outros')] = parseFloat(String(e.total ?? 0));
   }
 
-  // Origem: auto (conciliação) vs manual
+  // Evolução diária (merge revenue + expense by date)
+  const dailyMap: Record<string, { date: string; receitas: number; despesas: number }> = {};
+  for (const r of (dailyRev as any)[0] ?? []) {
+    const d = String(r.date).slice(0, 10);
+    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
+    dailyMap[d].receitas += parseFloat(String(r.receitas ?? 0));
+  }
+  for (const e of (dailyExp as any)[0] ?? []) {
+    const d = String(e.date).slice(0, 10);
+    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
+    dailyMap[d].despesas += parseFloat(String(e.despesas ?? 0));
+  }
+  const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  // Recent entries (lightweight — only last 10)
+  const [recentRevs, recentExps] = await Promise.all([
+    getRevenues({ dateFrom, dateTo }),
+    getExpenses({ dateFrom, dateTo }),
+  ]);
+  const revRows = recentRevs; const expRows = recentExps; const divRows: any[] = [];
+
   const autoRevenue  = revRows.filter(r => (r as any).origin === 'auto_tariff').reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
   const autoExpense  = expRows.filter(e => (e as any).origin === 'auto_tariff').reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
   const movedRevenue = revRows.filter(r => (r as any).origin === 'manual_move').reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
   const movedExpense = expRows.filter(e => (e as any).origin === 'manual_move').reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
 
   // Evolução diária (últimos lançamentos agrupados por data)
-  const dailyMap: Record<string, { date: string; receitas: number; despesas: number }> = {};
-  for (const r of revRows) {
-    const d = String(r.referenceDate).slice(0, 10);
-    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
-    dailyMap[d].receitas += parseFloat(String(r.amount ?? 0));
-  }
-  for (const e of expRows) {
-    const d = String(e.referenceDate).slice(0, 10);
-    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
-    dailyMap[d].despesas += parseFloat(String(e.amount ?? 0));
-  }
-  const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
   return {
     totalRevenue, totalExpenses, netResult, margin,

@@ -108448,6 +108448,18 @@ var ENV = {
 
 // server/db.ts
 var _db = null;
+var _cache = /* @__PURE__ */ new Map();
+function cacheGet(key) {
+  const entry = _cache.get(key);
+  if (!entry || Date.now() > entry.expiresAt) {
+    _cache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+function cacheSet(key, data, ttlMs = 3e4) {
+  _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
 async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -108592,23 +108604,71 @@ async function getApiTransactionsBySession(sessionId, type) {
   if (type) conditions.push(eq(apiTransactions.type, type));
   return db.select().from(apiTransactions).where(and(...conditions));
 }
-async function createBankTransaction(data) {
+async function insertBankTransactionsBatch(rows) {
+  if (rows.length === 0) return;
   const db = await getDb();
   if (!db) return;
-  const ms = data.matchStatus ?? "divergent";
-  await db.execute(sql`
-    INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId, matchStatus)
-    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null}, ${ms})
-  `);
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(
+      (r) => `(${r.sessionId}, '${r.type}', '${r.transactionDate}',
+        ${r.description ? `'${r.description.replace(/'/g, "''").slice(0, 500)}'` : "NULL"},
+        '${r.amount}',
+        ${r.channel ? `'${r.channel.replace(/'/g, "''")}'` : "NULL"},
+        ${r.bankName ? `'${r.bankName.replace(/'/g, "''")}'` : "NULL"},
+        ${r.externalId ? `'${r.externalId.replace(/'/g, "''").slice(0, 200)}'` : "NULL"},
+        '${r.matchStatus ?? "divergent"}')`
+    ).join(",");
+    await db.execute(sql.raw(
+      `INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId, matchStatus) VALUES ${values}`
+    ));
+  }
 }
-async function createApiTransaction(data) {
+async function insertApiTransactionsBatch(rows) {
+  if (rows.length === 0) return;
   const db = await getDb();
   if (!db) return;
-  const ms = data.matchStatus ?? "divergent";
-  await db.execute(sql`
-    INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus)
-    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.clientName || null}, ${data.externalId || null}, ${ms})
-  `);
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(
+      (r) => `(${r.sessionId}, '${r.type}', '${r.transactionDate}',
+        ${r.description ? `'${r.description.replace(/'/g, "''").slice(0, 500)}'` : "NULL"},
+        '${r.amount}',
+        ${r.channel ? `'${r.channel.replace(/'/g, "''")}'` : "NULL"},
+        ${r.clientName ? `'${r.clientName.replace(/'/g, "''").slice(0, 200)}'` : "NULL"},
+        ${r.externalId ? `'${r.externalId.replace(/'/g, "''").slice(0, 200)}'` : "NULL"},
+        '${r.matchStatus ?? "divergent"}')`
+    ).join(",");
+    await db.execute(sql.raw(
+      `INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus) VALUES ${values}`
+    ));
+  }
+}
+async function insertDivergencesBatch(rows) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map((r) => {
+      const esc2 = (v) => v ? `'${String(v).replace(/'/g, "''").slice(0, 500)}'` : "NULL";
+      return `(${r.sessionId}, ${esc2(r.divergenceDate)}, ${esc2(r.bankName)}, ${esc2(r.clientName)},
+        '${r.divergenceType}', ${esc2(r.amount)}, ${esc2(r.origin)}, '${r.category}',
+        '${r.priority ?? "medium"}', 'pendente',
+        ${esc2(r.bankDescription)}, ${esc2(r.apiDescription)},
+        ${esc2(r.externalId)}, ${esc2(r.bankAmount)}, ${esc2(r.apiAmount)},
+        ${esc2(r.transactionType)}, ${esc2(r.observation)})`;
+    }).join(",");
+    await db.execute(sql.raw(
+      `INSERT INTO divergences
+        (sessionId, divergenceDate, bankName, clientName, divergenceType, amount, origin, category, priority, status,
+         bankDescription, apiDescription, externalId, bankAmount, apiAmount, transactionType, observation)
+       VALUES ${values}`
+    ));
+  }
 }
 async function updateBankTransactionMatch(id, data) {
   const db = await getDb();
@@ -108733,7 +108793,8 @@ async function getRevenues(filters) {
   if (filters?.type) conditions.push(eq(revenues.type, filters.type));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status));
   if (filters?.origin) conditions.push(sql`revenues.origin = ${filters.origin}`);
-  return db.select().from(revenues).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(revenues.referenceDate));
+  const limit = Math.min(filters?.limit ?? 500, 2e3);
+  return db.select().from(revenues).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(revenues.referenceDate)).limit(limit);
 }
 async function getRevenueSummary(dateFrom, dateTo) {
   const db = await getDb();
@@ -108822,7 +108883,8 @@ async function getExpenses(filters) {
   if (filters?.category) conditions.push(eq(expenses.category, filters.category));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status));
   if (filters?.origin) conditions.push(sql`expenses.origin = ${filters.origin}`);
-  return db.select().from(expenses).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(expenses.referenceDate));
+  const limit = Math.min(filters?.limit ?? 500, 2e3);
+  return db.select().from(expenses).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(expenses.referenceDate)).limit(limit);
 }
 async function getExpenseSummary(dateFrom, dateTo) {
   const db = await getDb();
@@ -109377,6 +109439,8 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   return { success: true, count: ids.length, netAmount };
 }
 async function getBankBalancesByBank() {
+  const cached2 = cacheGet("bank_balances_by_bank");
+  if (cached2) return cached2;
   const db = await getDb();
   if (!db) return [];
   const result = await db.execute(sql`
@@ -109394,7 +109458,9 @@ async function getBankBalancesByBank() {
     GROUP BY bt.bankName
     ORDER BY totalCredits DESC
   `);
-  return result[0] ?? [];
+  const data = result[0] ?? [];
+  cacheSet("bank_balances_by_bank", data, 6e4);
+  return data;
 }
 async function getDailyBankBalances() {
   const db = await getDb();
@@ -109416,45 +109482,93 @@ async function getDailyBankBalances() {
   `);
   return (result[0] ?? []).reverse();
 }
+async function insertExpensesBatch(rows) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map((r) => {
+      const esc2 = (v) => v ? `'${String(v).replace(/'/g, "''").slice(0, 500)}'` : "NULL";
+      return `(${esc2(r.referenceDate)}, ${esc2(r.category)}, ${esc2(r.subcategory)},
+        ${esc2(r.description)}, ${esc2(r.amount)}, ${esc2(r.supplier)},
+        'realizado', NULL, ${esc2(r.createdByName)},
+        ${r.sessionId ?? "NULL"}, NULL, ${esc2(r.origin ?? "auto_tariff")})`;
+    }).join(",");
+    await db.execute(sql.raw(
+      `INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName, sessionId, divergenceId, origin) VALUES ${values}`
+    ));
+  }
+}
+async function insertRevenuesBatch(rows) {
+  if (rows.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map((r) => {
+      const esc2 = (v) => v ? `'${String(v).replace(/'/g, "''").slice(0, 500)}'` : "NULL";
+      return `(${esc2(r.referenceDate)}, ${esc2(r.type)}, ${esc2(r.description)},
+        ${esc2(r.amount)}, NULL, ${esc2(r.clientName)},
+        'realizado', NULL, ${esc2(r.createdByName)},
+        ${r.sessionId ?? "NULL"}, NULL, ${esc2(r.origin ?? "auto_tariff")})`;
+    }).join(",");
+    await db.execute(sql.raw(
+      `INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName, sessionId, divergenceId, origin) VALUES ${values}`
+    ));
+  }
+}
 async function getControllershipDashboard(dateFrom, dateTo) {
   const db = await getDb();
   if (!db) return null;
-  const [revRows, expRows, divRows] = await Promise.all([
-    getRevenues({ dateFrom, dateTo }),
-    getExpenses({ dateFrom, dateTo }),
-    getDivergences({ status: "pendente" })
+  const [revSummary, expSummary, divSummary, revByType, expByCat, dailyRev, dailyExp] = await Promise.all([
+    db.execute(sql`SELECT COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo}`),
+    db.execute(sql`SELECT COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo}`),
+    db.execute(sql`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM divergences WHERE status NOT IN ('regularizado','reclassificado','baixado')`),
+    db.execute(sql`SELECT type, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY type ORDER BY total DESC`),
+    db.execute(sql`SELECT category, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY category ORDER BY total DESC`),
+    db.execute(sql`SELECT referenceDate as date, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as receitas FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY referenceDate ORDER BY referenceDate`),
+    db.execute(sql`SELECT referenceDate as date, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as despesas FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} GROUP BY referenceDate ORDER BY referenceDate`)
   ]);
-  const totalRevenue = revRows.reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
-  const totalExpenses = expRows.reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
+  const totalRevenue = parseFloat(String(revSummary[0]?.[0]?.total ?? 0));
+  const totalExpenses = parseFloat(String(expSummary[0]?.[0]?.total ?? 0));
   const netResult = totalRevenue - totalExpenses;
   const margin = totalRevenue > 0 ? netResult / totalRevenue * 100 : 0;
-  const divValue = divRows.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const divCount = parseInt(String(divSummary[0]?.[0]?.cnt ?? 0));
+  const divValue = parseFloat(String(divSummary[0]?.[0]?.total ?? 0));
   const revenueByType = {};
-  for (const r of revRows) {
-    const k = String(r.type ?? "outros");
-    revenueByType[k] = (revenueByType[k] ?? 0) + parseFloat(String(r.amount ?? 0));
+  for (const r of revByType[0] ?? []) {
+    revenueByType[String(r.type ?? "outros")] = parseFloat(String(r.total ?? 0));
   }
   const expenseByCategory = {};
-  for (const e of expRows) {
-    const k = String(e.category ?? "outros");
-    expenseByCategory[k] = (expenseByCategory[k] ?? 0) + parseFloat(String(e.amount ?? 0));
+  for (const e of expByCat[0] ?? []) {
+    expenseByCategory[String(e.category ?? "outros")] = parseFloat(String(e.total ?? 0));
   }
+  const dailyMap = {};
+  for (const r of dailyRev[0] ?? []) {
+    const d = String(r.date).slice(0, 10);
+    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
+    dailyMap[d].receitas += parseFloat(String(r.receitas ?? 0));
+  }
+  for (const e of dailyExp[0] ?? []) {
+    const d = String(e.date).slice(0, 10);
+    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
+    dailyMap[d].despesas += parseFloat(String(e.despesas ?? 0));
+  }
+  const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+  const [recentRevs, recentExps] = await Promise.all([
+    getRevenues({ dateFrom, dateTo }),
+    getExpenses({ dateFrom, dateTo })
+  ]);
+  const revRows = recentRevs;
+  const expRows = recentExps;
+  const divRows = [];
   const autoRevenue = revRows.filter((r) => r.origin === "auto_tariff").reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
   const autoExpense = expRows.filter((e) => e.origin === "auto_tariff").reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
   const movedRevenue = revRows.filter((r) => r.origin === "manual_move").reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
   const movedExpense = expRows.filter((e) => e.origin === "manual_move").reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
-  const dailyMap = {};
-  for (const r of revRows) {
-    const d = String(r.referenceDate).slice(0, 10);
-    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
-    dailyMap[d].receitas += parseFloat(String(r.amount ?? 0));
-  }
-  for (const e of expRows) {
-    const d = String(e.referenceDate).slice(0, 10);
-    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
-    dailyMap[d].despesas += parseFloat(String(e.amount ?? 0));
-  }
-  const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
   return {
     totalRevenue,
     totalExpenses,
@@ -131697,18 +131811,20 @@ var reconciliationRouter = router({
       referenceDate: input.referenceDate
     });
     const matchedExternalIds = /* @__PURE__ */ new Set();
+    const matchedApiExternalIds = /* @__PURE__ */ new Set();
+    const matchedByDat = /* @__PURE__ */ new Set();
     for (const match of result.matches) {
-      if (match.status === "matched" && match.bankTx.externalId) {
-        matchedExternalIds.add(match.bankTx.externalId);
-      }
+      if (match.status !== "matched") continue;
+      if (match.bankTx.externalId) matchedExternalIds.add(match.bankTx.externalId);
+      else matchedByDat.add(`${match.bankTx.date}|${match.bankTx.amount.toFixed(2)}|${match.bankTx.type}|${match.bankName ?? ""}`);
+      if (match.apiTx?.externalId) matchedApiExternalIds.add(match.apiTx.externalId);
     }
+    const bankRows = [];
     for (const bank of parsedBanks) {
       for (const tx of bank.txs) {
-        const isMatched = tx.externalId ? matchedExternalIds.has(tx.externalId) : false;
-        const matchByDateAmount = !tx.externalId && result.matches.some(
-          (m) => m.status === "matched" && m.bankTx.date === tx.date && Math.abs(m.bankTx.amount - tx.amount) < 0.01 && m.bankTx.type === tx.type && (m.bankName ?? "") === bank.name
-        );
-        await createBankTransaction({
+        const key = `${tx.date}|${tx.amount.toFixed(2)}|${tx.type}|${bank.name}`;
+        const isMatched = tx.externalId && matchedExternalIds.has(tx.externalId) || matchedByDat.has(key);
+        bankRows.push({
           sessionId,
           type: tx.type,
           transactionDate: tx.date,
@@ -131717,19 +131833,29 @@ var reconciliationRouter = router({
           channel: tx.channel,
           bankName: bank.name,
           externalId: tx.externalId,
-          matchStatus: isMatched || matchByDateAmount ? "matched" : "divergent"
+          matchStatus: isMatched ? "matched" : "divergent"
         });
       }
     }
-    const matchedApiExternalIds = /* @__PURE__ */ new Set();
-    for (const match of result.matches) {
-      if (match.status === "matched" && match.apiTx?.externalId) {
-        matchedApiExternalIds.add(match.apiTx.externalId);
-      }
+    for (const { bankName, tx } of bankTariffTxs) {
+      bankRows.push({
+        sessionId,
+        type: tx.type,
+        transactionDate: tx.date,
+        description: tx.description,
+        amount: tx.amount.toFixed(2),
+        channel: tx.channel,
+        bankName,
+        externalId: tx.externalId,
+        matchStatus: "manual"
+        // tarifas são auto-classificadas
+      });
     }
+    await insertBankTransactionsBatch(bankRows);
+    const apiRows = [];
     for (const tx of apiTxs) {
       const isMatched = tx.externalId ? matchedApiExternalIds.has(tx.externalId) : false;
-      await createApiTransaction({
+      apiRows.push({
         sessionId,
         type: tx.type,
         transactionDate: tx.date,
@@ -131741,10 +131867,12 @@ var reconciliationRouter = router({
         matchStatus: isMatched ? "matched" : "divergent"
       });
     }
+    await insertApiTransactionsBatch(apiRows);
     const BANK_LABELS = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
+    const divRows = [];
     for (const match of result.matches) {
       if (match.status === "divergent") {
-        await createDivergence({
+        divRows.push({
           sessionId,
           divergenceDate: match.bankTx.date,
           bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
@@ -131776,41 +131904,36 @@ var reconciliationRouter = router({
     }
     let autoDespesaCount = 0;
     let autoReceitaCount = 0;
-    for (const { bankName, tx } of bankTariffTxs) {
-      await createExpense({
-        referenceDate: tx.date,
-        category: "bancaria",
-        subcategory: "tarifa_bancaria",
-        description: tx.description,
-        amount: tx.amount.toFixed(2),
-        supplier: BANK_LABELS[bankName] ?? bankName,
-        status: "realizado",
-        sessionId,
-        origin: "auto_tariff",
-        createdByName: "Concilia\xE7\xE3o Autom\xE1tica"
-      });
-      autoDespesaCount++;
-    }
+    const tariffExpenseRows = bankTariffTxs.map(({ bankName, tx }) => ({
+      referenceDate: tx.date,
+      category: "bancaria",
+      subcategory: "tarifa_bancaria",
+      description: tx.description,
+      amount: tx.amount.toFixed(2),
+      supplier: BANK_LABELS[bankName] ?? bankName,
+      sessionId,
+      origin: "auto_tariff",
+      createdByName: "Concilia\xE7\xE3o Autom\xE1tica"
+    }));
+    await insertExpensesBatch(tariffExpenseRows);
+    autoDespesaCount = tariffExpenseRows.length;
+    const tariffRevRows = [];
     for (const tx of result.unmatchedApi) {
       const isTariff = tx.isTariff ?? tx.channel === "TARIFA";
       if (isTariff) {
-        await createRevenue({
+        tariffRevRows.push({
           referenceDate: tx.date,
           type: "receita_operacional",
           description: tx.description || tx.channel,
           amount: tx.amount.toFixed(2),
           clientName: tx.clientName,
-          status: "realizado",
           sessionId,
           origin: "auto_tariff",
           createdByName: "Concilia\xE7\xE3o Autom\xE1tica"
         });
-        autoReceitaCount++;
         continue;
       }
-      const category = tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada";
-      const priority = tx.amount > 1e3 ? "high" : "medium";
-      await createDivergence({
+      divRows.push({
         sessionId,
         divergenceDate: tx.date,
         bankName: "API",
@@ -131821,15 +131944,17 @@ var reconciliationRouter = router({
         origin: tx.externalId,
         externalId: tx.externalId,
         apiDescription: tx.description,
-        category,
-        priority,
+        category: tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
+        priority: tx.amount > 1e3 ? "high" : "medium",
         transactionType: tx.type
       });
     }
+    await insertRevenuesBatch(tariffRevRows);
+    autoReceitaCount = tariffRevRows.length;
     for (const match of result.matches) {
       if (match.status !== "unmatched_bank") continue;
       if (isBankTariff(match.bankTx.description)) continue;
-      await createDivergence({
+      divRows.push({
         sessionId,
         divergenceDate: match.bankTx.date,
         bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
@@ -131846,6 +131971,7 @@ var reconciliationRouter = router({
         observation: match.possibleMatchNote ?? void 0
       });
     }
+    await insertDivergencesBatch(divRows);
     await updateReconciliationSession(sessionId, {
       status: "completed",
       totalBankCredits: result.summary.totalBankCredits.toFixed(2),

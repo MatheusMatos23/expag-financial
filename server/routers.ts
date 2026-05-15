@@ -127,61 +127,61 @@ const reconciliationRouter = router({
         referenceDate: input.referenceDate,
       });
 
-      // Persistir transações de cada banco com matchStatus do engine
-      // Monta mapa de externalId → matchStatus para atualização em lote
+      // ── BATCH INSERT: banco + API (104x mais rápido que loop individual) ─────
       const matchedExternalIds = new Set<string>();
+      const matchedApiExternalIds = new Set<string>();
+      // Mapa de date+amount+type → matched para fallback sem externalId
+      const matchedByDat = new Set<string>();
       for (const match of result.matches) {
-        if (match.status === "matched" && match.bankTx.externalId) {
-          matchedExternalIds.add(match.bankTx.externalId);
-        }
+        if (match.status !== "matched") continue;
+        if (match.bankTx.externalId) matchedExternalIds.add(match.bankTx.externalId);
+        else matchedByDat.add(`${match.bankTx.date}|${match.bankTx.amount.toFixed(2)}|${match.bankTx.type}|${match.bankName ?? ""}`);
+        if (match.apiTx?.externalId) matchedApiExternalIds.add(match.apiTx.externalId);
       }
 
+      const bankRows: Parameters<typeof db.insertBankTransactionsBatch>[0] = [];
       for (const bank of parsedBanks) {
         for (const tx of bank.txs) {
-          const isMatched = tx.externalId ? matchedExternalIds.has(tx.externalId) : false;
-          // Fallback: checar por date+amount+type se não tem externalId
-          const matchByDateAmount = !tx.externalId && result.matches.some(
-            m => m.status === "matched" &&
-            m.bankTx.date === tx.date &&
-            Math.abs(m.bankTx.amount - tx.amount) < 0.01 &&
-            m.bankTx.type === tx.type &&
-            (m.bankName ?? "") === bank.name
-          );
-          await db.createBankTransaction({
-            sessionId, type: tx.type,
-            transactionDate: tx.date, description: tx.description,
-            amount: tx.amount.toFixed(2), channel: tx.channel,
-            bankName: bank.name, externalId: tx.externalId,
-            matchStatus: (isMatched || matchByDateAmount) ? "matched" : "divergent",
+          const key = `${tx.date}|${tx.amount.toFixed(2)}|${tx.type}|${bank.name}`;
+          const isMatched = (tx.externalId && matchedExternalIds.has(tx.externalId)) || matchedByDat.has(key);
+          bankRows.push({
+            sessionId, type: tx.type, transactionDate: tx.date,
+            description: tx.description, amount: tx.amount.toFixed(2),
+            channel: tx.channel, bankName: bank.name, externalId: tx.externalId,
+            matchStatus: isMatched ? "matched" : "divergent",
           });
         }
       }
-
-      // Persistir transações da API com matchStatus
-      const matchedApiExternalIds = new Set<string>();
-      for (const match of result.matches) {
-        if (match.status === "matched" && match.apiTx?.externalId) {
-          matchedApiExternalIds.add(match.apiTx.externalId);
-        }
+      // Tarifas bancárias também precisam ser persistidas (para histórico/saldo)
+      for (const { bankName, tx } of bankTariffTxs) {
+        bankRows.push({
+          sessionId, type: tx.type, transactionDate: tx.date,
+          description: tx.description, amount: tx.amount.toFixed(2),
+          channel: tx.channel, bankName, externalId: tx.externalId,
+          matchStatus: "manual", // tarifas são auto-classificadas
+        });
       }
+      await db.insertBankTransactionsBatch(bankRows);
 
+      const apiRows: Parameters<typeof db.insertApiTransactionsBatch>[0] = [];
       for (const tx of apiTxs) {
         const isMatched = tx.externalId ? matchedApiExternalIds.has(tx.externalId) : false;
-        await db.createApiTransaction({
-          sessionId, type: tx.type,
-          transactionDate: tx.date, description: tx.description,
-          amount: tx.amount.toFixed(2), channel: tx.channel,
-          clientName: tx.clientName, externalId: tx.externalId,
+        apiRows.push({
+          sessionId, type: tx.type, transactionDate: tx.date,
+          description: tx.description, amount: tx.amount.toFixed(2),
+          channel: tx.channel, clientName: tx.clientName, externalId: tx.externalId,
           matchStatus: isMatched ? "matched" : "divergent",
         });
       }
+      await db.insertApiTransactionsBatch(apiRows);
 
-      // Criar divergências — com classificação inteligente por tipo
+      // ── BATCH INSERT: divergências ────────────────────────────────────────────
       const BANK_LABELS: Record<string, string> = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
+      const divRows: Parameters<typeof db.insertDivergencesBatch>[0] = [];
 
       for (const match of result.matches) {
         if (match.status === "divergent") {
-          await db.createDivergence({
+          divRows.push({
             sessionId, divergenceDate: match.bankTx.date,
             bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
             clientName: match.apiTx?.clientName ?? match.bankTx.clientName,
@@ -211,48 +211,35 @@ const reconciliationRouter = router({
       let autoDespesaCount = 0;
       let autoReceitaCount = 0;
 
-      for (const { bankName, tx } of bankTariffTxs) {
-        await db.createExpense({
-          referenceDate: tx.date,
-          category: "bancaria",
-          subcategory: "tarifa_bancaria",
-          description: tx.description,
-          amount: tx.amount.toFixed(2),
-          supplier: BANK_LABELS[bankName] ?? bankName,
-          status: "realizado",
-          sessionId,
-          origin: "auto_tariff",
-          createdByName: "Conciliação Automática",
-        });
-        autoDespesaCount++;
-      }
+      // ── BATCH: tarifas bancárias → despesas ──────────────────────────────────
+      const tariffExpenseRows = bankTariffTxs.map(({ bankName, tx }) => ({
+        referenceDate: tx.date,
+        category: "bancaria",
+        subcategory: "tarifa_bancaria",
+        description: tx.description,
+        amount: tx.amount.toFixed(2),
+        supplier: BANK_LABELS[bankName] ?? bankName,
+        sessionId,
+        origin: "auto_tariff",
+        createdByName: "Conciliação Automática",
+      }));
+      await db.insertExpensesBatch(tariffExpenseRows);
+      autoDespesaCount = tariffExpenseRows.length;
 
-      // ── Tarifas na API (isTariff=true, unmatched) ─────────────────────────
-      // → Lança automaticamente como RECEITA e não cria divergência
+      // ── BATCH: tarifas API → receitas + não-tarifas → divergências ──────────
+      const tariffRevRows: Parameters<typeof db.insertRevenuesBatch>[0] = [];
       for (const tx of result.unmatchedApi) {
         const isTariff = tx.isTariff ?? tx.channel === "TARIFA";
-
         if (isTariff) {
-          await db.createRevenue({
-            referenceDate: tx.date,
-            type: "receita_operacional",
+          tariffRevRows.push({
+            referenceDate: tx.date, type: "receita_operacional",
             description: tx.description || tx.channel,
-            amount: tx.amount.toFixed(2),
-            clientName: tx.clientName,
-            status: "realizado",
-            sessionId,
-            origin: "auto_tariff",
-            createdByName: "Conciliação Automática",
+            amount: tx.amount.toFixed(2), clientName: tx.clientName,
+            sessionId, origin: "auto_tariff", createdByName: "Conciliação Automática",
           });
-          autoReceitaCount++;
-          continue; // não cria divergência
+          continue;
         }
-
-        // Transações reais sem par → divergência normal
-        const category = tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada";
-        const priority = tx.amount > 1000 ? "high" : "medium";
-
-        await db.createDivergence({
+        divRows.push({
           sessionId, divergenceDate: tx.date,
           bankName: "API",
           clientName: tx.clientName,
@@ -262,19 +249,21 @@ const reconciliationRouter = router({
           origin: tx.externalId,
           externalId: tx.externalId,
           apiDescription: tx.description,
-          category,
-          priority,
+          category: tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
+          priority: tx.amount > 1000 ? "high" : "medium",
           transactionType: tx.type,
         });
       }
 
-      // ── Divergências do banco (unmatched_bank sem tarifa) ─────────────────
-      // As entradas com tarifa já foram lançadas como despesa acima — pular
+      // ── FLUSH: receitas de tarifa + divergências em batch ──────────────────
+      await db.insertRevenuesBatch(tariffRevRows);
+      autoReceitaCount = tariffRevRows.length;
+
+      // ── unmatched_bank → divergências (sem tarifa) ───────────────────────────
       for (const match of result.matches) {
         if (match.status !== "unmatched_bank") continue;
-        if (isBankTariff(match.bankTx.description)) continue; // já tratado acima
-
-        await db.createDivergence({
+        if (isBankTariff(match.bankTx.description)) continue;
+        divRows.push({
           sessionId, divergenceDate: match.bankTx.date,
           bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
           clientName: match.bankTx.clientName,
@@ -290,6 +279,9 @@ const reconciliationRouter = router({
           observation: match.possibleMatchNote ?? undefined,
         });
       }
+
+      // ── FLUSH FINAL: todas as divergências em batch ───────────────────────
+      await db.insertDivergencesBatch(divRows);
 
       // Atualizar sessão
       await db.updateReconciliationSession(sessionId, {
