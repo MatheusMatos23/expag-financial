@@ -233,8 +233,9 @@ export default function ReconciliationSession() {
   const allBank = useMemo(() => [...(bankCredits as any[]), ...(bankDebits as any[])], [bankCredits, bankDebits]);
   const allApi  = useMemo(() => [...(apiCredits as any[]), ...(apiDebits as any[])], [apiCredits, apiDebits]);
 
-  const matchedBank   = useMemo(() => allBank.filter((t: any) => t.matchStatus === "matched"), [allBank]);
-  const divergentBank = useMemo(() => allBank.filter((t: any) => t.matchStatus !== "matched"), [allBank]);
+  const matchedBank   = useMemo(() => allBank.filter((t: any) => ["matched","manual"].includes(t.matchStatus)), [allBank]);
+  const divergentBank = useMemo(() => allBank.filter((t: any) => !["matched","manual"].includes(t.matchStatus) && t.matchStatus != null), [allBank]);
+  // Para sessões antigas sem matchStatus, usa session.matchedCount como referência
 
   const matchTypeData = useMemo(() => {
     const counts = { exact: 0, partial: 0, approximate: 0, manual: 0 };
@@ -260,8 +261,8 @@ export default function ReconciliationSession() {
     switch (activeTab) {
       case "credits":   return bankCredits as any[];
       case "debits":    return bankDebits as any[];
-      case "matched":   return allBank.filter((t: any) => t.matchStatus === "matched");
-      case "divergent": return allBank.filter((t: any) => t.matchStatus !== "matched");
+      case "matched":   return allBank.filter((t: any) => ["matched","manual"].includes(t.matchStatus));
+      case "divergent": return allBank.filter((t: any) => !["matched","manual"].includes(t.matchStatus));
       default:          return allBank;
     }
   }, [activeTab, bankCredits, bankDebits, allBank]);
@@ -353,11 +354,11 @@ export default function ReconciliationSession() {
   ];
 
   const TABS = [
-    { key: "all",       label: `Todos (${allBank.length})` },
-    { key: "credits",   label: `Créditos (${bankCredits.length})` },
-    { key: "debits",    label: `Débitos (${bankDebits.length})` },
-    { key: "matched",   label: `Conciliados (${matchedBank.length})` },
-    { key: "divergent", label: `Divergentes (${divergentBank.length})` },
+    { key: "all",       label: `Todas (${allBank.length})`, color: "" },
+    { key: "credits",   label: `Créditos (${bankCredits.length})`, color: "" },
+    { key: "debits",    label: `Débitos (${bankDebits.length})`, color: "" },
+    { key: "matched",   label: `✓ Conciliados (${liveMatchedCount})`, color: "text-emerald-400" },
+    { key: "divergent", label: `⚠ Divergentes (${liveDivergentCount})`, color: "text-amber-400" },
   ] as const;
 
   return (
@@ -564,8 +565,8 @@ export default function ReconciliationSession() {
               className={cn(
                 "px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
                 activeTab === tab.key
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? cn("bg-card shadow-sm", (tab as any).color || "text-foreground")
+                  : cn("text-muted-foreground hover:text-foreground", (tab as any).color ? "hover:" + (tab as any).color.replace("text-","text-") : "")
               )}
             >
               {tab.label}
