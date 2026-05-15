@@ -321,14 +321,18 @@ export async function createRevenue(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const status = data.status ?? 'realizado';
-  const result = await db.execute(sql`
-    INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName, divergenceId, sessionId, origin)
-    VALUES (${data.referenceDate}, ${data.type}, ${data.description || null}, ${data.amount},
-            ${data.clientId || null}, ${data.clientName || null}, ${status}, ${data.costCenterId ?? null},
-            ${data.createdByName || null}, ${data.divergenceId ? Number(data.divergenceId) : null}, ${data.sessionId ? Number(data.sessionId) : null},
-            ${data.origin ?? 'manual'})
-  `);
+  const revStatus = data.status === 'previsto' || data.status === 'cancelado' ? data.status : 'realizado';
+  const result = await db.insert(revenues).values({
+    referenceDate: data.referenceDate as unknown as Date,
+    type: data.type as any,
+    description: data.description ?? null,
+    amount: data.amount,
+    clientId: data.clientId ?? null,
+    clientName: data.clientName ?? null,
+    status: revStatus as any,
+    costCenterId: data.costCenterId ?? null,
+    createdByName: data.createdByName ?? null,
+  });
   return (result as any)[0]?.insertId ?? 0;
 }
 
@@ -374,15 +378,17 @@ export async function createExpense(data: {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const expStatus = (data.status === 'previsto' || data.status === 'cancelado') ? data.status : 'realizado';
-  const result = await db.execute(sql`
-    INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName, divergenceId, sessionId, origin)
-    VALUES (
-      ${data.referenceDate}, ${data.category}, ${data.subcategory || null},
-      ${data.description || null}, ${data.amount}, ${data.supplier || null},
-      ${expStatus}, ${data.costCenterId ? Number(data.costCenterId) : null}, ${data.createdByName || null},
-      ${data.divergenceId ? Number(data.divergenceId) : null}, ${data.sessionId ? Number(data.sessionId) : null}, ${data.origin ?? 'manual'}
-    )
-  `);
+  const result = await db.insert(expenses).values({
+    referenceDate: data.referenceDate as unknown as Date,
+    category: data.category as any,
+    subcategory: data.subcategory ?? null,
+    description: data.description ?? null,
+    amount: data.amount,
+    supplier: data.supplier ?? null,
+    status: expStatus as any,
+    costCenterId: data.costCenterId ?? null,
+    createdByName: data.createdByName ?? null,
+  });
   return (result as any)[0]?.insertId ?? 0;
 }
 
