@@ -130,14 +130,22 @@ export function parseSicoob(buffer: Buffer): ParsedTransaction[] {
         externalId = text.replace(/^CODIGO TED:\s*/i, "").trim();
         continue;
       }
+      // Extrai END2END do Sicoob quando aparece em subrow (formato E + 32 chars)
+      if (/^E[A-Z0-9]{28,}/i.test(text)) {
+        externalId = text.trim();
+        continue;
+      }
       if (SKIP_SUBROW.some((re) => re.test(text))) continue;
       if (!clientName && text.length >= 3) clientName = text;
     }
 
-    // TED numeric document as externalId when no TED code found
+    // Fallbacks para externalId
     if (!externalId) {
+      // Doc number numérico do Sicoob (exceto "Pix" e datas)
       const doc = pendingDoc.trim();
-      if (doc && doc !== "Pix" && /^\d+$/.test(doc)) externalId = doc;
+      if (doc && doc !== "Pix" && !/^\d{2}\/\d{2}/.test(doc) && /^\d{4,}$/.test(doc)) {
+        externalId = doc;
+      }
     }
 
     results.push({
@@ -426,32 +434,38 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
 
   // ── Pré-processamento de estornos ───────────────────────────────────────────
   // Estornos vêm em pares: um com auth "D_xxx" e outro com "xxx" (mesmo base)
-  // Ambos têm status ESTORNADO. Quando existem os dois lados, se cancelam.
-  // Mantemos apenas os estornos sem par (incompletos).
+  // Quando existe par completo, se cancelam (não geram divergência).
+  // Estornos sem par permanecem como divergência.
 
-  const estornos = results.filter(t => t.isEstorno);
+  const estornos   = results.filter(t => t.isEstorno);
   const nonEstornos = results.filter(t => !t.isEstorno);
 
-  // Agrupa estornos pelo base auth (sem prefixo D_)
+  // Agrupa por: base_auth (sem "D_") OU fallback date|amount quando sem auth
   const estornoPairs = new Map<string, ParsedTransaction[]>();
   for (const t of estornos) {
-    // Tenta obter chave por amount + date + type (quando não tem auth)
-    const key = `${t.date}|${t.amount.toFixed(2)}|${t.timeStr ?? ""}`;
+    // Remove prefixo D_ para normalizar a chave
+    const rawAuth = t.externalId ?? "";
+    const baseAuth = rawAuth.startsWith("D_") ? rawAuth.slice(2) : rawAuth;
+    // Chave: base auth se válido, senão date|amount (pares pelo mesmo valor/dia)
+    const key = baseAuth.length > 4
+      ? `auth|${baseAuth}`
+      : `val|${t.date}|${t.amount.toFixed(2)}`;
     if (!estornoPairs.has(key)) estornoPairs.set(key, []);
     estornoPairs.get(key)!.push(t);
   }
 
-  // Estornos sem par (apenas 1 lado): mantém como divergência
   const unparedEstornos: ParsedTransaction[] = [];
   for (const [, pair] of Array.from(estornoPairs)) {
-    if (pair.length === 1) {
-      // Sem par — mantém como divergência de estorno
-      unparedEstornos.push(pair[0]);
+    // Par completo: um com D_ (original) e um sem (estorno) → se cancelam
+    const hasOriginal = pair.some(t => !(t.externalId ?? "").startsWith("D_"));
+    const hasReverted = pair.some(t =>  (t.externalId ?? "").startsWith("D_"));
+    if (pair.length >= 2 && hasOriginal && hasReverted) {
+      continue; // par completo — não gera divergência
     }
-    // Par completo (2+): se cancelam, não geram divergência
+    // Par incompleto ou só um lado → mantém como divergência
+    unparedEstornos.push(...pair);
   }
 
-  // Retorna: transações normais + estornos sem par (marcados)
   return [...nonEstornos, ...unparedEstornos];
 }
 

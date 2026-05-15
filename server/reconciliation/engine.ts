@@ -145,7 +145,6 @@ export function reconcileMultiBank(
       if (exactIdx >= 0) {
         const { tx: apiTx, idx } = candidates[exactIdx];
         usedApiIds.add(idx);
-        // Remove this idx from all keys in apiIndex
         for (const key of dateTypeKeys(apiTx.date, apiTx.type)) {
           const arr = apiIndex.get(key);
           if (arr) {
@@ -153,17 +152,46 @@ export function reconcileMultiBank(
             if (pos >= 0) arr.splice(pos, 1);
           }
         }
-        // Confidence 100 if same-day match, 85 if D±1
-        const sameDayKey = `${bankTx.date}|${bankTx.type}`;
         const matchedOnSameDay = apiTx.date === bankTx.date;
         const confidence = matchedOnSameDay ? 100 : 85;
         const matchType  = matchedOnSameDay ? "exact_value_date" : "approximate";
+        // FIX 6: difference=0 sempre é matched, mesmo com type diferente
+        // (ex: banco registra como credit, API como debit em alguns casos de estorno)
+        const diff = Math.abs(bankTx.amount - apiTx.amount);
+        const typeMatch = bankTx.type === apiTx.type;
+        const status = (diff <= AMOUNT_TOLERANCE && (typeMatch || diff === 0)) ? "matched" : "divergent";
         allMatches.push({
-          bankTx, apiTx, status: "matched", matchType,
-          confidence, difference: 0, bankName: bank.name,
+          bankTx, apiTx, status, matchType,
+          confidence: typeMatch ? confidence : confidence - 15,
+          difference: diff, bankName: bank.name,
+          possibleMatchNote: !typeMatch ? `Tipo divergente: banco=${bankTx.type}, API=${apiTx.type}` : undefined,
         });
-        byBank[bank.name].matched++;
+        if (status === "matched") byBank[bank.name].matched++;
+        else                      byBank[bank.name].divergent++;
         continue;
+      }
+
+      // Priority 1b: para valores altos (>R$10k), tenta match cross-type (FIX 5)
+      // Alguns bancos registram estornos/devoluções com type invertido
+      if (bankTx.amount >= 10000) {
+        const crossTypeIdx = candidates.findIndex(
+          c => Math.abs(c.tx.amount - bankTx.amount) <= AMOUNT_TOLERANCE && c.tx.type !== bankTx.type
+        );
+        if (crossTypeIdx >= 0) {
+          const { tx: apiTx, idx } = candidates[crossTypeIdx];
+          usedApiIds.add(idx);
+          for (const key of dateTypeKeys(apiTx.date, apiTx.type)) {
+            const arr = apiIndex.get(key);
+            if (arr) { const pos = arr.findIndex(c => c.idx === idx); if (pos >= 0) arr.splice(pos, 1); }
+          }
+          allMatches.push({
+            bankTx, apiTx, status: "divergent", matchType: "approximate",
+            confidence: 60, difference: 0, bankName: bank.name,
+            possibleMatchNote: `Tipo invertido: banco=${bankTx.type}, API=${apiTx.type} — verificar se é estorno`,
+          });
+          byBank[bank.name].divergent++;
+          continue;
+        }
       }
 
       // Priority 2: approximate value match (tolerance R$1.00)

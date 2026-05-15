@@ -69,7 +69,9 @@ const reconciliationRouter = router({
       const parsedBanks = input.banks.map(b => {
         const buffer = Buffer.from(b.fileBase64, "base64");
         const txs = parseStatement(buffer, b.name);
-        return { name: b.name, txs, useE2E: b.name === "jd" };
+        // Sicoob também tem END2END em alguns PIX — habilita E2E quando disponível
+      const hasE2E = txs.some(t => t.externalId && /^E[A-Z0-9]{28,}$/i.test(t.externalId));
+      return { name: b.name, txs, useE2E: b.name === "jd" || (b.name === "sicoob" && hasE2E) };
       });
 
       // Detectar datas presentes nos extratos bancários (expandido para ±1 dia de lag de liquidação)
@@ -201,15 +203,28 @@ const reconciliationRouter = router({
 
       for (const match of result.matches) {
         if (match.status === "divergent") {
+          const divType = match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage";
+          const classified = classifyDivergence({
+            divergenceType: divType,
+            amount: String(match.difference?.toFixed(2) ?? "0"),
+            description: match.bankTx.description,
+            channel: match.bankTx.channel ?? null,
+            bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName ?? null,
+            clientId: null,
+            clientName: match.apiTx?.clientName ?? match.bankTx.clientName ?? null,
+            referenceDate: match.bankTx.date,
+          });
           divRows.push({
             sessionId, divergenceDate: match.bankTx.date,
             bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
             clientName: match.apiTx?.clientName ?? match.bankTx.clientName,
-            divergenceType: match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage",
+            divergenceType: divType,
             amount: String(match.difference?.toFixed(2) ?? "0"),
             origin: match.bankTx.externalId,
             externalId: match.bankTx.externalId,
-            category: "liquidacao_divergente", priority: "high",
+            category: classified.category,
+            priority: classified.priority,
+            observation: classified.suggestedAction,
             bankDescription: match.bankTx.description,
             apiDescription: match.apiTx?.description,
             bankAmount: match.bankTx.amount.toFixed(2),
@@ -257,6 +272,16 @@ const reconciliationRouter = router({
 
       // Não-tarifas sem par no engine → divergências
       for (const tx of result.unmatchedApi) {
+        const classified3 = classifyDivergence({
+          divergenceType: "bank_shortage",
+          amount: tx.amount.toFixed(2),
+          description: tx.description,
+          channel: tx.channel ?? null,
+          bankName: "API",
+          clientId: null,
+          clientName: tx.clientName ?? null,
+          referenceDate: tx.date,
+        });
         divRows.push({
           sessionId, divergenceDate: tx.date,
           bankName: "API",
@@ -267,9 +292,10 @@ const reconciliationRouter = router({
           origin: tx.externalId,
           externalId: tx.externalId,
           apiDescription: tx.description,
-          category: tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
-          priority: tx.amount > 1000 ? "high" : "medium",
+          category: classified3.category,
+          priority: classified3.priority,
           transactionType: tx.type,
+          observation: classified3.suggestedAction,
         });
       }
 
@@ -277,10 +303,20 @@ const reconciliationRouter = router({
       await db.insertRevenuesBatch(tariffRevRows);
       autoReceitaCount = tariffRevRows.length;
 
-      // ── unmatched_bank → divergências (sem tarifa) ───────────────────────────
+      // ── unmatched_bank → divergências (sem tarifa, com classifier) ──────────
       for (const match of result.matches) {
         if (match.status !== "unmatched_bank") continue;
         if (isBankTariff(match.bankTx.description)) continue;
+        const classified2 = classifyDivergence({
+          divergenceType: "bank_surplus",
+          amount: match.bankTx.amount.toFixed(2),
+          description: match.bankTx.description,
+          channel: match.bankTx.channel ?? null,
+          bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName ?? null,
+          clientId: null,
+          clientName: match.bankTx.clientName ?? null,
+          referenceDate: match.bankTx.date,
+        });
         divRows.push({
           sessionId, divergenceDate: match.bankTx.date,
           bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
@@ -291,10 +327,10 @@ const reconciliationRouter = router({
           origin: match.bankTx.externalId,
           externalId: match.bankTx.externalId,
           bankDescription: match.bankTx.description,
-          category: match.bankTx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
-          priority: match.bankTx.amount > 1000 ? "high" : "medium",
+          category: classified2.category,
+          priority: classified2.priority,
           transactionType: match.bankTx.type,
-          observation: match.possibleMatchNote ?? undefined,
+          observation: match.possibleMatchNote ?? classified2.suggestedAction ?? undefined,
         });
       }
 

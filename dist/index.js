@@ -88427,21 +88427,53 @@ function reconcileMultiBank(banks, apiTxs) {
             if (pos >= 0) arr.splice(pos, 1);
           }
         }
-        const sameDayKey = `${bankTx.date}|${bankTx.type}`;
         const matchedOnSameDay = apiTx.date === bankTx.date;
         const confidence = matchedOnSameDay ? 100 : 85;
         const matchType = matchedOnSameDay ? "exact_value_date" : "approximate";
+        const diff = Math.abs(bankTx.amount - apiTx.amount);
+        const typeMatch = bankTx.type === apiTx.type;
+        const status = diff <= AMOUNT_TOLERANCE && (typeMatch || diff === 0) ? "matched" : "divergent";
         allMatches.push({
           bankTx,
           apiTx,
-          status: "matched",
+          status,
           matchType,
-          confidence,
-          difference: 0,
-          bankName: bank.name
+          confidence: typeMatch ? confidence : confidence - 15,
+          difference: diff,
+          bankName: bank.name,
+          possibleMatchNote: !typeMatch ? `Tipo divergente: banco=${bankTx.type}, API=${apiTx.type}` : void 0
         });
-        byBank[bank.name].matched++;
+        if (status === "matched") byBank[bank.name].matched++;
+        else byBank[bank.name].divergent++;
         continue;
+      }
+      if (bankTx.amount >= 1e4) {
+        const crossTypeIdx = candidates.findIndex(
+          (c) => Math.abs(c.tx.amount - bankTx.amount) <= AMOUNT_TOLERANCE && c.tx.type !== bankTx.type
+        );
+        if (crossTypeIdx >= 0) {
+          const { tx: apiTx, idx } = candidates[crossTypeIdx];
+          usedApiIds.add(idx);
+          for (const key of dateTypeKeys(apiTx.date, apiTx.type)) {
+            const arr = apiIndex.get(key);
+            if (arr) {
+              const pos = arr.findIndex((c) => c.idx === idx);
+              if (pos >= 0) arr.splice(pos, 1);
+            }
+          }
+          allMatches.push({
+            bankTx,
+            apiTx,
+            status: "divergent",
+            matchType: "approximate",
+            confidence: 60,
+            difference: 0,
+            bankName: bank.name,
+            possibleMatchNote: `Tipo invertido: banco=${bankTx.type}, API=${apiTx.type} \u2014 verificar se \xE9 estorno`
+          });
+          byBank[bank.name].divergent++;
+          continue;
+        }
       }
       const approxIdx = candidates.findIndex(
         (c) => Math.abs(c.tx.amount - bankTx.amount) <= APPROX_TOLERANCE
@@ -131602,12 +131634,18 @@ function parseSicoob(buffer) {
         externalId = text2.replace(/^CODIGO TED:\s*/i, "").trim();
         continue;
       }
+      if (/^E[A-Z0-9]{28,}/i.test(text2)) {
+        externalId = text2.trim();
+        continue;
+      }
       if (SKIP_SUBROW.some((re) => re.test(text2))) continue;
       if (!clientName && text2.length >= 3) clientName = text2;
     }
     if (!externalId) {
       const doc = pendingDoc.trim();
-      if (doc && doc !== "Pix" && /^\d+$/.test(doc)) externalId = doc;
+      if (doc && doc !== "Pix" && !/^\d{2}\/\d{2}/.test(doc) && /^\d{4,}$/.test(doc)) {
+        externalId = doc;
+      }
     }
     results.push({
       date: pendingDate,
@@ -131799,15 +131837,20 @@ function parseAPI(buffer) {
   const nonEstornos = results.filter((t2) => !t2.isEstorno);
   const estornoPairs = /* @__PURE__ */ new Map();
   for (const t2 of estornos) {
-    const key = `${t2.date}|${t2.amount.toFixed(2)}|${t2.timeStr ?? ""}`;
+    const rawAuth = t2.externalId ?? "";
+    const baseAuth = rawAuth.startsWith("D_") ? rawAuth.slice(2) : rawAuth;
+    const key = baseAuth.length > 4 ? `auth|${baseAuth}` : `val|${t2.date}|${t2.amount.toFixed(2)}`;
     if (!estornoPairs.has(key)) estornoPairs.set(key, []);
     estornoPairs.get(key).push(t2);
   }
   const unparedEstornos = [];
   for (const [, pair] of Array.from(estornoPairs)) {
-    if (pair.length === 1) {
-      unparedEstornos.push(pair[0]);
+    const hasOriginal = pair.some((t2) => !(t2.externalId ?? "").startsWith("D_"));
+    const hasReverted = pair.some((t2) => (t2.externalId ?? "").startsWith("D_"));
+    if (pair.length >= 2 && hasOriginal && hasReverted) {
+      continue;
     }
+    unparedEstornos.push(...pair);
   }
   return [...nonEstornos, ...unparedEstornos];
 }
@@ -131868,7 +131911,8 @@ var reconciliationRouter = router({
     const parsedBanks = input.banks.map((b) => {
       const buffer = Buffer.from(b.fileBase64, "base64");
       const txs = parseStatement(buffer, b.name);
-      return { name: b.name, txs, useE2E: b.name === "jd" };
+      const hasE2E = txs.some((t2) => t2.externalId && /^E[A-Z0-9]{28,}$/i.test(t2.externalId));
+      return { name: b.name, txs, useE2E: b.name === "jd" || b.name === "sicoob" && hasE2E };
     });
     const bankDatesRaw = new Set(parsedBanks.flatMap((b) => b.txs.map((t2) => t2.date)));
     const bankDates = /* @__PURE__ */ new Set();
@@ -132014,17 +132058,29 @@ var reconciliationRouter = router({
     const divRows = [];
     for (const match of result.matches) {
       if (match.status === "divergent") {
+        const divType = match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage";
+        const classified = classifyDivergence({
+          divergenceType: divType,
+          amount: String(match.difference?.toFixed(2) ?? "0"),
+          description: match.bankTx.description,
+          channel: match.bankTx.channel ?? null,
+          bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName ?? null,
+          clientId: null,
+          clientName: match.apiTx?.clientName ?? match.bankTx.clientName ?? null,
+          referenceDate: match.bankTx.date
+        });
         divRows.push({
           sessionId,
           divergenceDate: match.bankTx.date,
           bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
           clientName: match.apiTx?.clientName ?? match.bankTx.clientName,
-          divergenceType: match.bankTx.amount > (match.apiTx?.amount ?? 0) ? "bank_surplus" : "bank_shortage",
+          divergenceType: divType,
           amount: String(match.difference?.toFixed(2) ?? "0"),
           origin: match.bankTx.externalId,
           externalId: match.bankTx.externalId,
-          category: "liquidacao_divergente",
-          priority: "high",
+          category: classified.category,
+          priority: classified.priority,
+          observation: classified.suggestedAction,
           bankDescription: match.bankTx.description,
           apiDescription: match.apiTx?.description,
           bankAmount: match.bankTx.amount.toFixed(2),
@@ -132070,6 +132126,16 @@ var reconciliationRouter = router({
       createdByName: "Concilia\xE7\xE3o Autom\xE1tica"
     }));
     for (const tx of result.unmatchedApi) {
+      const classified3 = classifyDivergence({
+        divergenceType: "bank_shortage",
+        amount: tx.amount.toFixed(2),
+        description: tx.description,
+        channel: tx.channel ?? null,
+        bankName: "API",
+        clientId: null,
+        clientName: tx.clientName ?? null,
+        referenceDate: tx.date
+      });
       divRows.push({
         sessionId,
         divergenceDate: tx.date,
@@ -132081,9 +132147,10 @@ var reconciliationRouter = router({
         origin: tx.externalId,
         externalId: tx.externalId,
         apiDescription: tx.description,
-        category: tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
-        priority: tx.amount > 1e3 ? "high" : "medium",
-        transactionType: tx.type
+        category: classified3.category,
+        priority: classified3.priority,
+        transactionType: tx.type,
+        observation: classified3.suggestedAction
       });
     }
     await insertRevenuesBatch(tariffRevRows);
@@ -132091,6 +132158,16 @@ var reconciliationRouter = router({
     for (const match of result.matches) {
       if (match.status !== "unmatched_bank") continue;
       if (isBankTariff(match.bankTx.description)) continue;
+      const classified2 = classifyDivergence({
+        divergenceType: "bank_surplus",
+        amount: match.bankTx.amount.toFixed(2),
+        description: match.bankTx.description,
+        channel: match.bankTx.channel ?? null,
+        bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName ?? null,
+        clientId: null,
+        clientName: match.bankTx.clientName ?? null,
+        referenceDate: match.bankTx.date
+      });
       divRows.push({
         sessionId,
         divergenceDate: match.bankTx.date,
@@ -132102,10 +132179,10 @@ var reconciliationRouter = router({
         origin: match.bankTx.externalId,
         externalId: match.bankTx.externalId,
         bankDescription: match.bankTx.description,
-        category: match.bankTx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
-        priority: match.bankTx.amount > 1e3 ? "high" : "medium",
+        category: classified2.category,
+        priority: classified2.priority,
         transactionType: match.bankTx.type,
-        observation: match.possibleMatchNote ?? void 0
+        observation: match.possibleMatchNote ?? classified2.suggestedAction ?? void 0
       });
     }
     await insertDivergencesBatch(divRows);
