@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useState } from "react";
-import { AlertCircle, Building2, Calendar, CheckCircle2, DollarSign, Eye, Hash, X, FileSearch } from "lucide-react";
+import { AlertCircle, Building2, Calendar, CheckCircle2, DollarSign, Eye, Hash, X, FileSearch, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,10 @@ function daysOpen(dateStr: string) {
   return Math.floor((Date.now() - d.getTime()) / 86400000);
 }
 
-function NdiDetailModal({ div, onClose, onUnmark }: { div: any; onClose: () => void; onUnmark: () => void }) {
+function NdiDetailModal({ div, onClose, onUnmark, onResolve }: { div: any; onClose: () => void; onUnmark: () => void; onResolve: (clientName: string, description: string) => void }) {
+  const [clientName, setClientName] = useState("");
+  const [description, setDescription] = useState("");
+  const [resolveOpen, setResolveOpen] = useState(false);
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
@@ -48,12 +51,36 @@ function NdiDetailModal({ div, onClose, onUnmark }: { div: any; onClose: () => v
             </div>
           )}
         </div>
-        <div className="px-5 py-4 border-t border-border flex gap-2">
-          <Button variant="outline" className="flex-1 text-xs text-orange-400 border-orange-500/30 hover:bg-orange-500/10" onClick={onUnmark}>
-            Remover NDI
-          </Button>
-          <Button className="flex-1 text-xs" onClick={onClose}>Fechar</Button>
-        </div>
+        {resolveOpen ? (
+          <div className="px-5 py-4 border-t border-border space-y-3">
+            <p className="text-xs font-semibold text-foreground">Identificar cliente deste valor</p>
+            <div>
+              <label className="text-[10px] text-muted-foreground">Nome do cliente</label>
+              <input className="mt-1 w-full text-xs rounded-md border border-border bg-background px-3 py-1.5" placeholder="Nome do cliente ou empresa" value={clientName} onChange={e => setClientName(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground">Descrição (opcional)</label>
+              <input className="mt-1 w-full text-xs rounded-md border border-border bg-background px-3 py-1.5" placeholder="Ex: Pagamento referente a contrato X" value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+            <div className="flex gap-2">
+              <button className="flex-1 text-xs border border-border rounded-md py-1.5 text-muted-foreground hover:bg-accent/10" onClick={() => setResolveOpen(false)}>Cancelar</button>
+              <button
+                className="flex-1 text-xs bg-emerald-600 text-white rounded-md py-1.5 disabled:opacity-50"
+                disabled={!clientName.trim()}
+                onClick={() => { onResolve(clientName, description); }}
+              >Confirmar → Receita</button>
+            </div>
+          </div>
+        ) : (
+          <div className="px-5 py-4 border-t border-border flex gap-2">
+            <Button className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700 gap-1.5" onClick={() => setResolveOpen(true)}>
+              <UserCheck className="w-3.5 h-3.5" /> Identificar Cliente
+            </Button>
+            <Button variant="outline" size="sm" className="text-xs text-orange-400 border-orange-500/30 hover:bg-orange-500/10" onClick={onUnmark}>
+              Remover NDI
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -66,6 +93,10 @@ export default function NDI() {
   const { data: rawData, refetch, isLoading } = trpc.reconciliation.getNdiDivergences.useQuery();
   const unmarkMutation = trpc.reconciliation.unmarkNdi.useMutation({
     onSuccess: () => { toast.success("NDI removido."); setSelected(null); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const resolveNdiMutation = trpc.reconciliation.resolveNdi.useMutation({
+    onSuccess: () => { toast.success("NDI identificado — receita criada!"); setSelected(null); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -212,6 +243,7 @@ export default function NDI() {
           div={selected}
           onClose={() => setSelected(null)}
           onUnmark={() => unmarkMutation.mutate({ id: selected.id })}
+          onResolve={(clientName, description) => resolveNdiMutation.mutate({ id: selected.id, clientName, description })}
         />
       )}
     </div>

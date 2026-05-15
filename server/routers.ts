@@ -548,6 +548,40 @@ const reconciliationRouter = router({
       return { success: true };
     }),
 
+  // ── Conciliação Manual ────────────────────────────────────────────────────
+  manualReconcile: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()).min(1),
+      note: z.string().min(1),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.manualReconcileDivergences(
+        input.ids,
+        input.note,
+        ctx.user?.name ?? ctx.user?.email ?? 'Usuário'
+      );
+      return result;
+    }),
+
+  // ── Saldo diário dos bancos ───────────────────────────────────────────────
+  getDailyBankBalances: protectedProcedure
+    .query(async () => db.getDailyBankBalances()),
+
+  // ── Resolver NDI (identificar cliente) ───────────────────────────────────
+  resolveNdi: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      clientName: z.string().min(1),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return db.resolveNdi(input.id, {
+        clientName: input.clientName,
+        description: input.description ?? '',
+        createdByName: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
+      });
+    }),
+
   // ── NDI — Não Identificados ───────────────────────────────────────────────
   markAsNdi: protectedProcedure
     .input(z.object({

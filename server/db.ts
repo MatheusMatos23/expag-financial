@@ -803,6 +803,57 @@ export async function setSystemConfig(key: string, value: string, description?: 
 // ─── DASHBOARD SUMMARY ────────────────────────────────────────────────────────
 // ─── NDI — NÃO IDENTIFICADOS ──────────────────────────────────────────────────
 
+export async function resolveNdi(id: number, data: {
+  clientName: string;
+  description: string;
+  createdByName: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  const divs = await db.select().from(divergences).where(eq(divergences.id, id)).limit(1);
+  if (!divs[0]) throw new Error("Divergência não encontrada");
+  const div = divs[0];
+
+  // Cria receita no banco
+  await createRevenue({
+    referenceDate: String(div.divergenceDate).slice(0, 10),
+    type: "pix",
+    description: data.description || `NDI identificado: ${data.clientName}`,
+    amount: String(div.amount),
+    clientName: data.clientName,
+    sessionId: div.sessionId ?? undefined,
+    origin: "manual_move",
+    createdByName: data.createdByName,
+  });
+
+  // Marca NDI como resolvido
+  await db.update(divergences)
+    .set({
+      status: 'regularizado',
+      isNdi: false,
+      clientName: data.clientName,
+      actionTaken: `NDI identificado como ${data.clientName} por ${data.createdByName}`,
+      responsible: data.createdByName,
+    })
+    .where(eq(divergences.id, id));
+
+  // Atualiza contadores da sessão
+  if (div.sessionId) {
+    const session = await db.select()
+      .from(reconciliationSessions)
+      .where(eq(reconciliationSessions.id, div.sessionId))
+      .limit(1);
+    if (session[0]) {
+      await db.update(reconciliationSessions)
+        .set({ matchedCount: (session[0].matchedCount ?? 0) + 1 })
+        .where(eq(reconciliationSessions.id, div.sessionId));
+    }
+  }
+
+  return { success: true };
+}
+
 export async function markDivergencesAsNdi(ids: number[], ndiNote?: string) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -917,6 +968,75 @@ export async function getManualAdjustments(sessionId?: number) {
     return db.execute(sql`SELECT * FROM manual_adjustments WHERE sessionId = ${sessionId} ORDER BY createdAt DESC`).then((r: any) => r[0] ?? []);
   }
   return db.execute(sql`SELECT * FROM manual_adjustments ORDER BY createdAt DESC LIMIT 50`).then((r: any) => r[0] ?? []);
+}
+
+// ─── CONCILIAÇÃO MANUAL ────────────────────────────────────────────────────────
+
+export async function manualReconcileDivergences(ids: number[], note: string, createdByName: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Busca divergências selecionadas
+  const divs = await db.select().from(divergences).where(inArray(divergences.id, ids));
+  if (divs.length === 0) return { success: false, count: 0 };
+
+  const sessionId = divs[0].sessionId;
+  const totalAmount = divs.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+
+  // Marca como regularizado
+  await db.update(divergences)
+    .set({
+      status: 'regularizado',
+      actionTaken: `Conciliado manualmente por ${createdByName}: ${note}`,
+      responsible: createdByName,
+    })
+    .where(inArray(divergences.id, ids));
+
+  // Atualiza contadores da sessão
+  const pending = await db.execute(sql`
+    SELECT COUNT(*) as cnt FROM divergences
+    WHERE sessionId = ${sessionId}
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+  `);
+  const pendingCount = (pending as any)[0]?.[0]?.cnt ?? 0;
+
+  const session = await db.select()
+    .from(reconciliationSessions)
+    .where(eq(reconciliationSessions.id, sessionId))
+    .limit(1);
+
+  if (session[0]) {
+    const newMatched = (session[0].matchedCount ?? 0) + ids.length;
+    await db.update(reconciliationSessions)
+      .set({ matchedCount: newMatched, pendingCount })
+      .where(eq(reconciliationSessions.id, sessionId));
+  }
+
+  return { success: true, count: ids.length, totalAmount };
+}
+
+// ─── SALDO DIÁRIO POR BANCO (do histórico de sessões) ─────────────────────────
+
+export async function getDailyBankBalances() {
+  const db = await getDb();
+  if (!db) return [];
+  // Agrupa por data de referência e banco os totais das sessões conciliadas
+  const result = await db.execute(sql`
+    SELECT
+      rs.referenceDate as date,
+      SUM(rs.totalBankCredits) as totalCredits,
+      SUM(rs.totalBankDebits)  as totalDebits,
+      SUM(rs.totalApiCredits)  as apiCredits,
+      SUM(rs.totalApiDebits)   as apiDebits,
+      SUM(rs.matchedCount)     as matched,
+      SUM(rs.divergentCount)   as divergent
+    FROM reconciliation_sessions rs
+    WHERE rs.status = 'completed'
+    GROUP BY rs.referenceDate
+    ORDER BY rs.referenceDate DESC
+    LIMIT 30
+  `);
+  return ((result as any)[0] ?? []).reverse();
 }
 
 export async function getControllershipDashboard(dateFrom: string, dateTo: string) {

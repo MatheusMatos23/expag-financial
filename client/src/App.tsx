@@ -14,6 +14,7 @@ const ReconciliationSession = lazy(() => import("@/pages/ReconciliationSession")
 const Divergences      = lazy(() => import("@/pages/Divergences"));
 const ManagerialBalance = lazy(() => import("@/pages/ManagerialBalance"));
 const NDI              = lazy(() => import("@/pages/NDI"));
+const Users            = lazy(() => import("@/pages/Users"));
 const Controladoria    = lazy(() => import("@/pages/Controladoria"));
 const Revenues         = lazy(() => import("@/pages/Revenues"));
 const Expenses         = lazy(() => import("@/pages/Expenses"));
@@ -59,6 +60,7 @@ function Router() {
           <Route path="/fluxo-caixa"        component={CashFlow} />
           <Route path="/centros-custo"      component={CostCenters} />
           <Route path="/alertas"            component={Alerts} />
+          <Route path="/usuarios"           component={Users} />
           <Route path="/404"                component={NotFound} />
           <Route                            component={NotFound} />
         </Switch>

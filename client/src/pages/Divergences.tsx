@@ -476,6 +476,16 @@ export default function Divergences() {
     onError: (e) => toast.error(e.message),
   });
 
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileNote, setReconcileNote] = useState("");
+  const manualReconcileMutation = trpc.reconciliation.manualReconcile.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${r.count} divergência${r.count !== 1 ? "s" : ""} conciliada${r.count !== 1 ? "s" : ""} manualmente!`);
+      setSelectedIds(new Set()); setReconcileOpen(false); setReconcileNote(""); refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const rows = ((divergences ?? []) as any[]).filter(d => {
     if (typeFilter !== "all" && d.divergenceType !== typeFilter) return false;
     if (bankFilter !== "all" && d.bankName !== bankFilter) return false;
@@ -613,6 +623,9 @@ export default function Divergences() {
             </Button>
             <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10" onClick={() => setAdjustOpen(true)}>
               <Wrench className="w-3.5 h-3.5" /> Ajuste Manual
+            </Button>
+            <Button size="sm" className="text-xs gap-1.5 bg-violet-600 hover:bg-violet-700" onClick={() => setReconcileOpen(true)}>
+              <CheckCircle2 className="w-3.5 h-3.5" /> Conciliar
             </Button>
           </div>
         </div>
@@ -757,6 +770,51 @@ export default function Divergences() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal Conciliação Manual */}
+      {reconcileOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-violet-400" />
+                <h3 className="font-bold text-foreground">Conciliação Manual</h3>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setReconcileOpen(false)}><X className="w-4 h-4" /></Button>
+            </div>
+            <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4 text-center">
+              <p className="text-xs text-muted-foreground">{selectedIds.size} divergência{selectedIds.size > 1 ? "s" : ""} selecionada{selectedIds.size > 1 ? "s" : ""}</p>
+              <p className="text-2xl font-bold font-mono text-violet-400 mt-1">{formatCurrency(selectedTotal)}</p>
+            </div>
+            <div className="bg-accent/20 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
+              <p>✓ As divergências serão marcadas como <strong className="text-foreground">regularizado</strong></p>
+              <p>✓ Somem da lista de pendências</p>
+              <p>✓ Taxa de matching aumenta</p>
+              <p>✓ Ação fica registrada com seu nome</p>
+            </div>
+            <div>
+              <Label className="text-xs">Motivo / Observação <span className="text-red-400">*</span></Label>
+              <Textarea
+                className="mt-1.5 text-xs resize-none h-20"
+                placeholder="Ex: PIX identificado como pagamento do cliente X, confirmado com extrato..."
+                value={reconcileNote}
+                onChange={e => setReconcileNote(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 text-xs" onClick={() => setReconcileOpen(false)}>Cancelar</Button>
+              <Button
+                className="flex-1 text-xs bg-violet-600 hover:bg-violet-700 gap-1.5"
+                disabled={!reconcileNote.trim() || manualReconcileMutation.isPending}
+                onClick={() => manualReconcileMutation.mutate({ ids: Array.from(selectedIds), note: reconcileNote })}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {manualReconcileMutation.isPending ? "Conciliando..." : "Confirmar Conciliação"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 

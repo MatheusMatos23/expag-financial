@@ -117,6 +117,59 @@ function ChartCard({ title, subtitle, children, className }: {
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+function BankBalanceWidget() {
+  const { data: balances } = trpc.reconciliation.getDailyBankBalances.useQuery();
+  const rows = ((balances as any) ?? []) as any[];
+  if (rows.length === 0) return null;
+
+  const latest = rows[rows.length - 1];
+  const totalCredits = parseFloat(String(latest?.totalCredits ?? 0));
+  const totalDebits  = parseFloat(String(latest?.totalDebits  ?? 0));
+  const apiCredits   = parseFloat(String(latest?.apiCredits   ?? 0));
+  const apiDebits    = parseFloat(String(latest?.apiDebits    ?? 0));
+  const matched      = parseInt(String(latest?.matched  ?? 0));
+  const divergent    = parseInt(String(latest?.divergent ?? 0));
+  const total        = matched + divergent;
+  const rate         = total > 0 ? Math.round((matched / total) * 100) : 0;
+
+  const fmtC = (v: number) => {
+    if (v >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
+    if (v >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
+    return `R$ ${v.toFixed(2)}`;
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-foreground">Saldos — Última Conciliação</h3>
+        <span className="text-[10px] text-muted-foreground">{latest?.date ? String(latest.date).slice(0,10) : ""}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
+          <p className="text-[10px] text-muted-foreground mb-1">Banco · Créditos</p>
+          <p className="text-lg font-bold font-mono text-emerald-400">{fmtC(totalCredits)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Débitos: {fmtC(totalDebits)}</p>
+        </div>
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
+          <p className="text-[10px] text-muted-foreground mb-1">API · Créditos</p>
+          <p className="text-lg font-bold font-mono text-blue-400">{fmtC(apiCredits)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Débitos: {fmtC(apiDebits)}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 bg-accent/20 rounded-full h-2 overflow-hidden">
+          <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${rate}%` }} />
+        </div>
+        <span className="text-xs font-bold font-mono text-emerald-400 shrink-0">{rate}% conciliado</span>
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>{matched} conciliados</span>
+        <span className={divergent > 0 ? "text-yellow-400" : ""}>{divergent} divergentes</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { dateFrom, dateTo } = getCurrentMonthRange();
   const [, setLocation] = useLocation();
@@ -216,6 +269,8 @@ export default function Dashboard() {
           icon={netResult >= 0 ? ArrowUpRight : ArrowDownRight} />
       </div>
 
+
+      <BankBalanceWidget />
       {/* Operational strip */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[

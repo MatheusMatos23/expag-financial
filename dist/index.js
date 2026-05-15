@@ -108444,6 +108444,37 @@ async function setSystemConfig(key, value, description) {
   if (!db) return;
   await db.insert(systemConfig).values({ key, value, description }).onDuplicateKeyUpdate({ set: { value } });
 }
+async function resolveNdi(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const divs = await db.select().from(divergences).where(eq(divergences.id, id)).limit(1);
+  if (!divs[0]) throw new Error("Diverg\xEAncia n\xE3o encontrada");
+  const div = divs[0];
+  await createRevenue({
+    referenceDate: String(div.divergenceDate).slice(0, 10),
+    type: "pix",
+    description: data.description || `NDI identificado: ${data.clientName}`,
+    amount: String(div.amount),
+    clientName: data.clientName,
+    sessionId: div.sessionId ?? void 0,
+    origin: "manual_move",
+    createdByName: data.createdByName
+  });
+  await db.update(divergences).set({
+    status: "regularizado",
+    isNdi: false,
+    clientName: data.clientName,
+    actionTaken: `NDI identificado como ${data.clientName} por ${data.createdByName}`,
+    responsible: data.createdByName
+  }).where(eq(divergences.id, id));
+  if (div.sessionId) {
+    const session = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, div.sessionId)).limit(1);
+    if (session[0]) {
+      await db.update(reconciliationSessions).set({ matchedCount: (session[0].matchedCount ?? 0) + 1 }).where(eq(reconciliationSessions.id, div.sessionId));
+    }
+  }
+  return { success: true };
+}
 async function markDivergencesAsNdi(ids, ndiNote) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -108525,6 +108556,51 @@ async function getManualAdjustments(sessionId) {
     return db.execute(sql`SELECT * FROM manual_adjustments WHERE sessionId = ${sessionId} ORDER BY createdAt DESC`).then((r) => r[0] ?? []);
   }
   return db.execute(sql`SELECT * FROM manual_adjustments ORDER BY createdAt DESC LIMIT 50`).then((r) => r[0] ?? []);
+}
+async function manualReconcileDivergences(ids, note, createdByName) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const divs = await db.select().from(divergences).where(inArray(divergences.id, ids));
+  if (divs.length === 0) return { success: false, count: 0 };
+  const sessionId = divs[0].sessionId;
+  const totalAmount = divs.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  await db.update(divergences).set({
+    status: "regularizado",
+    actionTaken: `Conciliado manualmente por ${createdByName}: ${note}`,
+    responsible: createdByName
+  }).where(inArray(divergences.id, ids));
+  const pending = await db.execute(sql`
+    SELECT COUNT(*) as cnt FROM divergences
+    WHERE sessionId = ${sessionId}
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+  `);
+  const pendingCount = pending[0]?.[0]?.cnt ?? 0;
+  const session = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, sessionId)).limit(1);
+  if (session[0]) {
+    const newMatched = (session[0].matchedCount ?? 0) + ids.length;
+    await db.update(reconciliationSessions).set({ matchedCount: newMatched, pendingCount }).where(eq(reconciliationSessions.id, sessionId));
+  }
+  return { success: true, count: ids.length, totalAmount };
+}
+async function getDailyBankBalances() {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT
+      rs.referenceDate as date,
+      SUM(rs.totalBankCredits) as totalCredits,
+      SUM(rs.totalBankDebits)  as totalDebits,
+      SUM(rs.totalApiCredits)  as apiCredits,
+      SUM(rs.totalApiDebits)   as apiDebits,
+      SUM(rs.matchedCount)     as matched,
+      SUM(rs.divergentCount)   as divergent
+    FROM reconciliation_sessions rs
+    WHERE rs.status = 'completed'
+    GROUP BY rs.referenceDate
+    ORDER BY rs.referenceDate DESC
+    LIMIT 30
+  `);
+  return (result[0] ?? []).reverse();
 }
 async function getControllershipDashboard(dateFrom, dateTo) {
   const db = await getDb();
@@ -131201,6 +131277,32 @@ var reconciliationRouter = router({
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
     await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
     return { success: true };
+  }),
+  // ── Conciliação Manual ────────────────────────────────────────────────────
+  manualReconcile: protectedProcedure.input(external_exports.object({
+    ids: external_exports.array(external_exports.number()).min(1),
+    note: external_exports.string().min(1)
+  })).mutation(async ({ input, ctx }) => {
+    const result = await manualReconcileDivergences(
+      input.ids,
+      input.note,
+      ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+    );
+    return result;
+  }),
+  // ── Saldo diário dos bancos ───────────────────────────────────────────────
+  getDailyBankBalances: protectedProcedure.query(async () => getDailyBankBalances()),
+  // ── Resolver NDI (identificar cliente) ───────────────────────────────────
+  resolveNdi: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    clientName: external_exports.string().min(1),
+    description: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    return resolveNdi(input.id, {
+      clientName: input.clientName,
+      description: input.description ?? "",
+      createdByName: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+    });
   }),
   // ── NDI — Não Identificados ───────────────────────────────────────────────
   markAsNdi: protectedProcedure.input(external_exports.object({
