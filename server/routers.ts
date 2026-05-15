@@ -22,6 +22,7 @@ const reconciliationRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await db.deleteReconciliationSession(input.id);
+      db.invalidateReconciliationCache(); // limpa cache de saldo por banco
       return { success: true };
     }),
 
@@ -295,6 +296,7 @@ const reconciliationRouter = router({
         pendingCount:     result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
       });
 
+      db.invalidateReconciliationCache(); // atualiza cache após nova conciliação
       return {
         sessionId, result,
         bankDates: Array.from(bankDates).sort(),

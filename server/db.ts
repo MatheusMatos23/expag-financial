@@ -129,9 +129,8 @@ export async function getReconciliationSessionById(id: number) {
 }
 
 export function invalidateReconciliationCache() {
-  cacheInvalidate('bank_balances');
-  cacheInvalidate('ctrl_dashboard');
-  cacheInvalidate('daily_balances');
+  // Limpa todo o cache — garante que dados apagados não reapareçam
+  _cache.clear();
 }
 
 export async function deleteReconciliationSession(id: number) {
@@ -1368,7 +1367,7 @@ export async function getBankBalancesByBank() {
     ORDER BY totalCredits DESC
   `);
   const data = (result as any)[0] ?? [];
-  cacheSet('bank_balances_by_bank', data, 60_000); // 1 min cache
+  cacheSet('bank_balances_by_bank', data, 10_000); // 10s cache
   return data;
 }
 

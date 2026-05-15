@@ -108552,6 +108552,9 @@ async function getReconciliationSessionById(id) {
   const result = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, id)).limit(1);
   return result[0] ?? null;
 }
+function invalidateReconciliationCache() {
+  _cache.clear();
+}
 async function deleteReconciliationSession(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -109467,7 +109470,7 @@ async function getBankBalancesByBank() {
     ORDER BY totalCredits DESC
   `);
   const data = result[0] ?? [];
-  cacheSet("bank_balances_by_bank", data, 6e4);
+  cacheSet("bank_balances_by_bank", data, 1e4);
   return data;
 }
 async function getDailyBankBalances() {
@@ -131723,6 +131726,7 @@ var reconciliationRouter = router({
   }),
   deleteSession: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteReconciliationSession(input.id);
+    invalidateReconciliationCache();
     return { success: true };
   }),
   getSessionTransactions: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
@@ -131995,6 +131999,7 @@ var reconciliationRouter = router({
       divergentCount: result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
       pendingCount: result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount
     });
+    invalidateReconciliationCache();
     return {
       sessionId,
       result,

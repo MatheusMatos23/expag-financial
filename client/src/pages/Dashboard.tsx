@@ -62,9 +62,9 @@ export default function Dashboard() {
     { dateFrom, dateTo }, { refetchOnWindowFocus: false }
   );
   const { data: sessions } = trpc.reconciliation.getSessions.useQuery();
-  const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery();
+  const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 15000 });
   const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({});
-  const { data: dailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery();
+  const { data: dailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const totalRevenue  = ctrlData?.totalRevenue  ?? 0;
