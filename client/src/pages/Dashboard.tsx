@@ -1,55 +1,48 @@
 import { trpc } from "@/lib/trpc";
-import { formatCurrency, getCurrentMonthRange } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { useLocation } from "wouter";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Cell,
+  Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
-  ArrowUpRight, ArrowDownRight, ChevronRight, RefreshCw,
-  CheckCircle2, Activity, Building2,
+  ChevronRight, RefreshCw, CheckCircle2, Activity, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 
 const TOOLTIP = {
   background: "#0d1528", border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: "10px", fontSize: "11px", color: "#e8edf5",
 };
+const BANK_COLORS = ["#10b981","#f59e0b","#38bdf8","#818cf8","#f87171","#fb923c"];
 
-const BANK_COLORS: Record<string, string> = {
-  Sicoob: "#10b981", "Banco do Brasil": "#f59e0b", BB: "#f59e0b",
-  JD: "#38bdf8", API: "#818cf8",
-};
-const BANK_COLOR_LIST = ["#10b981","#f59e0b","#38bdf8","#818cf8","#f87171","#fb923c"];
-
-function fmtShort(v: number) {
+function fmtS(v: number) {
   if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
   if (Math.abs(v) >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
   return formatCurrency(v);
 }
 
-function KpiCard({ label, value, sub, color, icon: Icon, onClick, trend }: {
-  label: string; value: string; sub?: string; color: string;
-  icon: any; onClick?: () => void; trend?: number;
+// ── 90-day range helper ───────────────────────────────────────────────────────
+function get90DayRange() {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 90);
+  return {
+    dateFrom: from.toISOString().slice(0, 10),
+    dateTo:   to.toISOString().slice(0, 10),
+  };
+}
+
+function KpiCard({ label, value, sub, color, icon: Icon, onClick }: {
+  label: string; value: string; sub?: string; color: string; icon: any; onClick?: () => void;
 }) {
   return (
-    <div
-      className={cn("bg-card border border-border rounded-2xl p-5 flex flex-col gap-3", onClick && "cursor-pointer hover:border-primary/30 transition-colors")}
-      onClick={onClick}
-    >
-      <div className="flex items-center justify-between">
-        <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", color.replace("text-","bg-").replace("-400","-500/15"))}>
-          <Icon className={cn("w-4 h-4", color)} />
-        </div>
-        {trend !== undefined && (
-          <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full",
-            trend >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10")}>
-            {trend >= 0 ? "+" : ""}{trend.toFixed(1)}%
-          </span>
-        )}
+    <div className={cn("bg-card border border-border rounded-2xl p-5 space-y-3", onClick && "cursor-pointer hover:border-primary/30 transition-colors")} onClick={onClick}>
+      <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", color.replace("text-","bg-").replace("-400","-500/15"))}>
+        <Icon className={cn("w-4 h-4", color)} />
       </div>
       <div>
         <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{label}</p>
@@ -62,20 +55,18 @@ function KpiCard({ label, value, sub, color, icon: Icon, onClick, trend }: {
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
-  const { dateFrom, dateTo } = getCurrentMonthRange();
-  const [period] = useState({ dateFrom, dateTo });
+  const { dateFrom, dateTo } = get90DayRange();
 
-  // ── Data fetching ────────────────────────────────────────────────────────────
-  const { data: ctrlData, isLoading: ctrlLoading } = trpc.controllership.getControllershipDashboard.useQuery(
-    { dateFrom: period.dateFrom, dateTo: period.dateTo },
-    { refetchOnWindowFocus: false }
+  // ── Queries ──────────────────────────────────────────────────────────────────
+  const { data: ctrlData, refetch: refetchCtrl } = trpc.controllership.getControllershipDashboard.useQuery(
+    { dateFrom, dateTo }, { refetchOnWindowFocus: false }
   );
   const { data: sessions } = trpc.reconciliation.getSessions.useQuery();
-  const { data: balances } = trpc.reconciliation.getDailyBankBalances.useQuery();
-  const { data: bankBreakdownData } = trpc.reconciliation.getBankBalancesByBank.useQuery();
+  const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery();
   const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({});
+  const { data: dailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery();
 
-  // ── Derived values ───────────────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────────────
   const totalRevenue  = ctrlData?.totalRevenue  ?? 0;
   const totalExpenses = ctrlData?.totalExpenses ?? 0;
   const netResult     = ctrlData?.netResult     ?? 0;
@@ -83,39 +74,26 @@ export default function Dashboard() {
 
   const sessionList = (sessions as any[]) ?? [];
   const lastSession = sessionList[0];
-  const lastMatched  = lastSession?.matchedCount ?? 0;
+  const lastMatched   = lastSession?.matchedCount  ?? 0;
   const lastDivergent = lastSession?.divergentCount ?? 0;
-  const lastTotal    = lastMatched + lastDivergent;
-  const matchRate    = lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0;
+  const lastTotal     = lastMatched + lastDivergent;
+  const matchRate     = lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0;
 
-  const divList = (divAll as any[]) ?? [];
-  const pendingDivs   = divList.filter(d => !['regularizado','reclassificado','baixado'].includes(d.status));
-  const criticalDivs  = pendingDivs.filter(d => d.priority === 'critical' || d.priority === 'high');
-  const pendingAmount = pendingDivs.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const PENDING_ST = ["pendente","em_analise","identificado","escalado_diretoria","em_aberto"];
+  const divList      = (divAll as any[]) ?? [];
+  const pendingDivs  = divList.filter(d => PENDING_ST.includes(d.status));
+  const criticalDivs = pendingDivs.filter(d => d.priority === "critical" || d.priority === "high");
+  const pendingAmt   = pendingDivs.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const surplusAmt   = pendingDivs.filter(d => d.divergenceType === "bank_surplus").reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const shortageAmt  = pendingDivs.filter(d => d.divergenceType === "bank_shortage").reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
 
-  // ── Bank balances by bank ────────────────────────────────────────────────────
-  const balanceRows = (balances as any[]) ?? [];
-  const latestBalance = balanceRows[balanceRows.length - 1];
+  const latestBal = ((dailyBal as any[]) ?? []).slice(-1)[0];
 
-  // Real bank breakdown from bank_transactions grouped by bankName
-  const bankBreakdown = useMemo(() => {
-    const rows = (bankBreakdownData as any[]) ?? [];
-    return rows.map((r: any, i: number) => ({
-      bank: r.bankName,
-      credits: parseFloat(String(r.totalCredits ?? 0)),
-      debits:  parseFloat(String(r.totalDebits  ?? 0)),
-      matched: parseInt(String(r.matchedTxs ?? 0)),
-      divergent: parseInt(String(r.divergentTxs ?? 0)),
-      total: parseInt(String(r.totalTxs ?? 0)),
-      lastDate: String(r.lastDate ?? "").slice(0, 10),
-      color: BANK_COLOR_LIST[i % BANK_COLOR_LIST.length],
-    }));
-  }, [bankBreakdownData]);
+  const bankRows = (bankByBank as any[]) ?? [];
 
-  // ── Evolution chart from daily balances ─────────────────────────────────────
+  // ── Charts ───────────────────────────────────────────────────────────────────
   const evolutionData = useMemo(() => {
-    if (!ctrlData?.dailyEvolution?.length) return [];
-    return ctrlData.dailyEvolution.slice(-14).map(d => ({
+    return (ctrlData?.dailyEvolution ?? []).slice(-21).map(d => ({
       date: String(d.date).slice(5).replace("-", "/"),
       receitas: d.receitas,
       despesas: d.despesas,
@@ -123,91 +101,109 @@ export default function Dashboard() {
     }));
   }, [ctrlData]);
 
-  // ── Recent sessions for matching overview ────────────────────────────────────
-  const recentSessions = sessionList.slice(0, 5);
+  const revenueByType = useMemo(() => {
+    return Object.entries(ctrlData?.revenueByType ?? {})
+      .map(([k, v]) => ({ name: k.replace("receita_","").replace("_"," "), value: v as number }))
+      .sort((a, b) => b.value - a.value).slice(0, 5);
+  }, [ctrlData]);
+
+  const expenseByCategory = useMemo(() => {
+    return Object.entries(ctrlData?.expenseByCategory ?? {})
+      .map(([k, v]) => ({ name: k.replace("_"," "), value: v as number }))
+      .sort((a, b) => b.value - a.value).slice(0, 5);
+  }, [ctrlData]);
+
+  const COLORS = ["#10b981","#38bdf8","#818cf8","#f59e0b","#f87171","#fb923c"];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Visão executiva — {period.dateFrom} até {period.dateTo}</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Visão geral — últimos 90 dias</p>
         </div>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => window.location.reload()}>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => refetchCtrl()}>
           <RefreshCw className="w-3.5 h-3.5" /> Atualizar
         </Button>
       </div>
 
-      {/* KPIs principais */}
+      {/* ── Faixa 1: KPIs financeiros ─────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <KpiCard label="Receitas"    value={fmtShort(totalRevenue)}  color="text-emerald-400" icon={TrendingUp}    onClick={() => navigate("/receitas")} />
-        <KpiCard label="Despesas"    value={fmtShort(totalExpenses)} color="text-red-400"     icon={TrendingDown}  onClick={() => navigate("/despesas")} />
-        <KpiCard label="Resultado"   value={fmtShort(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} />
-        <KpiCard label="Margem"      value={`${margin.toFixed(1)}%`} color={margin >= 30 ? "text-blue-400" : margin >= 0 ? "text-yellow-400" : "text-red-400"} icon={Activity} />
-        <KpiCard label="Divergências" value={fmtShort(pendingAmount)} color="text-yellow-400" icon={AlertTriangle} sub={`${pendingDivs.length} pendentes · ${criticalDivs.length} críticas`} onClick={() => navigate("/divergencias")} />
+        <KpiCard label="Receitas"     value={fmtS(totalRevenue)}  color="text-emerald-400" icon={TrendingUp}   onClick={() => navigate("/receitas")} sub={`${ctrlData?.recentRevenues?.length ?? 0} lançamentos`} />
+        <KpiCard label="Despesas"     value={fmtS(totalExpenses)} color="text-red-400"     icon={TrendingDown} onClick={() => navigate("/despesas")} sub={`${ctrlData?.recentExpenses?.length ?? 0} lançamentos`} />
+        <KpiCard label="Resultado"    value={fmtS(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} sub={`Margem ${margin.toFixed(1)}%`} />
+        <KpiCard label="Pendente"     value={fmtS(pendingAmt)}    color="text-yellow-400"  icon={AlertTriangle} onClick={() => navigate("/divergencias")} sub={`${pendingDivs.length} itens · ${criticalDivs.length} críticos`} />
+        <KpiCard label="Conciliação"  value={`${matchRate}%`}     color={matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400"} icon={CheckCircle2} onClick={() => navigate("/conciliacao")} sub={`${lastMatched} de ${lastTotal} transações`} />
       </div>
 
-      {/* Taxa de matching + saldo bancário */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ── Faixa 2: Divergências pendentes resumo ───────────────────────── */}
+      {pendingDivs.length > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Volume Total Pendente</p>
+            <p className="text-xl font-bold font-mono text-orange-400 mt-1">{fmtS(pendingAmt)}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Meta: R$ 0,00 (zerar)</p>
+            <div className="mt-2 w-full bg-accent/20 rounded-full h-1.5">
+              <div className="h-full bg-orange-400 rounded-full" style={{ width: `${Math.min(100, (pendingAmt / (pendingAmt + (totalRevenue||1))) * 100)}%` }} />
+            </div>
+          </div>
+          <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">↑ Sobra Banco (banco &gt; API)</p>
+            <p className="text-xl font-bold font-mono text-red-400 mt-1">{fmtS(surplusAmt)}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{pendingDivs.filter(d => d.divergenceType === "bank_surplus").length} divergências</p>
+          </div>
+          <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">↓ Falta Banco (API &gt; banco)</p>
+            <p className="text-xl font-bold font-mono text-yellow-400 mt-1">{fmtS(shortageAmt)}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{pendingDivs.filter(d => d.divergenceType === "bank_shortage").length} divergências</p>
+          </div>
+        </div>
+      )}
 
-        {/* Matching overview */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+      {/* ── Faixa 3: Gráfico evolução + Saldo por banco ──────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        {/* Evolução 21 dias */}
+        <div className="md:col-span-2 bg-card border border-border rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-foreground">Taxa de Conciliação</h3>
-            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/conciliacao")}>
-              Ver sessões <ChevronRight className="w-3 h-3" />
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Receitas vs Despesas — Diário</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Últimos 21 dias com lançamentos</p>
+            </div>
+            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/controladoria")}>
+              Controladoria <ChevronRight className="w-3 h-3" />
             </Button>
           </div>
-          <div className="flex items-end gap-4 mb-4">
-            <div>
-              <p className={cn("text-5xl font-bold font-mono", matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-yellow-400" : "text-red-400")}>
-                {matchRate}%
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">última sessão</p>
-            </div>
-            <div className="flex-1 space-y-2 pb-1">
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Conciliados</span>
-                <span className="text-emerald-400 font-mono">{lastMatched}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Divergentes</span>
-                <span className="text-yellow-400 font-mono">{lastDivergent}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Total banco</span>
-                <span className="text-muted-foreground font-mono">{lastTotal}</span>
-              </div>
-            </div>
-          </div>
-          <div className="w-full bg-accent/20 rounded-full h-3 overflow-hidden">
-            <div className={cn("h-full rounded-full transition-all", matchRate >= 90 ? "bg-emerald-400" : matchRate >= 70 ? "bg-yellow-400" : "bg-red-400")}
-              style={{ width: `${matchRate}%` }} />
-          </div>
-
-          {/* Sessões recentes */}
-          {recentSessions.length > 0 && (
-            <div className="mt-4 space-y-2">
-              {recentSessions.map((s: any) => {
-                const t = (s.matchedCount ?? 0) + (s.divergentCount ?? 0);
-                const r = t > 0 ? Math.round(((s.matchedCount ?? 0) / t) * 100) : 0;
-                return (
-                  <div key={s.id} className="flex items-center gap-3 cursor-pointer hover:bg-accent/10 rounded-lg px-2 py-1.5 transition-colors"
-                    onClick={() => navigate(`/conciliacao/${s.id}`)}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-foreground truncate">
-                        {String(s.referenceDate).slice(0,10)}
-                      </p>
-                      <div className="w-full bg-accent/20 rounded-full h-1 mt-1 overflow-hidden">
-                        <div className={cn("h-full rounded-full", r >= 90 ? "bg-emerald-400" : r >= 70 ? "bg-yellow-400" : "bg-red-400")} style={{ width: `${r}%` }} />
-                      </div>
-                    </div>
-                    <span className={cn("text-xs font-mono font-bold shrink-0", r >= 90 ? "text-emerald-400" : r >= 70 ? "text-yellow-400" : "text-red-400")}>{r}%</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{s.divergentCount ?? 0} div.</span>
-                  </div>
-                );
-              })}
+          {evolutionData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={evolutionData} margin={{ top:0, right:0, left:0, bottom:0 }}>
+                <defs>
+                  <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#10b981" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gExp" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#f87171" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#f87171" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gRes" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#60a5fa" stopOpacity={0.1} />
+                    <stop offset="95%" stopColor="#60a5fa" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="date" tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={v => fmtS(v)} tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} width={60} />
+                <Tooltip contentStyle={TOOLTIP} formatter={(v:any) => formatCurrency(v)} />
+                <Area type="monotone" dataKey="receitas" stroke="#10b981" strokeWidth={2} fill="url(#gRev)" name="Receitas" />
+                <Area type="monotone" dataKey="despesas" stroke="#f87171" strokeWidth={2} fill="url(#gExp)" name="Despesas" />
+                <Area type="monotone" dataKey="resultado" stroke="#60a5fa" strokeWidth={1.5} fill="url(#gRes)" strokeDasharray="4 2" name="Resultado" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-44 flex items-center justify-center">
+              <p className="text-xs text-muted-foreground">Sem lançamentos no período. Execute uma conciliação.</p>
             </div>
           )}
         </div>
@@ -216,157 +212,195 @@ export default function Dashboard() {
         <div className="bg-card border border-border rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Saldo por Banco</h3>
-            {latestBalance && (
-              <span className="text-[10px] text-muted-foreground">Última conciliação</span>
-            )}
+            <span className="text-[10px] text-muted-foreground">Acumulado</span>
           </div>
-
-          {/* Totais banco vs API */}
-          {latestBalance ? (
-            <>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Building2 className="w-3 h-3 text-emerald-400" />
-                    <p className="text-[10px] text-muted-foreground">Banco · Créditos</p>
-                  </div>
-                  <p className="text-lg font-bold font-mono text-emerald-400">{fmtShort(parseFloat(String(latestBalance.totalCredits ?? 0)))}</p>
-                  <p className="text-[10px] text-muted-foreground">Déb: {fmtShort(parseFloat(String(latestBalance.totalDebits ?? 0)))}</p>
-                </div>
-                <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Activity className="w-3 h-3 text-blue-400" />
-                    <p className="text-[10px] text-muted-foreground">API · Créditos</p>
-                  </div>
-                  <p className="text-lg font-bold font-mono text-blue-400">{fmtShort(parseFloat(String(latestBalance.apiCredits ?? 0)))}</p>
-                  <p className="text-[10px] text-muted-foreground">Déb: {fmtShort(parseFloat(String(latestBalance.apiDebits ?? 0)))}</p>
-                </div>
+          {latestBal && (
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-2.5">
+                <p className="text-[9px] text-muted-foreground">Banco</p>
+                <p className="text-sm font-bold font-mono text-emerald-400">{fmtS(parseFloat(String(latestBal.totalCredits??0)))}</p>
               </div>
-
-              {/* Por banco individual */}
-              {bankBreakdown.length > 0 ? (
-                <div className="space-y-2.5">
-                  {bankBreakdown.map(b => {
-                    const rate = b.total > 0 ? Math.round((b.matched / b.total) * 100) : 0;
-                    return (
-                      <div key={b.bank} className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: b.color }} />
-                          <span className="text-xs font-medium text-foreground flex-1">{b.bank}</span>
-                          <span className="text-[10px] font-mono text-emerald-400">+{fmtShort(b.credits)}</span>
-                          <span className="text-[10px] text-muted-foreground">/</span>
-                          <span className="text-[10px] font-mono text-red-400">-{fmtShort(b.debits)}</span>
-                          <span className={cn("text-[10px] font-bold ml-1", rate >= 90 ? "text-emerald-400" : rate >= 70 ? "text-yellow-400" : "text-red-400")}>{rate}%</span>
-                        </div>
-                        <div className="ml-4 w-full bg-accent/20 rounded-full h-1 overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${rate}%`, background: b.color }} />
-                        </div>
-                        {b.divergent > 0 && (
-                          <p className="ml-4 text-[9px] text-muted-foreground">{b.divergent} divergente{b.divergent > 1 ? "s" : ""}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-20 gap-1">
-                  <p className="text-xs text-muted-foreground">Nenhum dado de banco disponível</p>
-                  <p className="text-[10px] text-muted-foreground">Execute uma conciliação para ver os saldos</p>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-32 gap-2">
-              <Building2 className="w-8 h-8 text-muted-foreground opacity-30" />
-              <p className="text-xs text-muted-foreground">Execute uma conciliação para ver os saldos</p>
-              <Button size="sm" className="text-xs mt-1" onClick={() => navigate("/conciliacao")}>
-                Ir para Conciliações
-              </Button>
+              <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-2.5">
+                <p className="text-[9px] text-muted-foreground">API</p>
+                <p className="text-sm font-bold font-mono text-blue-400">{fmtS(parseFloat(String(latestBal.apiCredits??0)))}</p>
+              </div>
             </div>
           )}
+          <div className="space-y-3">
+            {bankRows.length > 0 ? bankRows.map((b: any, i: number) => {
+              const cred = parseFloat(String(b.totalCredits ?? 0));
+              const deb  = parseFloat(String(b.totalDebits ?? 0));
+              const tot  = parseInt(String(b.totalTxs ?? 0));
+              const mat  = parseInt(String(b.matchedTxs ?? 0));
+              const rate = tot > 0 ? Math.round((mat / tot) * 100) : 0;
+              return (
+                <div key={b.bankName} className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: BANK_COLORS[i % BANK_COLORS.length] }} />
+                    <span className="text-xs font-medium text-foreground flex-1 capitalize">{b.bankName}</span>
+                    <span className={cn("text-[10px] font-bold", rate>=90?"text-emerald-400":rate>=70?"text-yellow-400":"text-red-400")}>{rate}%</span>
+                  </div>
+                  <div className="ml-4 flex items-center gap-2 text-[9px] text-muted-foreground">
+                    <span className="text-emerald-400">+{fmtS(cred)}</span>
+                    <span>/</span>
+                    <span className="text-red-400">-{fmtS(deb)}</span>
+                    {parseInt(String(b.divergentTxs??0)) > 0 && (
+                      <span className="text-yellow-400">{b.divergentTxs} div.</span>
+                    )}
+                  </div>
+                  <div className="ml-4 w-full bg-accent/20 rounded-full h-1 overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width:`${rate}%`, background: BANK_COLORS[i % BANK_COLORS.length] }} />
+                  </div>
+                </div>
+              );
+            }) : (
+              <p className="text-xs text-muted-foreground text-center py-4">Execute uma conciliação para ver os saldos por banco.</p>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Evolução receitas vs despesas */}
-      {evolutionData.length > 0 && (
+      {/* ── Faixa 4: Receitas por tipo + Despesas por categoria + Matching ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        {/* Receitas por tipo */}
         <div className="bg-card border border-border rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-sm font-bold text-foreground">Evolução — Receitas vs Despesas</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Últimos 14 dias com lançamentos</p>
-            </div>
-            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/controladoria")}>
-              Controladoria <ChevronRight className="w-3 h-3" />
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-foreground">Receitas por Tipo</h3>
+            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/receitas")}>
+              Ver <ChevronRight className="w-3 h-3" />
             </Button>
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={evolutionData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#10b981" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gExp" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#f87171" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#f87171" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => fmtShort(v)} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} width={65} />
-              <Tooltip contentStyle={TOOLTIP} formatter={(v: any) => formatCurrency(v)} />
-              <Area type="monotone" dataKey="receitas" stroke="#10b981" strokeWidth={2} fill="url(#gRev)" name="Receitas" />
-              <Area type="monotone" dataKey="despesas" stroke="#f87171" strokeWidth={2} fill="url(#gExp)" name="Despesas" />
-            </AreaChart>
-          </ResponsiveContainer>
+          {revenueByType.length > 0 ? (
+            <div className="flex gap-3">
+              <ResponsiveContainer width="50%" height={120}>
+                <PieChart>
+                  <Pie data={revenueByType} dataKey="value" cx="50%" cy="50%" outerRadius={50} innerRadius={28} paddingAngle={2}>
+                    {revenueByType.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={TOOLTIP} formatter={(v:any) => formatCurrency(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-1.5 pt-1">
+                {revenueByType.map((d, i) => (
+                  <div key={d.name} className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLORS[i%COLORS.length] }} />
+                      <span className="text-[10px] text-muted-foreground truncate capitalize">{d.name}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-400 shrink-0">{fmtS(d.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="h-24 flex items-center justify-center">
+              <p className="text-xs text-muted-foreground">Sem receitas no período</p>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Alertas de ação */}
-      {pendingDivs.length > 0 && (
+        {/* Despesas por categoria */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-foreground">Despesas por Categoria</h3>
+            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/despesas")}>
+              Ver <ChevronRight className="w-3 h-3" />
+            </Button>
+          </div>
+          {expenseByCategory.length > 0 ? (
+            <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={expenseByCategory} layout="vertical" margin={{ left:0, right:8, top:0, bottom:0 }}>
+                <XAxis type="number" tickFormatter={v => fmtS(v)} tick={{ fontSize:8, fill:"#6b7280" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize:9, fill:"#9ca3af" }} axisLine={false} tickLine={false} width={75} />
+                <Tooltip contentStyle={TOOLTIP} formatter={(v:any) => formatCurrency(v)} />
+                <Bar dataKey="value" radius={[0,3,3,0]} name="Valor">
+                  {expenseByCategory.map((_, i) => <Cell key={i} fill={["#f87171","#fb923c","#fbbf24","#a3e635","#34d399"][i%5]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-24 flex items-center justify-center">
+              <p className="text-xs text-muted-foreground">Sem despesas no período</p>
+            </div>
+          )}
+        </div>
+
+        {/* Taxa de conciliação + sessões */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-foreground">Taxa de Conciliação</h3>
+            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/conciliacao")}>
+              Ver <ChevronRight className="w-3 h-3" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-3 mb-4">
+            <p className={cn("text-4xl font-bold font-mono", matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400")}>{matchRate}%</p>
+            <div className="flex-1 text-xs text-muted-foreground space-y-0.5">
+              <div className="flex justify-between"><span>Conciliados</span><span className="text-emerald-400 font-mono">{lastMatched}</span></div>
+              <div className="flex justify-between"><span>Divergentes</span><span className="text-yellow-400 font-mono">{lastDivergent}</span></div>
+            </div>
+          </div>
+          <div className="w-full bg-accent/20 rounded-full h-2 overflow-hidden mb-4">
+            <div className={cn("h-full rounded-full", matchRate>=90?"bg-emerald-400":matchRate>=70?"bg-yellow-400":"bg-red-400")} style={{ width:`${matchRate}%` }} />
+          </div>
+          <div className="space-y-2">
+            {sessionList.slice(0,4).map((s: any) => {
+              const t = (s.matchedCount??0) + (s.divergentCount??0);
+              const r = t > 0 ? Math.round(((s.matchedCount??0)/t)*100) : 0;
+              return (
+                <div key={s.id} className="flex items-center gap-2 cursor-pointer hover:bg-accent/10 rounded px-1 py-1 transition-colors" onClick={() => navigate(`/conciliacao/${s.id}`)}>
+                  <span className="text-[10px] text-muted-foreground flex-1">{String(s.referenceDate).slice(0,10)}</span>
+                  <div className="w-16 bg-accent/20 rounded-full h-1 overflow-hidden">
+                    <div className={cn("h-full rounded-full", r>=90?"bg-emerald-400":r>=70?"bg-yellow-400":"bg-red-400")} style={{ width:`${r}%` }} />
+                  </div>
+                  <span className={cn("text-[10px] font-bold w-8 text-right", r>=90?"text-emerald-400":r>=70?"text-yellow-400":"text-red-400")}>{r}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Faixa 5: Alertas de ação ─────────────────────────────────────── */}
+      {(criticalDivs.length > 0 || pendingDivs.length > 0 || matchRate < 100) && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[
-            {
-              show: criticalDivs.length > 0,
-              color: "bg-red-500/5 border-red-500/20",
-              icon: <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />,
-              title: `${criticalDivs.length} divergência${criticalDivs.length > 1 ? "s" : ""} crítica${criticalDivs.length > 1 ? "s" : ""}`,
-              sub: "Requerem atenção imediata",
-              btn: "Analisar", path: "/divergencias",
-              btnColor: "bg-red-500/20 text-red-400 border-red-500/30",
-            },
-            {
-              show: (ctrlData?.divCount ?? 0) > 0,
-              color: "bg-yellow-500/5 border-yellow-500/20",
-              icon: <DollarSign className="w-4 h-4 text-yellow-400 shrink-0" />,
-              title: `${fmtShort(pendingAmount)} em aberto`,
-              sub: `${pendingDivs.length} divergências pendentes`,
-              btn: "Resolver", path: "/divergencias",
-              btnColor: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-            },
-            {
-              show: matchRate < 100,
-              color: "bg-blue-500/5 border-blue-500/20",
-              icon: <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />,
-              title: `Meta: 100% conciliado`,
-              sub: `Faltam ${100 - matchRate}% para fechar`,
-              btn: "Conciliar", path: "/conciliacao",
-              btnColor: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-            },
-          ].filter(a => a.show).map(a => (
-            <div key={a.title} className={cn("border rounded-2xl p-4 flex items-center justify-between gap-3", a.color)}>
-              <div className="flex items-center gap-3 min-w-0">
-                {a.icon}
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-foreground">{a.title}</p>
-                  <p className="text-[10px] text-muted-foreground">{a.sub}</p>
+          {criticalDivs.length > 0 && (
+            <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-foreground">{criticalDivs.length} divergência{criticalDivs.length>1?"s":""} crítica{criticalDivs.length>1?"s":""}</p>
+                  <p className="text-[10px] text-muted-foreground">Atenção imediata</p>
                 </div>
               </div>
-              <Button size="sm" className={cn("text-xs shrink-0 border", a.btnColor)} onClick={() => navigate(a.path)}>
-                {a.btn}
-              </Button>
+              <Button size="sm" className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 shrink-0" onClick={() => navigate("/divergencias")}>Analisar</Button>
             </div>
-          ))}
+          )}
+          {pendingDivs.length > 0 && (
+            <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <DollarSign className="w-4 h-4 text-yellow-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-foreground">{fmtS(pendingAmt)} em aberto</p>
+                  <p className="text-[10px] text-muted-foreground">{pendingDivs.length} pendentes para zerar</p>
+                </div>
+              </div>
+              <Button size="sm" className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 shrink-0" onClick={() => navigate("/divergencias")}>Resolver</Button>
+            </div>
+          )}
+          {matchRate < 100 && (
+            <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Meta: 100% conciliado</p>
+                  <p className="text-[10px] text-muted-foreground">Faltam {100-matchRate}% para fechar</p>
+                </div>
+              </div>
+              <Button size="sm" className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0" onClick={() => navigate("/conciliacao")}>Conciliar</Button>
+            </div>
+          )}
         </div>
       )}
     </div>

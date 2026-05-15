@@ -507,11 +507,15 @@ export default function Divergences() {
     return true;
   });
 
-  const totalAmount = rows.reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
-  const surplusTotal = rows.filter((d: any) => d.divergenceType === "bank_surplus").reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
-  const shortageTotal = rows.filter((d: any) => d.divergenceType === "bank_shortage").reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
-  const pendingCount = rows.filter((d: any) => d.status === "pendente").length;
-  const criticalCount = rows.filter((d: any) => d.priority === "critical").length;
+  // KPIs mostram APENAS pendentes (não regularizados/reclassificados)
+  // O objetivo é sempre zerar esses valores
+  const PENDING_STATUSES = ["pendente", "em_analise", "identificado", "escalado_diretoria", "em_aberto"];
+  const pendingRows  = rows.filter((d: any) => PENDING_STATUSES.includes(d.status));
+  const totalAmount  = pendingRows.reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
+  const surplusTotal = pendingRows.filter((d: any) => d.divergenceType === "bank_surplus").reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
+  const shortageTotal = pendingRows.filter((d: any) => d.divergenceType === "bank_shortage").reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
+  const pendingCount = pendingRows.length;
+  const criticalCount = pendingRows.filter((d: any) => d.priority === "critical" || d.priority === "high").length;
 
   const banks = Array.from(new Set(((divergences ?? []) as any[]).map((d: any) => d.bankName).filter(Boolean)));
 

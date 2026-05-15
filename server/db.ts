@@ -815,40 +815,63 @@ export async function resolveNdi(id: number, data: {
   if (!divs[0]) throw new Error("Divergência não encontrada");
   const div = divs[0];
 
-  // Cria receita no banco
-  await createRevenue({
-    referenceDate: String(div.divergenceDate).slice(0, 10),
-    type: "pix",
-    description: data.description || `NDI identificado: ${data.clientName}`,
-    amount: String(div.amount),
-    clientName: data.clientName,
-    sessionId: div.sessionId ?? undefined,
-    origin: "manual_move",
-    createdByName: data.createdByName,
-  });
+  // NDI é uma entrada no BANCO sem correspondência na API.
+  // Quando identificado, criamos uma transação na API (não receita)
+  // para que o par banco↔API fique conciliado.
+  // A transação de bank_transactions (NDI) já existe — criamos o par na api_transactions.
+  if (div.sessionId) {
+    const dateStr = String(div.divergenceDate).slice(0, 10).replace(/\//g, '-');
+    await db.execute(sql`
+      INSERT INTO api_transactions
+        (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus, matchType)
+      VALUES
+        (${div.sessionId}, 'credit', ${dateStr}, ${data.description || `PIX identificado: ${data.clientName}`},
+         ${String(div.amount)}, 'PIX', ${data.clientName}, ${div.externalId ?? null}, 'manual', 'manual')
+    `);
 
-  // Marca NDI como resolvido
+    // Atualiza bank_transaction correspondente para matchStatus = manual
+    if (div.bankTransactionId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE id = ${div.bankTransactionId}
+      `);
+    } else if (div.externalId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE sessionId = ${div.sessionId} AND externalId = ${div.externalId}
+      `);
+    }
+  }
+
+  // Marca NDI como regularizado
   await db.update(divergences)
     .set({
       status: 'regularizado',
       isNdi: false,
       clientName: data.clientName,
-      actionTaken: `NDI identificado como ${data.clientName} por ${data.createdByName}`,
+      actionTaken: `NDI identificado: ${data.clientName} (por ${data.createdByName})`,
       responsible: data.createdByName,
     })
     .where(eq(divergences.id, id));
 
-  // Atualiza contadores da sessão
+  // Recalcula contadores da sessão
   if (div.sessionId) {
-    const session = await db.select()
-      .from(reconciliationSessions)
-      .where(eq(reconciliationSessions.id, div.sessionId))
-      .limit(1);
-    if (session[0]) {
-      await db.update(reconciliationSessions)
-        .set({ matchedCount: (session[0].matchedCount ?? 0) + 1 })
-        .where(eq(reconciliationSessions.id, div.sessionId));
-    }
+    const pending = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM divergences
+      WHERE sessionId = ${div.sessionId}
+      AND status NOT IN ('regularizado','reclassificado','baixado')
+    `);
+    const pendingCount = (pending as any)[0]?.[0]?.cnt ?? 0;
+
+    const matchedTxs = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM bank_transactions
+      WHERE sessionId = ${div.sessionId} AND matchStatus IN ('matched','manual')
+    `);
+    const newMatchedCount = parseInt(String((matchedTxs as any)[0]?.[0]?.cnt ?? 0));
+
+    await db.update(reconciliationSessions)
+      .set({ matchedCount: newMatchedCount, pendingCount })
+      .where(eq(reconciliationSessions.id, div.sessionId));
   }
 
   return { success: true };
