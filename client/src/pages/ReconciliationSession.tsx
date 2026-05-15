@@ -208,7 +208,11 @@ export default function ReconciliationSession() {
   const [activeTab, setActiveTab] = useState<"all" | "credits" | "debits" | "matched" | "divergent">("all");
   const id = parseInt(params.id ?? "0");
 
-  const { data, isLoading } = trpc.reconciliation.getSessionById.useQuery({ id });
+  const { data, isLoading, refetch } = trpc.reconciliation.getSessionById.useQuery({ id });
+  const { data: liveStats, refetch: refetchStats } = trpc.reconciliation.getSessionStats.useQuery(
+    { id },
+    { refetchInterval: 5000 } // auto-refresh every 5s
+  );
 
   // ── Todos os hooks DEVEM ficar antes de qualquer return condicional ──
   const { session, bankCredits = [], bankDebits = [], apiCredits = [], apiDebits = [] } =
@@ -277,7 +281,10 @@ export default function ReconciliationSession() {
   const totalBankDeb  = (bankDebits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
   const totalApiCred  = (apiCredits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
   const totalApiDeb   = (apiDebits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
-  const matchRate     = allBank.length > 0 ? Math.round((matchedBank.length / allBank.length) * 100) : 0;
+  // Use live stats from DB (updated after manual reconciliations) when available
+  const matchRate = liveStats?.matchRate ?? (allBank.length > 0 ? Math.round((matchedBank.length / allBank.length) * 100) : 0);
+  const liveMatchedCount = liveStats?.matchedCount ?? matchedBank.length;
+  const livePendingCount = liveStats?.pendingCount ?? 0;
   const totalDiff     = (totalBankCred + totalBankDeb) - (totalApiCred + totalApiDeb);
 
   // ── Table columns ──
@@ -373,7 +380,7 @@ export default function ReconciliationSession() {
 
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPI label="Conciliados"   value={matchedBank.length}   color="text-emerald-400" sub="transações" highlight />
+        <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="transações" highlight />
         <KPI label="Divergências"  value={safeNumber(session.divergentCount, 0)} color="text-amber-400" sub="para analisar" />
         <KPI label="Taxa Matching"
           value={`${matchRate}%`}
@@ -390,7 +397,7 @@ export default function ReconciliationSession() {
       {/* ── Match Quality Bar ── */}
       <div className="bg-card border border-border rounded-xl p-5">
         <MatchQualityBar
-          matched={matchedBank.length}
+          matched={liveMatchedCount}
           divergent={divergentBank.length}
           total={allBank.length}
         />

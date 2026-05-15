@@ -548,6 +548,30 @@ const reconciliationRouter = router({
       return { success: true };
     }),
 
+  // ── Stats em tempo real da sessão (para atualizar taxa de matching pós-ações) ─
+  getSessionStats: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) return null;
+      const { sql: sqlTag } = await import("drizzle-orm");
+
+      const [total, manual, matched, pending] = await Promise.all([
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'manual'`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
+      ]);
+
+      const totalCount   = parseInt(String((total   as any)[0]?.[0]?.cnt ?? 0));
+      const matchedCount = parseInt(String((matched as any)[0]?.[0]?.cnt ?? 0));
+      const manualCount  = parseInt(String((manual  as any)[0]?.[0]?.cnt ?? 0));
+      const pendingCount = parseInt(String((pending as any)[0]?.[0]?.cnt ?? 0));
+      const matchRate    = totalCount > 0 ? Math.round((matchedCount / totalCount) * 100) : 0;
+
+      return { totalCount, matchedCount, manualCount, pendingCount, matchRate };
+    }),
+
   // ── Conciliação Manual ────────────────────────────────────────────────────
   manualReconcile: protectedProcedure
     .input(z.object({

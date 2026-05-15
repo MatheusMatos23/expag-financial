@@ -1,425 +1,379 @@
 import { trpc } from "@/lib/trpc";
-import {
-  formatCurrency, formatCurrencyCompact, getCurrentMonthRange, safeNumber,
-} from "@/lib/utils";
-import {
-  AlertTriangle, ArrowDownRight, ArrowUpRight, Activity,
-  TrendingUp, Wallet, Zap,
-} from "lucide-react";
+import { formatCurrency, getCurrentMonthRange } from "@/lib/utils";
 import { useLocation } from "wouter";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
+import {
+  TrendingUp, TrendingDown, DollarSign, AlertTriangle,
+  ArrowUpRight, ArrowDownRight, ChevronRight, RefreshCw,
+  CheckCircle2, Activity, Building2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// ─── DEMO DATA ────────────────────────────────────────────────────────────────
-const DEMO_BALANCE = Array.from({ length: 30 }, (_, i) => {
-  const d = new Date(); d.setDate(d.getDate() - (29 - i));
-  const base = 4_800_000 + Math.sin(i * 0.3) * 400_000 + i * 22_000;
-  return {
-    date: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-    banco: Math.round(base + (i * 7919) % 80_000),
-    caixaReal: Math.round(base * 0.48 + (i * 3571) % 40_000),
-    caixaLivre: Math.round(base * 0.18 + (i * 1327) % 20_000),
-  };
-});
-
-const DEMO_CASHFLOW = Array.from({ length: 14 }, (_, i) => {
-  const d = new Date(); d.setDate(d.getDate() - (13 - i));
-  return {
-    date: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-    entradas: 200_000 + ((i * 97331) % 180_000),
-    saidas: 130_000 + ((i * 63197) % 120_000),
-  };
-});
-
-const DEMO_MIX = [
-  { name: "PIX", value: 42, color: "#38bdf8" },
-  { name: "TED", value: 22, color: "#818cf8" },
-  { name: "Boleto", value: 15, color: "#34d399" },
-  { name: "Antecipação", value: 12, color: "#f59e0b" },
-  { name: "Crédito", value: 6, color: "#f87171" },
-  { name: "Tarifa", value: 3, color: "#a78bfa" },
-];
+import { Button } from "@/components/ui/button";
+import { useState, useMemo } from "react";
 
 const TOOLTIP = {
-  background: "#1a1f2e",
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: "8px",
-  fontSize: "11px",
-  color: "#e2e8f0",
+  background: "#0d1528", border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: "10px", fontSize: "11px", color: "#e8edf5",
 };
 
-// ─── KPI CARD ─────────────────────────────────────────────────────────────────
-function KPICard({ title, value, subtitle, delta, icon: Icon, accent, onClick }: {
-  title: string; value: string; subtitle?: string; delta?: number;
-  icon: React.ElementType; accent: string; onClick?: () => void;
-}) {
-  const styles: Record<string, string> = {
-    blue:   "text-sky-400 bg-sky-500/10 border-sky-500/20",
-    green:  "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-    red:    "text-red-400 bg-red-500/10 border-red-500/20",
-    yellow: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-    purple: "text-violet-400 bg-violet-500/10 border-violet-500/20",
-    teal:   "text-teal-400 bg-teal-500/10 border-teal-500/20",
-  };
-  const [textCls, bgBorderCls] = (styles[accent] ?? styles.blue).split(" ").reduce<[string[], string[]]>(
-    ([t, b], cls) => { cls.startsWith("text-") ? t.push(cls) : b.push(cls); return [t, b]; },
-    [[], []]
-  );
+const BANK_COLORS: Record<string, string> = {
+  Sicoob: "#10b981", "Banco do Brasil": "#f59e0b", BB: "#f59e0b",
+  JD: "#38bdf8", API: "#818cf8",
+};
+const BANK_COLOR_LIST = ["#10b981","#f59e0b","#38bdf8","#818cf8","#f87171","#fb923c"];
 
+function fmtShort(v: number) {
+  if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
+  if (Math.abs(v) >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
+  return formatCurrency(v);
+}
+
+function KpiCard({ label, value, sub, color, icon: Icon, onClick, trend }: {
+  label: string; value: string; sub?: string; color: string;
+  icon: any; onClick?: () => void; trend?: number;
+}) {
   return (
     <div
+      className={cn("bg-card border border-border rounded-2xl p-5 flex flex-col gap-3", onClick && "cursor-pointer hover:border-primary/30 transition-colors")}
       onClick={onClick}
-      className={cn(
-        "kpi-card bg-card border border-border rounded-xl p-5 flex flex-col gap-3",
-        onClick && "cursor-pointer"
-      )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{title}</span>
-        <div className={cn("w-8 h-8 rounded-lg border flex items-center justify-center", bgBorderCls.join(" "))}>
-          <Icon className={cn("w-4 h-4", textCls.join(" "))} />
+        <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", color.replace("text-","bg-").replace("-400","-500/15"))}>
+          <Icon className={cn("w-4 h-4", color)} />
         </div>
+        {trend !== undefined && (
+          <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full",
+            trend >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10")}>
+            {trend >= 0 ? "+" : ""}{trend.toFixed(1)}%
+          </span>
+        )}
       </div>
       <div>
-        <p className={cn("text-2xl font-bold font-mono tracking-tight", textCls.join(" "))}>{value}</p>
-        <div className="flex items-center gap-2 mt-1.5">
-          {subtitle && <p className="text-[11px] text-muted-foreground">{subtitle}</p>}
-          {delta !== undefined && (
-            <span className={cn(
-              "inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded",
-              delta >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10"
-            )}>
-              {delta >= 0 ? <ArrowUpRight className="w-2.5 h-2.5" /> : <ArrowDownRight className="w-2.5 h-2.5" />}
-              {Math.abs(delta).toFixed(1)}%
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ChartCard({ title, subtitle, children, className }: {
-  title: string; subtitle?: string; children: React.ReactNode; className?: string;
-}) {
-  return (
-    <div className={cn("bg-card border border-border rounded-xl p-5", className)}>
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
-function BankBalanceWidget() {
-  const { data: balances } = trpc.reconciliation.getDailyBankBalances.useQuery();
-  const rows = ((balances as any) ?? []) as any[];
-  if (rows.length === 0) return null;
-
-  const latest = rows[rows.length - 1];
-  const totalCredits = parseFloat(String(latest?.totalCredits ?? 0));
-  const totalDebits  = parseFloat(String(latest?.totalDebits  ?? 0));
-  const apiCredits   = parseFloat(String(latest?.apiCredits   ?? 0));
-  const apiDebits    = parseFloat(String(latest?.apiDebits    ?? 0));
-  const matched      = parseInt(String(latest?.matched  ?? 0));
-  const divergent    = parseInt(String(latest?.divergent ?? 0));
-  const total        = matched + divergent;
-  const rate         = total > 0 ? Math.round((matched / total) * 100) : 0;
-
-  const fmtC = (v: number) => {
-    if (v >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
-    if (v >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
-    return `R$ ${v.toFixed(2)}`;
-  };
-
-  return (
-    <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-foreground">Saldos — Última Conciliação</h3>
-        <span className="text-[10px] text-muted-foreground">{latest?.date ? String(latest.date).slice(0,10) : ""}</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
-          <p className="text-[10px] text-muted-foreground mb-1">Banco · Créditos</p>
-          <p className="text-lg font-bold font-mono text-emerald-400">{fmtC(totalCredits)}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Débitos: {fmtC(totalDebits)}</p>
-        </div>
-        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
-          <p className="text-[10px] text-muted-foreground mb-1">API · Créditos</p>
-          <p className="text-lg font-bold font-mono text-blue-400">{fmtC(apiCredits)}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Débitos: {fmtC(apiDebits)}</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="flex-1 bg-accent/20 rounded-full h-2 overflow-hidden">
-          <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${rate}%` }} />
-        </div>
-        <span className="text-xs font-bold font-mono text-emerald-400 shrink-0">{rate}% conciliado</span>
-      </div>
-      <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>{matched} conciliados</span>
-        <span className={divergent > 0 ? "text-yellow-400" : ""}>{divergent} divergentes</span>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{label}</p>
+        <p className={cn("text-2xl font-bold font-mono mt-0.5", color)}>{value}</p>
+        {sub && <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>}
       </div>
     </div>
   );
 }
 
 export default function Dashboard() {
+  const [, navigate] = useLocation();
   const { dateFrom, dateTo } = getCurrentMonthRange();
-  const [, setLocation] = useLocation();
+  const [period] = useState({ dateFrom, dateTo });
 
-  const { data: summary } = trpc.dashboard.getSummary.useQuery({ dateFrom, dateTo });
-  const { data: alerts } = trpc.dashboard.getAlerts.useQuery({ status: "active" });
-  const { data: balanceHistory } = trpc.reconciliation.getManagerialBalanceHistory.useQuery({ days: 30 });
-  const { data: cashFlowData } = trpc.accounting.getCashFlow.useQuery({ days: 14 });
+  // ── Data fetching ────────────────────────────────────────────────────────────
+  const { data: ctrlData, isLoading: ctrlLoading } = trpc.controllership.getControllershipDashboard.useQuery(
+    { dateFrom: period.dateFrom, dateTo: period.dateTo },
+    { refetchOnWindowFocus: false }
+  );
   const { data: sessions } = trpc.reconciliation.getSessions.useQuery();
+  const { data: balances } = trpc.reconciliation.getDailyBankBalances.useQuery();
+  const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({});
 
-  // Chart data — real only (sem demo)
-  const balanceData = (balanceHistory ?? []).length > 0
-    ? [...(balanceHistory as any[])].reverse().map((b) => ({
-        date: new Date(b.referenceDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-        banco: safeNumber(b.bankBalance),
-        caixaReal: safeNumber(b.realCash),
-        caixaLivre: safeNumber(b.freeCash),
-      }))
-    : [];
+  // ── Derived values ───────────────────────────────────────────────────────────
+  const totalRevenue  = ctrlData?.totalRevenue  ?? 0;
+  const totalExpenses = ctrlData?.totalExpenses ?? 0;
+  const netResult     = ctrlData?.netResult     ?? 0;
+  const margin        = ctrlData?.margin        ?? 0;
 
-  const cashData = (cashFlowData ?? []).length > 0
-    ? [...(cashFlowData as any[])].reverse().map((c) => ({
-        date: new Date(c.referenceDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-        entradas: safeNumber(c.realizedInflows),
-        saidas: safeNumber(c.realizedOutflows),
-      }))
-    : [];
+  const sessionList = (sessions as any[]) ?? [];
+  const lastSession = sessionList[0];
+  const lastMatched  = lastSession?.matchedCount ?? 0;
+  const lastDivergent = lastSession?.divergentCount ?? 0;
+  const lastTotal    = lastMatched + lastDivergent;
+  const matchRate    = lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0;
 
-  const mixData = (summary?.revenueSummary ?? []).length > 0
-    ? (summary!.revenueSummary as any[]).map((r, i) => ({
-        name: r.type, value: safeNumber(r.total),
-        color: DEMO_MIX[i % DEMO_MIX.length].color,
-      }))
-    : [];
+  const divList = (divAll as any[]) ?? [];
+  const pendingDivs   = divList.filter(d => !['regularizado','reclassificado','baixado'].includes(d.status));
+  const criticalDivs  = pendingDivs.filter(d => d.priority === 'critical' || d.priority === 'high');
+  const pendingAmount = pendingDivs.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
 
-  // Metrics — zeros quando não há dados reais
-  const bankBalance = safeNumber(summary?.latestBalance?.bankBalance);
-  const realCash    = safeNumber(summary?.latestBalance?.realCash);
-  const freeCash    = safeNumber(summary?.latestBalance?.freeCash);
-  const clientBal   = safeNumber(summary?.latestBalance?.clientBalance);
-  const totalRev    = safeNumber(summary?.totalRevenue);
-  const totalExp    = safeNumber(summary?.totalExpenses);
-  const netResult   = totalRev - totalExp;
-  const divCount    = safeNumber(summary?.activeDivergences, 0);
-  const overduePayables = safeNumber(summary?.overduePayables, 0);
-  const alertCount  = safeNumber(summary?.activeAlerts, 0);
-  const criticalAlerts = (alerts ?? []).filter((a: any) => a.severity === "critical");
+  // ── Bank balances by bank ────────────────────────────────────────────────────
+  const balanceRows = (balances as any[]) ?? [];
+  const latestBalance = balanceRows[balanceRows.length - 1];
 
-  const latestSession = ((sessions ?? []) as any[])[0];
-  const matchRate = latestSession?.matchedCount
-    ? Math.round((latestSession.matchedCount / Math.max(1, latestSession.matchedCount + latestSession.divergentCount)) * 100)
-    : 0;
+  // Try to get per-bank data from sessions
+  const bankBreakdown = useMemo(() => {
+    if (!sessionList.length) return [];
+    // Aggregate from sessions byBank summary if available
+    const map: Record<string, { credits: number; debits: number; matched: number }> = {};
+    for (const s of sessionList.slice(0, 5)) {
+      const byBank = s.byBank as Record<string, any> | undefined;
+      if (!byBank) continue;
+      for (const [bank, data] of Object.entries(byBank)) {
+        if (!map[bank]) map[bank] = { credits: 0, debits: 0, matched: 0 };
+        map[bank].credits += parseFloat(String((data as any).credits ?? 0));
+        map[bank].debits  += parseFloat(String((data as any).debits ?? 0));
+        map[bank].matched += parseInt(String((data as any).matched ?? 0));
+      }
+    }
+    return Object.entries(map).map(([bank, d], i) => ({
+      bank,
+      credits: d.credits,
+      debits: d.debits,
+      net: d.credits - d.debits,
+      color: BANK_COLOR_LIST[i % BANK_COLOR_LIST.length],
+    }));
+  }, [sessionList]);
 
-  // Revenue breakdown — real only
-  const revRows = (summary?.revenueSummary ?? []).length > 0
-    ? (summary!.revenueSummary as any[]).map((r) => ({ label: r.type, amount: safeNumber(r.total), pct: totalRev > 0 ? (safeNumber(r.total) / totalRev) * 100 : 0 }))
-    : [];
+  // ── Evolution chart from daily balances ─────────────────────────────────────
+  const evolutionData = useMemo(() => {
+    if (!ctrlData?.dailyEvolution?.length) return [];
+    return ctrlData.dailyEvolution.slice(-14).map(d => ({
+      date: String(d.date).slice(5).replace("-", "/"),
+      receitas: d.receitas,
+      despesas: d.despesas,
+      resultado: d.receitas - d.despesas,
+    }));
+  }, [ctrlData]);
 
-  const expRows = (summary?.expenseSummary ?? []).length > 0
-    ? (summary!.expenseSummary as any[]).map((e) => ({ label: e.category, amount: safeNumber(e.total), pct: totalExp > 0 ? (safeNumber(e.total) / totalExp) * 100 : 0 }))
-    : [];
+  // ── Recent sessions for matching overview ────────────────────────────────────
+  const recentSessions = sessionList.slice(0, 5);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard Executivo</h1>
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {new Date().toLocaleDateString("pt-BR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">Visão executiva — {period.dateFrom} até {period.dateTo}</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] font-medium text-emerald-400">Sistema Operacional</span>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => window.location.reload()}>
+          <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+        </Button>
+      </div>
+
+      {/* KPIs principais */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <KpiCard label="Receitas"    value={fmtShort(totalRevenue)}  color="text-emerald-400" icon={TrendingUp}    onClick={() => navigate("/receitas")} />
+        <KpiCard label="Despesas"    value={fmtShort(totalExpenses)} color="text-red-400"     icon={TrendingDown}  onClick={() => navigate("/despesas")} />
+        <KpiCard label="Resultado"   value={fmtShort(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} />
+        <KpiCard label="Margem"      value={`${margin.toFixed(1)}%`} color={margin >= 30 ? "text-blue-400" : margin >= 0 ? "text-yellow-400" : "text-red-400"} icon={Activity} />
+        <KpiCard label="Divergências" value={fmtShort(pendingAmount)} color="text-yellow-400" icon={AlertTriangle} sub={`${pendingDivs.length} pendentes · ${criticalDivs.length} críticas`} onClick={() => navigate("/divergencias")} />
+      </div>
+
+      {/* Taxa de matching + saldo bancário */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* Matching overview */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-foreground">Taxa de Conciliação</h3>
+            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/conciliacao")}>
+              Ver sessões <ChevronRight className="w-3 h-3" />
+            </Button>
           </div>
-          {criticalAlerts.length > 0 && (
-            <button onClick={() => setLocation("/alertas")}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-500/20 transition-colors">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {criticalAlerts.length} crítico{criticalAlerts.length > 1 ? "s" : ""}
-            </button>
+          <div className="flex items-end gap-4 mb-4">
+            <div>
+              <p className={cn("text-5xl font-bold font-mono", matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-yellow-400" : "text-red-400")}>
+                {matchRate}%
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">última sessão</p>
+            </div>
+            <div className="flex-1 space-y-2 pb-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Conciliados</span>
+                <span className="text-emerald-400 font-mono">{lastMatched}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Divergentes</span>
+                <span className="text-yellow-400 font-mono">{lastDivergent}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Total banco</span>
+                <span className="text-muted-foreground font-mono">{lastTotal}</span>
+              </div>
+            </div>
+          </div>
+          <div className="w-full bg-accent/20 rounded-full h-3 overflow-hidden">
+            <div className={cn("h-full rounded-full transition-all", matchRate >= 90 ? "bg-emerald-400" : matchRate >= 70 ? "bg-yellow-400" : "bg-red-400")}
+              style={{ width: `${matchRate}%` }} />
+          </div>
+
+          {/* Sessões recentes */}
+          {recentSessions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {recentSessions.map((s: any) => {
+                const t = (s.matchedCount ?? 0) + (s.divergentCount ?? 0);
+                const r = t > 0 ? Math.round(((s.matchedCount ?? 0) / t) * 100) : 0;
+                return (
+                  <div key={s.id} className="flex items-center gap-3 cursor-pointer hover:bg-accent/10 rounded-lg px-2 py-1.5 transition-colors"
+                    onClick={() => navigate(`/conciliacao/${s.id}`)}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-foreground truncate">
+                        {String(s.referenceDate).slice(0,10)}
+                      </p>
+                      <div className="w-full bg-accent/20 rounded-full h-1 mt-1 overflow-hidden">
+                        <div className={cn("h-full rounded-full", r >= 90 ? "bg-emerald-400" : r >= 70 ? "bg-yellow-400" : "bg-red-400")} style={{ width: `${r}%` }} />
+                      </div>
+                    </div>
+                    <span className={cn("text-xs font-mono font-bold shrink-0", r >= 90 ? "text-emerald-400" : r >= 70 ? "text-yellow-400" : "text-red-400")}>{r}%</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{s.divergentCount ?? 0} div.</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Saldo por banco */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-foreground">Saldo por Banco</h3>
+            {latestBalance && (
+              <span className="text-[10px] text-muted-foreground">Última conciliação</span>
+            )}
+          </div>
+
+          {/* Totais banco vs API */}
+          {latestBalance ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Building2 className="w-3 h-3 text-emerald-400" />
+                    <p className="text-[10px] text-muted-foreground">Banco · Créditos</p>
+                  </div>
+                  <p className="text-lg font-bold font-mono text-emerald-400">{fmtShort(parseFloat(String(latestBalance.totalCredits ?? 0)))}</p>
+                  <p className="text-[10px] text-muted-foreground">Déb: {fmtShort(parseFloat(String(latestBalance.totalDebits ?? 0)))}</p>
+                </div>
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Activity className="w-3 h-3 text-blue-400" />
+                    <p className="text-[10px] text-muted-foreground">API · Créditos</p>
+                  </div>
+                  <p className="text-lg font-bold font-mono text-blue-400">{fmtShort(parseFloat(String(latestBalance.apiCredits ?? 0)))}</p>
+                  <p className="text-[10px] text-muted-foreground">Déb: {fmtShort(parseFloat(String(latestBalance.apiDebits ?? 0)))}</p>
+                </div>
+              </div>
+
+              {/* Por banco individual */}
+              {bankBreakdown.length > 0 ? (
+                <div className="space-y-2">
+                  {bankBreakdown.map(b => (
+                    <div key={b.bank} className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: b.color }} />
+                      <span className="text-xs text-muted-foreground flex-1">{b.bank}</span>
+                      <span className="text-xs font-mono text-emerald-400">{fmtShort(b.credits)}</span>
+                      <span className="text-[10px] text-muted-foreground">↔</span>
+                      <span className="text-xs font-mono text-red-400">{fmtShort(b.debits)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {[
+                    { bank: "Sicoob", color: "#10b981" },
+                    { bank: "Banco do Brasil", color: "#f59e0b" },
+                    { bank: "JD", color: "#38bdf8" },
+                  ].map(b => (
+                    <div key={b.bank} className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: b.color }} />
+                      <span className="text-xs text-muted-foreground flex-1">{b.bank}</span>
+                      <span className="text-[10px] text-muted-foreground italic">aguardando conciliação</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-32 gap-2">
+              <Building2 className="w-8 h-8 text-muted-foreground opacity-30" />
+              <p className="text-xs text-muted-foreground">Execute uma conciliação para ver os saldos</p>
+              <Button size="sm" className="text-xs mt-1" onClick={() => navigate("/conciliacao")}>
+                Ir para Conciliações
+              </Button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Primary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Saldo nos Bancos" accent="blue" value={formatCurrencyCompact(bankBalance)} subtitle="Custódia total" icon={Wallet} />
-        <KPICard title="Caixa Real" accent="teal" value={formatCurrencyCompact(realCash)} subtitle="Bancos − Clientes − Comprometido" icon={Activity} />
-        <KPICard title="Receita do Mês" accent="purple" value={formatCurrencyCompact(totalRev)} subtitle="Realizado" icon={TrendingUp} />
-        <KPICard title="Resultado Líquido" accent={netResult >= 0 ? "green" : "red"}
-          value={formatCurrencyCompact(netResult)} subtitle="Receitas − Despesas"
-          icon={netResult >= 0 ? ArrowUpRight : ArrowDownRight} />
-      </div>
-
-
-      <BankBalanceWidget />
-      {/* Operational strip */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-        {[
-          { label: "Caixa Livre", value: formatCurrencyCompact(freeCash), color: freeCash < 0 ? "text-red-400" : "text-teal-400", sub: freeCash < 0 ? "⚠ NEGATIVO" : null, path: "/saldo-gerencial" },
-          { label: "Custódia Clientes", value: formatCurrencyCompact(clientBal), color: "text-amber-400", sub: null, path: "/saldo-gerencial" },
-          { label: "Divergências", value: String(divCount), color: divCount > 10 ? "text-amber-400" : divCount > 0 ? "text-yellow-400" : "text-emerald-400", sub: divCount > 0 ? "pendentes" : "ok", path: "/divergencias" },
-          { label: "A Pagar Vencido", value: String(overduePayables), color: overduePayables > 0 ? "text-red-400" : "text-foreground", sub: overduePayables > 0 ? "REGULARIZAR" : null, path: "/contas-a-pagar" },
-          { label: "Taxa Matching", value: latestSession ? `${matchRate}%` : "—", color: !latestSession ? "text-muted-foreground" : matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-yellow-400" : "text-red-400", sub: latestSession ? `${latestSession.matchedCount} conciliados` : "sem sessão", path: "/conciliacao" },
-          { label: "Alertas Ativos", value: String(alertCount), color: alertCount > 0 ? "text-orange-400" : "text-foreground", sub: "no sistema", path: "/alertas" },
-        ].map(({ label, value, color, sub, path }) => (
-          <div key={label} onClick={() => setLocation(path)}
-            className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:border-border/60 transition-colors">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 leading-tight">{label}</p>
-            <p className={cn("text-lg font-bold font-mono", color)}>{value}</p>
-            {sub && <p className="text-[9px] font-semibold text-muted-foreground mt-0.5 uppercase">{sub}</p>}
+      {/* Evolução receitas vs despesas */}
+      {evolutionData.length > 0 && (
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Evolução — Receitas vs Despesas</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Últimos 14 dias com lançamentos</p>
+            </div>
+            <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/controladoria")}>
+              Controladoria <ChevronRight className="w-3 h-3" />
+            </Button>
           </div>
-        ))}
-      </div>
-
-      {/* Charts row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <ChartCard title="Evolução de Saldos" subtitle="Últimos 30 dias" className="lg:col-span-3">
-          <ResponsiveContainer width="100%" height={210}>
-            <AreaChart data={balanceData} margin={{ left: -10 }}>
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={evolutionData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <defs>
-                {[["gB","#38bdf8"],["gR","#34d399"],["gL","#a78bfa"]].map(([id, c]) => (
-                  <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={c} stopOpacity={0.18} />
-                    <stop offset="95%" stopColor={c} stopOpacity={0} />
-                  </linearGradient>
-                ))}
+                <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#10b981" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gExp" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#f87171" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#f87171" stopOpacity={0} />
+                </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#6b7280" }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} />
-              <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={TOOLTIP} />
-              <Legend wrapperStyle={{ fontSize: "10px" }} />
-              <Area type="monotone" dataKey="banco" stroke="#38bdf8" fill="url(#gB)" strokeWidth={1.5} name="Banco" dot={false} />
-              <Area type="monotone" dataKey="caixaReal" stroke="#34d399" fill="url(#gR)" strokeWidth={1.5} name="Caixa Real" dot={false} />
-              <Area type="monotone" dataKey="caixaLivre" stroke="#a78bfa" fill="url(#gL)" strokeWidth={1.5} name="Caixa Livre" dot={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => fmtShort(v)} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} width={65} />
+              <Tooltip contentStyle={TOOLTIP} formatter={(v: any) => formatCurrency(v)} />
+              <Area type="monotone" dataKey="receitas" stroke="#10b981" strokeWidth={2} fill="url(#gRev)" name="Receitas" />
+              <Area type="monotone" dataKey="despesas" stroke="#f87171" strokeWidth={2} fill="url(#gExp)" name="Despesas" />
             </AreaChart>
           </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Mix de Receitas" subtitle="Distribuição por canal" className="lg:col-span-2">
-          <ResponsiveContainer width="100%" height={155}>
-            <PieChart>
-              <Pie data={mixData} cx="50%" cy="50%" innerRadius={46} outerRadius={68} paddingAngle={2} dataKey="value">
-                {mixData.map((e, i) => <Cell key={i} fill={e.color} opacity={0.88} />)}
-              </Pie>
-              <Tooltip formatter={(v: number) => formatCurrencyCompact(v)} contentStyle={TOOLTIP} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1">
-            {mixData.map((r) => (
-              <div key={r.name} className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: r.color }} />
-                <span className="text-[10px] text-muted-foreground truncate">{r.name}</span>
-              </div>
-            ))}
-          </div>
-        </ChartCard>
-      </div>
-
-      {/* Charts row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <ChartCard title="Fluxo de Caixa" subtitle="Entradas × Saídas · 14 dias" className="lg:col-span-3">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={cashData} margin={{ left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#6b7280" }} />
-              <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={TOOLTIP} />
-              <Legend wrapperStyle={{ fontSize: "10px" }} />
-              <Bar dataKey="entradas" fill="#34d399" name="Entradas" radius={[3,3,0,0]} opacity={0.85} />
-              <Bar dataKey="saidas"   fill="#f87171" name="Saídas"   radius={[3,3,0,0]} opacity={0.85} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <div className="lg:col-span-2 space-y-4">
-          <ChartCard title="Resultado Mensal" subtitle={new Date().toLocaleDateString("pt-BR",{ month:"long", year:"numeric" })}>
-            {[
-              { label: "Receita Total",    value: formatCurrencyCompact(totalRev), color: "text-emerald-400" },
-              { label: "Despesas Totais",  value: formatCurrencyCompact(totalExp), color: "text-red-400" },
-              { label: "Resultado Líquido",value: formatCurrencyCompact(netResult), color: netResult >= 0 ? "text-emerald-400" : "text-red-400" },
-              { label: "Margem",           value: totalRev > 0 ? `${((netResult/totalRev)*100).toFixed(1)}%` : "—", color: netResult >= 0 ? "text-emerald-400" : "text-red-400" },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="flex items-center justify-between py-1.5 border-b border-border/40 last:border-0">
-                <span className="text-xs text-muted-foreground">{label}</span>
-                <span className={cn("text-xs font-mono font-semibold", color)}>{value}</span>
-              </div>
-            ))}
-          </ChartCard>
-
-          <ChartCard title="Status Operacional">
-            <div className="space-y-2.5">
-              {[
-                { label: "Motor de Conciliação", ok: true },
-                { label: "Classificador de Divergências", ok: true },
-                { label: "Alertas de Tesouraria", ok: alertCount === 0 },
-                { label: "Contas a Pagar em Dia", ok: overduePayables === 0 },
-                { label: "Taxa de Matching ≥90%", ok: matchRate >= 90 },
-              ].map(({ label, ok }) => (
-                <div key={label} className="flex items-center gap-2">
-                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", ok ? "bg-emerald-400" : "bg-red-400 animate-pulse")} />
-                  <span className="text-[11px] text-muted-foreground flex-1">{label}</span>
-                  <span className={cn("text-[10px] font-bold uppercase", ok ? "text-emerald-400" : "text-red-400")}>
-                    {ok ? "OK" : "ATENÇÃO"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </ChartCard>
         </div>
-      </div>
+      )}
 
-      {/* Breakdowns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ChartCard title="Receitas por Tipo" subtitle="Mês atual — acumulado">
-          <div className="space-y-3">
-            {revRows.slice(0, 6).map((r) => (
-              <div key={r.label} className="flex items-center gap-3">
-                <span className="text-[11px] text-muted-foreground w-20 shrink-0 capitalize">{r.label}</span>
-                <div className="flex-1 bg-border/40 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-sky-400 h-1.5 rounded-full transition-all duration-700" style={{ width: `${Math.min(r.pct, 100)}%` }} />
+      {/* Alertas de ação */}
+      {pendingDivs.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {[
+            {
+              show: criticalDivs.length > 0,
+              color: "bg-red-500/5 border-red-500/20",
+              icon: <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />,
+              title: `${criticalDivs.length} divergência${criticalDivs.length > 1 ? "s" : ""} crítica${criticalDivs.length > 1 ? "s" : ""}`,
+              sub: "Requerem atenção imediata",
+              btn: "Analisar", path: "/divergencias",
+              btnColor: "bg-red-500/20 text-red-400 border-red-500/30",
+            },
+            {
+              show: (ctrlData?.divCount ?? 0) > 0,
+              color: "bg-yellow-500/5 border-yellow-500/20",
+              icon: <DollarSign className="w-4 h-4 text-yellow-400 shrink-0" />,
+              title: `${fmtShort(pendingAmount)} em aberto`,
+              sub: `${pendingDivs.length} divergências pendentes`,
+              btn: "Resolver", path: "/divergencias",
+              btnColor: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+            },
+            {
+              show: matchRate < 100,
+              color: "bg-blue-500/5 border-blue-500/20",
+              icon: <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />,
+              title: `Meta: 100% conciliado`,
+              sub: `Faltam ${100 - matchRate}% para fechar`,
+              btn: "Conciliar", path: "/conciliacao",
+              btnColor: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+            },
+          ].filter(a => a.show).map(a => (
+            <div key={a.title} className={cn("border rounded-2xl p-4 flex items-center justify-between gap-3", a.color)}>
+              <div className="flex items-center gap-3 min-w-0">
+                {a.icon}
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">{a.title}</p>
+                  <p className="text-[10px] text-muted-foreground">{a.sub}</p>
                 </div>
-                <span className="text-[11px] font-mono text-foreground w-24 text-right">{formatCurrencyCompact(r.amount)}</span>
-                <span className="text-[10px] text-muted-foreground w-8 text-right">{r.pct.toFixed(0)}%</span>
               </div>
-            ))}
-          </div>
-        </ChartCard>
-
-        <ChartCard title="Despesas por Categoria" subtitle="Mês atual — acumulado">
-          <div className="space-y-3">
-            {expRows.slice(0, 6).map((e) => (
-              <div key={e.label} className="flex items-center gap-3">
-                <span className="text-[11px] text-muted-foreground w-20 shrink-0 capitalize">{e.label}</span>
-                <div className="flex-1 bg-border/40 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-red-400 h-1.5 rounded-full transition-all duration-700" style={{ width: `${Math.min(e.pct, 100)}%` }} />
-                </div>
-                <span className="text-[11px] font-mono text-foreground w-24 text-right">{formatCurrencyCompact(e.amount)}</span>
-                <span className="text-[10px] text-muted-foreground w-8 text-right">{e.pct.toFixed(0)}%</span>
-              </div>
-            ))}
-          </div>
-        </ChartCard>
-      </div>
+              <Button size="sm" className={cn("text-xs shrink-0 border", a.btnColor)} onClick={() => navigate(a.path)}>
+                {a.btn}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

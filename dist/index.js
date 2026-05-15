@@ -108517,34 +108517,41 @@ async function createManualAdjustment(data) {
   });
   if (data.divergenceIds && data.divergenceIds.length > 0) {
     const dbConn = db;
+    const divs = await dbConn.select().from(divergences).where(inArray(divergences.id, data.divergenceIds));
     await dbConn.execute(sql`
       UPDATE divergences
       SET status = 'regularizado',
-          actionTaken = CONCAT('Conciliado manualmente: ', ${data.description})
+          actionTaken = CONCAT('Ajuste manual: ', ${data.description})
       WHERE id IN (${sql.raw(data.divergenceIds.join(","))})
     `);
+    const bankTxIds = divs.map((d) => d.bankTransactionId).filter((id) => id != null && id > 0);
+    if (bankTxIds.length > 0) {
+      await dbConn.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE id IN (${sql.raw(bankTxIds.join(","))})
+      `);
+    }
+    const extIds = divs.map((d) => d.externalId).filter((id) => id != null && id.length > 0);
+    if (extIds.length > 0 && data.sessionId) {
+      await dbConn.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE sessionId = ${data.sessionId}
+        AND externalId IN (${sql.raw(extIds.map((e) => `'${e.replace(/'/g, "''")}'`).join(","))})
+      `);
+    }
     if (data.sessionId) {
       const pending = await dbConn.execute(sql`
         SELECT COUNT(*) as cnt FROM divergences
         WHERE sessionId = ${data.sessionId}
-        AND status NOT IN ('regularizado', 'reclassificado', 'baixado')
+        AND status NOT IN ('regularizado','reclassificado','baixado')
       `);
       const pendingCount = pending[0]?.[0]?.cnt ?? 0;
-      const matched = await dbConn.execute(sql`
-        SELECT COUNT(*) as cnt FROM divergences
-        WHERE sessionId = ${data.sessionId}
-        AND status IN ('regularizado', 'reclassificado')
+      const matchedTxs = await dbConn.execute(sql`
+        SELECT COUNT(*) as cnt FROM bank_transactions
+        WHERE sessionId = ${data.sessionId} AND matchStatus IN ('matched','manual')
       `);
-      const resolvedCount = matched[0]?.[0]?.cnt ?? 0;
-      const session = await dbConn.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, data.sessionId)).limit(1);
-      if (session[0]) {
-        const currentMatched = session[0].matchedCount ?? 0;
-        const newMatched = currentMatched + data.divergenceIds.length;
-        await dbConn.update(reconciliationSessions).set({
-          matchedCount: newMatched,
-          pendingCount
-        }).where(eq(reconciliationSessions.id, data.sessionId));
-      }
+      const newMatchedCount = parseInt(String(matchedTxs[0]?.[0]?.cnt ?? 0));
+      await dbConn.update(reconciliationSessions).set({ matchedCount: newMatchedCount, pendingCount }).where(eq(reconciliationSessions.id, data.sessionId));
     }
   }
   return result[0]?.insertId ?? 0;
@@ -108563,24 +108570,47 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   const divs = await db.select().from(divergences).where(inArray(divergences.id, ids));
   if (divs.length === 0) return { success: false, count: 0 };
   const sessionId = divs[0].sessionId;
-  const totalAmount = divs.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const credits = divs.filter((d) => d.transactionType === "credit" || d.divergenceType === "bank_surplus");
+  const debits = divs.filter((d) => d.transactionType === "debit" || d.divergenceType === "bank_shortage");
+  const totalCredits = credits.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const totalDebits = debits.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const netAmount = totalCredits - totalDebits;
   await db.update(divergences).set({
     status: "regularizado",
     actionTaken: `Conciliado manualmente por ${createdByName}: ${note}`,
     responsible: createdByName
   }).where(inArray(divergences.id, ids));
+  const bankTxIds = divs.map((d) => d.bankTransactionId).filter((id) => id != null && id > 0);
+  if (bankTxIds.length > 0) {
+    await db.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'manual', matchType = 'manual'
+      WHERE id IN (${sql.raw(bankTxIds.join(","))})
+    `);
+  }
+  const externalIds = divs.map((d) => d.externalId).filter((id) => id != null && id.length > 0);
+  if (externalIds.length > 0 && sessionId) {
+    await db.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'manual', matchType = 'manual'
+      WHERE sessionId = ${sessionId}
+      AND externalId IN (${sql.raw(externalIds.map((e) => `'${e.replace(/'/g, "''")}'`).join(","))})
+    `);
+  }
   const pending = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM divergences
     WHERE sessionId = ${sessionId}
     AND status NOT IN ('regularizado','reclassificado','baixado')
   `);
   const pendingCount = pending[0]?.[0]?.cnt ?? 0;
-  const session = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, sessionId)).limit(1);
-  if (session[0]) {
-    const newMatched = (session[0].matchedCount ?? 0) + ids.length;
-    await db.update(reconciliationSessions).set({ matchedCount: newMatched, pendingCount }).where(eq(reconciliationSessions.id, sessionId));
-  }
-  return { success: true, count: ids.length, totalAmount };
+  const matchedTxs = await db.execute(sql`
+    SELECT COUNT(*) as cnt FROM bank_transactions
+    WHERE sessionId = ${sessionId}
+    AND matchStatus IN ('matched','manual')
+  `);
+  const newMatchedCount = parseInt(String(matchedTxs[0]?.[0]?.cnt ?? 0));
+  await db.update(reconciliationSessions).set({ matchedCount: newMatchedCount, pendingCount }).where(eq(reconciliationSessions.id, sessionId));
+  return { success: true, count: ids.length, netAmount };
 }
 async function getDailyBankBalances() {
   const db = await getDb();
@@ -131277,6 +131307,24 @@ var reconciliationRouter = router({
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
     await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
     return { success: true };
+  }),
+  // ── Stats em tempo real da sessão (para atualizar taxa de matching pós-ações) ─
+  getSessionStats: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
+    const dbConn = await getDb();
+    if (!dbConn) return null;
+    const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const [total, manual, matched, pending] = await Promise.all([
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'manual'`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`)
+    ]);
+    const totalCount = parseInt(String(total[0]?.[0]?.cnt ?? 0));
+    const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
+    const manualCount = parseInt(String(manual[0]?.[0]?.cnt ?? 0));
+    const pendingCount = parseInt(String(pending[0]?.[0]?.cnt ?? 0));
+    const matchRate = totalCount > 0 ? Math.round(matchedCount / totalCount * 100) : 0;
+    return { totalCount, matchedCount, manualCount, pendingCount, matchRate };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────
   manualReconcile: protectedProcedure.input(external_exports.object({
