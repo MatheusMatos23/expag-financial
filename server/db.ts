@@ -349,7 +349,7 @@ export async function getRevenues(filters?: {
   if (filters?.dateTo) conditions.push(sql`${revenues.referenceDate} <= ${filters.dateTo}`);
   if (filters?.type) conditions.push(eq(revenues.type, filters.type as any));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status as any));
-  if (filters?.origin) conditions.push(eq(revenues.origin as any, filters.origin));
+  if (filters?.origin) conditions.push(sql`revenues.origin = ${filters.origin}`);
   return db.select().from(revenues)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(revenues.referenceDate));
@@ -479,7 +479,7 @@ export async function getExpenses(filters?: {
   if (filters?.dateTo) conditions.push(sql`${expenses.referenceDate} <= ${filters.dateTo}`);
   if (filters?.category) conditions.push(eq(expenses.category, filters.category as any));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status as any));
-  if (filters?.origin) conditions.push(eq(expenses.origin as any, filters.origin));
+  if (filters?.origin) conditions.push(sql`expenses.origin = ${filters.origin}`);
   return db.select().from(expenses)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(expenses.referenceDate));
