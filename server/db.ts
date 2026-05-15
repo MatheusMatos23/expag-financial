@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql, between, like, or, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql, between, like, or, isNotNull, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -316,14 +316,18 @@ export async function getLatestManagerialBalance() {
 export async function createRevenue(data: {
   referenceDate: string; type: string; description?: string; amount: string;
   clientId?: string; clientName?: string; status?: string; costCenterId?: number;
-  createdByName?: string;
+  createdByName?: string; divergenceId?: number; sessionId?: number;
+  origin?: 'auto_tariff' | 'manual_move' | 'manual';
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const status = data.status ?? 'realizado';
   const result = await db.execute(sql`
-    INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName)
-    VALUES (${data.referenceDate}, ${data.type}, ${data.description || null}, ${data.amount}, ${data.clientId || null}, ${data.clientName || null}, ${status}, ${data.costCenterId ?? null}, ${data.createdByName || null})
+    INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName, divergenceId, sessionId, origin)
+    VALUES (${data.referenceDate}, ${data.type}, ${data.description || null}, ${data.amount},
+            ${data.clientId || null}, ${data.clientName || null}, ${status}, ${data.costCenterId ?? null},
+            ${data.createdByName || null}, ${data.divergenceId ?? null}, ${data.sessionId ?? null},
+            ${data.origin ?? 'manual'})
   `);
   return (result as any)[0]?.insertId ?? 0;
 }
@@ -363,26 +367,96 @@ export async function getRevenueSummary(dateFrom: string, dateTo: string) {
 export async function createExpense(data: {
   referenceDate: string; category: string; subcategory?: string;
   description?: string; amount: string; supplier?: string; status?: string; costCenterId?: number;
-  createdByName?: string;
+  createdByName?: string; divergenceId?: number; sessionId?: number;
+  origin?: 'auto_tariff' | 'manual_move' | 'manual';
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const expStatus = (data.status === 'previsto' || data.status === 'cancelado') ? data.status : 'realizado';
   const result = await db.execute(sql`
-    INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName)
+    INSERT INTO expenses (referenceDate, category, subcategory, description, amount, supplier, status, costCenterId, createdByName, divergenceId, sessionId, origin)
     VALUES (
-      ${data.referenceDate},
-      ${data.category},
-      ${data.subcategory || null},
-      ${data.description || null},
-      ${data.amount},
-      ${data.supplier || null},
-      ${expStatus},
-      ${data.costCenterId || null},
-      ${data.createdByName || null}
+      ${data.referenceDate}, ${data.category}, ${data.subcategory || null},
+      ${data.description || null}, ${data.amount}, ${data.supplier || null},
+      ${expStatus}, ${data.costCenterId || null}, ${data.createdByName || null},
+      ${data.divergenceId ?? null}, ${data.sessionId ?? null}, ${data.origin ?? 'manual'}
     )
   `);
   return (result as any)[0]?.insertId ?? 0;
+}
+
+/** Move uma ou mais divergências para Receitas (bulk) */
+export async function moveDivergencesToRevenue(
+  ids: number[],
+  data: {
+    type: string; description?: string; clientName?: string;
+    sessionId?: number; createdByName?: string;
+  }
+) {
+  const dbConn = await getDb();
+  if (!dbConn) throw new Error("DB unavailable");
+
+  const divs = await dbConn.select().from(divergences).where(inArray(divergences.id, ids));
+  const revenueIds: number[] = [];
+
+  for (const div of divs) {
+    const revId = await createRevenue({
+      referenceDate: String(div.divergenceDate),
+      type: data.type,
+      description: data.description ?? div.bankDescription ?? div.apiDescription ?? undefined,
+      amount: String(div.amount),
+      clientName: data.clientName ?? div.clientName ?? undefined,
+      sessionId: data.sessionId ?? div.sessionId ?? undefined,
+      createdByName: data.createdByName,
+      divergenceId: div.id,
+      origin: 'manual_move',
+    });
+    revenueIds.push(revId);
+  }
+
+  // Marca divergências como regularizado
+  await dbConn.update(divergences)
+    .set({ status: 'regularizado', actionTaken: 'Movido para Receitas' })
+    .where(inArray(divergences.id, ids));
+
+  return revenueIds;
+}
+
+/** Move uma ou mais divergências para Despesas (bulk) */
+export async function moveDivergencesToExpense(
+  ids: number[],
+  data: {
+    category: string; subcategory?: string; description?: string;
+    supplier?: string; sessionId?: number; createdByName?: string;
+  }
+) {
+  const dbConn = await getDb();
+  if (!dbConn) throw new Error("DB unavailable");
+
+  const divs = await dbConn.select().from(divergences).where(inArray(divergences.id, ids));
+  const expenseIds: number[] = [];
+
+  for (const div of divs) {
+    const expId = await createExpense({
+      referenceDate: String(div.divergenceDate),
+      category: data.category,
+      subcategory: data.subcategory,
+      description: data.description ?? div.bankDescription ?? div.apiDescription ?? undefined,
+      amount: String(div.amount),
+      supplier: data.supplier ?? div.clientName ?? undefined,
+      sessionId: data.sessionId ?? div.sessionId ?? undefined,
+      createdByName: data.createdByName,
+      divergenceId: div.id,
+      origin: 'manual_move',
+    });
+    expenseIds.push(expId);
+  }
+
+  await dbConn.update(divergences)
+    .set({ status: 'regularizado', actionTaken: 'Movido para Despesas' })
+    .where(inArray(divergences.id, ids));
+
+  return expenseIds;
 }
 
 export async function getExpenses(filters?: {

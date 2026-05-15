@@ -139,33 +139,68 @@ const reconciliationRouter = router({
             apiAmount: match.apiTx?.amount.toFixed(2),
             transactionType: match.bankTx.type,
           });
-        } else if (match.status === "unmatched_bank") {
-          await db.createDivergence({
-            sessionId, divergenceDate: match.bankTx.date,
-            bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
-            clientName: match.bankTx.clientName,
-            divergenceType: "bank_surplus",
-            amount: match.bankTx.amount.toFixed(2),
-            bankAmount: match.bankTx.amount.toFixed(2),
-            origin: match.bankTx.externalId,
-            externalId: match.bankTx.externalId,
-            bankDescription: match.bankTx.description,
-            category: match.bankTx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
-            priority: match.bankTx.amount > 1000 ? "high" : "medium",
-            transactionType: match.bankTx.type,
-            // Sugestão de possível correspondência detectada automaticamente
-            observation: match.possibleMatchNote ?? undefined,
-          });
         }
       }
 
+      // ── Palavras-chave para detectar tarifas bancárias no extrato do banco ──
+      const BANK_TARIFF_KEYWORDS = [
+        "tarifa", "taxa", "manutenção", "manutencao", "anuidade",
+        "iof", "cpmf", "comissão bancária", "comissao bancaria",
+        "encargo", "serviço bancário", "servico bancario",
+      ];
+      const isBankTariff = (desc: string) =>
+        BANK_TARIFF_KEYWORDS.some(k => desc.toLowerCase().includes(k));
+
+      // ── Tarifas no banco (unmatched_bank com descrição de tarifa) ─────────
+      // → Lança automaticamente como DESPESA e não cria divergência
+      let autoDespesaCount = 0;
+      let autoReceitaCount = 0;
+
+      for (const match of result.matches) {
+        if (match.status !== "unmatched_bank") continue;
+        if (!isBankTariff(match.bankTx.description)) continue;
+
+        await db.createExpense({
+          referenceDate: match.bankTx.date,
+          category: "bancaria",
+          subcategory: "tarifa_bancaria",
+          description: match.bankTx.description,
+          amount: match.bankTx.amount.toFixed(2),
+          supplier: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
+          sessionId,
+          origin: "auto_tariff",
+          createdByName: "Conciliação Automática",
+        });
+
+        // Marca a entrada original como regularizado para não aparecer em pendências
+        // (a entrada de unmatched_bank não foi salva ainda pois estamos no loop)
+        autoDespesaCount++;
+      }
+
+      // ── Tarifas na API (isTariff=true, unmatched) ─────────────────────────
+      // → Lança automaticamente como RECEITA e não cria divergência
       for (const tx of result.unmatchedApi) {
-        // Tarifas internas: classificadas como baixa prioridade — não são divergências reais
-        const isTariff   = tx.isTariff   ?? tx.channel === "TARIFA";
-        const category   = isTariff
-          ? "tarifa_nao_apropriada"
-          : tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada";
-        const priority   = isTariff ? "low" : (tx.amount > 1000 ? "high" : "medium");
+        const isTariff = tx.isTariff ?? tx.channel === "TARIFA";
+
+        if (isTariff) {
+          // Tarifas API = receita operacional da Expag (tarifa cobrada do cliente)
+          await db.createRevenue({
+            referenceDate: tx.date,
+            type: "receita_operacional",
+            description: tx.description || tx.channel,
+            amount: tx.amount.toFixed(2),
+            clientName: tx.clientName,
+            sessionId,
+            origin: "auto_tariff",
+            createdByName: "Conciliação Automática",
+          });
+          autoReceitaCount++;
+          continue; // não cria divergência
+        }
+
+        // Transações reais sem par → divergência normal
+        const category = tx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada";
+        const priority = tx.amount > 1000 ? "high" : "medium";
 
         await db.createDivergence({
           sessionId, divergenceDate: tx.date,
@@ -180,10 +215,29 @@ const reconciliationRouter = router({
           category,
           priority,
           transactionType: tx.type,
-          // Tarifas: nota explicativa automática
-          observation: isTariff
-            ? "Tarifa interna da plataforma — sem correspondência no extrato bancário (esperado)"
-            : undefined,
+        });
+      }
+
+      // ── Divergências do banco (unmatched_bank sem tarifa) ─────────────────
+      // As entradas com tarifa já foram lançadas como despesa acima — pular
+      for (const match of result.matches) {
+        if (match.status !== "unmatched_bank") continue;
+        if (isBankTariff(match.bankTx.description)) continue; // já tratado acima
+
+        await db.createDivergence({
+          sessionId, divergenceDate: match.bankTx.date,
+          bankName: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
+          clientName: match.bankTx.clientName,
+          divergenceType: "bank_surplus",
+          amount: match.bankTx.amount.toFixed(2),
+          bankAmount: match.bankTx.amount.toFixed(2),
+          origin: match.bankTx.externalId,
+          externalId: match.bankTx.externalId,
+          bankDescription: match.bankTx.description,
+          category: match.bankTx.type === "credit" ? "receita_nao_lancada" : "despesa_nao_lancada",
+          priority: match.bankTx.amount > 1000 ? "high" : "medium",
+          transactionType: match.bankTx.type,
+          observation: match.possibleMatchNote ?? undefined,
         });
       }
 
@@ -469,6 +523,48 @@ const reconciliationRouter = router({
       const { sql: sqlTag } = await import("drizzle-orm");
       await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
       return { success: true };
+    }),
+
+  // ── Mover divergências para Receitas (bulk) ──────────────────────────────
+  moveDivergencesToRevenue: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()).min(1),
+      type: z.string(),
+      description: z.string().optional(),
+      clientName: z.string().optional(),
+      sessionId: z.number().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const revenueIds = await db.moveDivergencesToRevenue(input.ids, {
+        type: input.type,
+        description: input.description,
+        clientName: input.clientName,
+        sessionId: input.sessionId,
+        createdByName: ctx.user?.name ?? 'Sistema',
+      });
+      return { success: true, revenueIds };
+    }),
+
+  // ── Mover divergências para Despesas (bulk) ───────────────────────────────
+  moveDivergencesToExpense: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()).min(1),
+      category: z.string(),
+      subcategory: z.string().optional(),
+      description: z.string().optional(),
+      supplier: z.string().optional(),
+      sessionId: z.number().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const expenseIds = await db.moveDivergencesToExpense(input.ids, {
+        category: input.category,
+        subcategory: input.subcategory,
+        description: input.description,
+        supplier: input.supplier,
+        sessionId: input.sessionId,
+        createdByName: ctx.user?.name ?? 'Sistema',
+      });
+      return { success: true, expenseIds };
     }),
 
   getManagerialBalance: protectedProcedure.query(async () => {
