@@ -215,10 +215,12 @@ function MoveToExpenseModal({ ids, total, onConfirm, onClose, isLoading }: {
 }
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
-function DivergencePanel({ div: d, onClose, onUpdate, onDelete }: {
+function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue, onMoveToExpense }: {
   div: any; onClose: () => void;
   onUpdate: (data: any) => void;
   onDelete: () => void;
+  onMoveToRevenue: () => void;
+  onMoveToExpense: () => void;
 }) {
   const [status, setStatus] = useState(d.status ?? "pendente");
   const [responsible, setResponsible] = useState(d.responsible ?? "");
@@ -369,15 +371,31 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete }: {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-border flex gap-2 sticky bottom-0 bg-card">
-          <Button className="flex-1 text-xs"
-            onClick={() => onUpdate({ status, responsible, observation, actionTaken: action, slaDeadline: sla, priority })}>
-            Salvar Tratativa
-          </Button>
-          <Button variant="outline" size="sm" className="text-red-400 border-red-500/30 hover:bg-red-500/10 text-xs gap-1.5"
-            onClick={onDelete}>
-            <Trash2 className="w-3.5 h-3.5" /> Excluir
-          </Button>
+        <div className="px-5 py-4 border-t border-border space-y-2 sticky bottom-0 bg-card">
+          <div className="flex gap-2">
+            <Button
+              className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700 gap-1.5"
+              onClick={() => onMoveToRevenue()}
+            >
+              <TrendingUp className="w-3.5 h-3.5" /> Mover → Receita
+            </Button>
+            <Button
+              className="flex-1 text-xs bg-red-600 hover:bg-red-700 gap-1.5"
+              onClick={() => onMoveToExpense()}
+            >
+              <TrendingDown className="w-3.5 h-3.5" /> Mover → Despesa
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Button className="flex-1 text-xs"
+              onClick={() => onUpdate({ status, responsible, observation, actionTaken: action, slaDeadline: sla, priority })}>
+              Salvar Tratativa
+            </Button>
+            <Button variant="outline" size="sm" className="text-red-400 border-red-500/30 hover:bg-red-500/10 text-xs gap-1.5"
+              onClick={onDelete}>
+              <Trash2 className="w-3.5 h-3.5" /> Excluir
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -749,6 +767,16 @@ export default function Divergences() {
           onClose={() => setSelected(null)}
           onUpdate={(data) => updateMutation.mutate({ id: selected.id, ...data })}
           onDelete={() => { if (confirm("Remover esta divergência?")) deleteMutation.mutate({ id: selected.id }); }}
+          onMoveToRevenue={() => {
+            setSelectedIds(new Set([selected.id]));
+            setSelected(null);
+            setMoveToRevenueOpen(true);
+          }}
+          onMoveToExpense={() => {
+            setSelectedIds(new Set([selected.id]));
+            setSelected(null);
+            setMoveToExpenseOpen(true);
+          }}
         />
       )}
     </div>

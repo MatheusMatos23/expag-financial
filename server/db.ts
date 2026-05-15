@@ -100,6 +100,9 @@ export async function getReconciliationSessionById(id: number) {
 export async function deleteReconciliationSession(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  // Apaga tudo ligado à sessão — incluindo receitas e despesas criadas automaticamente
+  await db.execute(sql`DELETE FROM revenues WHERE sessionId = ${id}`);
+  await db.execute(sql`DELETE FROM expenses WHERE sessionId = ${id}`);
   await db.execute(sql`DELETE FROM divergences WHERE sessionId = ${id}`);
   await db.execute(sql`DELETE FROM bank_transactions WHERE sessionId = ${id}`);
   await db.execute(sql`DELETE FROM api_transactions WHERE sessionId = ${id}`);
@@ -342,8 +345,8 @@ export async function getRevenues(filters?: {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
-  if (filters?.dateFrom) conditions.push(gte(revenues.referenceDate, filters.dateFrom as unknown as Date));
-  if (filters?.dateTo) conditions.push(lte(revenues.referenceDate, filters.dateTo as unknown as Date));
+  if (filters?.dateFrom) conditions.push(sql`${revenues.referenceDate} >= ${filters.dateFrom}`);
+  if (filters?.dateTo) conditions.push(sql`${revenues.referenceDate} <= ${filters.dateTo}`);
   if (filters?.type) conditions.push(eq(revenues.type, filters.type as any));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status as any));
   if (filters?.origin) conditions.push(eq(revenues.origin as any, filters.origin));
@@ -472,8 +475,8 @@ export async function getExpenses(filters?: {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
-  if (filters?.dateFrom) conditions.push(gte(expenses.referenceDate, filters.dateFrom as unknown as Date));
-  if (filters?.dateTo) conditions.push(lte(expenses.referenceDate, filters.dateTo as unknown as Date));
+  if (filters?.dateFrom) conditions.push(sql`${expenses.referenceDate} >= ${filters.dateFrom}`);
+  if (filters?.dateTo) conditions.push(sql`${expenses.referenceDate} <= ${filters.dateTo}`);
   if (filters?.category) conditions.push(eq(expenses.category, filters.category as any));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status as any));
   if (filters?.origin) conditions.push(eq(expenses.origin as any, filters.origin));
