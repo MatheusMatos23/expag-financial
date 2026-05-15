@@ -10,6 +10,7 @@ import { runReconciliationEngine } from "./modules/reconciliation/engine";
 import { classifyDivergence } from "./modules/divergence/classifier";
 import { audit } from "./modules/audit/logger";
 import { parseStatement } from "./reconciliation/parsers";
+import { sql } from "drizzle-orm";
 
 // ─── CONCILIAÇÃO ROUTER ───────────────────────────────────────────────────────
 const reconciliationRouter = router({
@@ -73,7 +74,7 @@ const reconciliationRouter = router({
       // Detectar datas presentes nos extratos bancários (expandido para ±1 dia de lag de liquidação)
       const bankDatesRaw = new Set(parsedBanks.flatMap(b => b.txs.map(t => t.date)));
       const bankDates = new Set<string>();
-      for (const d of bankDatesRaw) {
+      for (const d of Array.from(bankDatesRaw)) {
         bankDates.add(d);
         // D-1 e D+1 para cobrir lag de liquidação
         const dt = new Date(d + "T12:00:00Z");
@@ -154,6 +155,13 @@ const reconciliationRouter = router({
       const isBankTariff = (desc: string) =>
         BANK_TARIFF_KEYWORDS.some(k => desc.toLowerCase().includes(k));
 
+      // ── Dedup: limpa auto-tarifas anteriores desta sessão antes de recriar ──
+      const dbConn = await db.getDb();
+      if (dbConn) {
+        try { await dbConn.execute(sql`DELETE FROM expenses WHERE sessionId = ${sessionId} AND origin = 'auto_tariff'`); } catch {}
+        try { await dbConn.execute(sql`DELETE FROM revenues WHERE sessionId = ${sessionId} AND origin = 'auto_tariff'`); } catch {}
+      }
+
       // ── Tarifas no banco (unmatched_bank com descrição de tarifa) ─────────
       // → Lança automaticamente como DESPESA e não cria divergência
       let autoDespesaCount = 0;
@@ -171,11 +179,10 @@ const reconciliationRouter = router({
           amount: match.bankTx.amount.toFixed(2),
           supplier: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
           status: "realizado",
+          sessionId,
+          origin: "auto_tariff",
           createdByName: "Conciliação Automática",
         });
-
-        // Marca a entrada original como regularizado para não aparecer em pendências
-        // (a entrada de unmatched_bank não foi salva ainda pois estamos no loop)
         autoDespesaCount++;
       }
 
@@ -185,7 +192,6 @@ const reconciliationRouter = router({
         const isTariff = tx.isTariff ?? tx.channel === "TARIFA";
 
         if (isTariff) {
-          // Tarifas API = receita operacional da Expag (tarifa cobrada do cliente)
           await db.createRevenue({
             referenceDate: tx.date,
             type: "receita_operacional",
@@ -193,6 +199,8 @@ const reconciliationRouter = router({
             amount: tx.amount.toFixed(2),
             clientName: tx.clientName,
             status: "realizado",
+            sessionId,
+            origin: "auto_tariff",
             createdByName: "Conciliação Automática",
           });
           autoReceitaCount++;

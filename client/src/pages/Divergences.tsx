@@ -469,7 +469,7 @@ export default function Divergences() {
   const pendingCount = rows.filter((d: any) => d.status === "pendente").length;
   const criticalCount = rows.filter((d: any) => d.priority === "critical").length;
 
-  const banks = [...new Set(((divergences ?? []) as any[]).map((d: any) => d.bankName).filter(Boolean))];
+  const banks = Array.from(new Set(((divergences ?? []) as any[]).map((d: any) => d.bankName).filter(Boolean)));
 
   const grouped = rows.reduce((acc: Record<string, any[]>, d: any) => {
     const k = d.status ?? "pendente";
@@ -743,20 +743,20 @@ export default function Divergences() {
       {/* Modais de movimentação */}
       {moveToRevenueOpen && (
         <MoveToRevenueModal
-          ids={[...selectedIds]}
+          ids={Array.from(selectedIds)}
           total={selectedTotal}
           isLoading={moveToRevenueMutation.isPending}
           onClose={() => setMoveToRevenueOpen(false)}
-          onConfirm={(data) => moveToRevenueMutation.mutate({ ids: [...selectedIds], ...data })}
+          onConfirm={(data) => moveToRevenueMutation.mutate({ ids: Array.from(selectedIds), ...data })}
         />
       )}
       {moveToExpenseOpen && (
         <MoveToExpenseModal
-          ids={[...selectedIds]}
+          ids={Array.from(selectedIds)}
           total={selectedTotal}
           isLoading={moveToExpenseMutation.isPending}
           onClose={() => setMoveToExpenseOpen(false)}
-          onConfirm={(data) => moveToExpenseMutation.mutate({ ids: [...selectedIds], ...data })}
+          onConfirm={(data) => moveToExpenseMutation.mutate({ ids: Array.from(selectedIds), ...data })}
         />
       )}
 

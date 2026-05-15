@@ -100,9 +100,22 @@ export async function getReconciliationSessionById(id: number) {
 export async function deleteReconciliationSession(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  // Apaga tudo ligado à sessão — incluindo receitas e despesas criadas automaticamente
-  await db.execute(sql`DELETE FROM revenues WHERE sessionId = ${id}`);
-  await db.execute(sql`DELETE FROM expenses WHERE sessionId = ${id}`);
+  // Apaga receitas e despesas da sessão (com fallback seguro caso coluna não exista)
+  try { await db.execute(sql`DELETE FROM revenues WHERE sessionId = ${id}`); } catch {}
+  try { await db.execute(sql`DELETE FROM expenses WHERE sessionId = ${id}`); } catch {}
+  // Apaga divergências movidas manualmente para receitas/despesas
+  try {
+    await db.execute(sql`
+      DELETE FROM revenues WHERE divergenceId IN (
+        SELECT id FROM divergences WHERE sessionId = ${id}
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM expenses WHERE divergenceId IN (
+        SELECT id FROM divergences WHERE sessionId = ${id}
+      )
+    `);
+  } catch {}
   await db.execute(sql`DELETE FROM divergences WHERE sessionId = ${id}`);
   await db.execute(sql`DELETE FROM bank_transactions WHERE sessionId = ${id}`);
   await db.execute(sql`DELETE FROM api_transactions WHERE sessionId = ${id}`);
@@ -335,6 +348,9 @@ export async function createRevenue(data: {
     status: revStatus as any,
     costCenterId: data.costCenterId ?? null,
     createdByName: data.createdByName ?? null,
+    sessionId: data.sessionId ?? null,
+    divergenceId: data.divergenceId ?? null,
+    origin: data.origin ?? 'manual',
   });
   return (result as any)[0]?.insertId ?? 0;
 }
@@ -391,6 +407,9 @@ export async function createExpense(data: {
     status: expStatus as any,
     costCenterId: data.costCenterId ?? null,
     createdByName: data.createdByName ?? null,
+    sessionId: data.sessionId ?? null,
+    divergenceId: data.divergenceId ?? null,
+    origin: data.origin ?? 'manual',
   });
   return (result as any)[0]?.insertId ?? 0;
 }

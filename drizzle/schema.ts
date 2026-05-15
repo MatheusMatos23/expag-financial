@@ -205,12 +205,17 @@ export const revenues = mysqlTable("revenues", {
   bankTransactionId: int("bankTransactionId"),
   costCenterId: int("costCenterId"),
   createdByName: varchar("createdByName", { length: 200 }),
+  // Rastreamento de origem — adicionado via migração 0005
+  sessionId: int("sessionId"),
+  divergenceId: int("divergenceId"),
+  origin: varchar("origin", { length: 50 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   dateIdx: index("rev_date_idx").on(table.referenceDate),
   statusIdx: index("rev_status_idx").on(table.status),
   typeIdx: index("rev_type_idx").on(table.type),
+  sessionIdx: index("rev_session_idx").on(table.sessionId),
 }));
 export const expenses = mysqlTable("expenses", {
   id: int("id").autoincrement().primaryKey(),
@@ -241,6 +246,10 @@ export const expenses = mysqlTable("expenses", {
   bankTransactionId: int("bankTransactionId"),
   costCenterId: int("costCenterId"),
   createdByName: varchar("createdByName", { length: 200 }),
+  // Rastreamento de origem — adicionado via migração 0005
+  sessionId: int("sessionId"),
+  divergenceId: int("divergenceId"),
+  origin: varchar("origin", { length: 50 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
