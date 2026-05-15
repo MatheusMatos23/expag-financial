@@ -1,347 +1,295 @@
 import { trpc } from "@/lib/trpc";
-import { formatCurrency, formatCurrencyCompact, formatDate, getStatusLabel, safeNumber } from "@/lib/utils";
+import { formatCurrency, formatDate, safeNumber } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, CreditCard, TrendingUp, AlertTriangle, CheckCircle, Users, Trash2, Edit2 } from "lucide-react";
+import {
+  Plus, CreditCard, TrendingUp, AlertTriangle, CheckCircle,
+  Users, Trash2, ChevronDown, ChevronUp, DollarSign, Calendar,
+  X, Percent,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { cn } from "@/lib/utils";
 
-const STATUS_STYLES: Record<string, string> = {
-  ativo:        "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  inadimplente: "bg-red-500/10    text-red-400    border-red-500/20",
-  quitado:      "bg-gray-500/10   text-gray-400   border-gray-500/20",
-  renegociado:  "bg-amber-500/10  text-amber-400  border-amber-500/20",
-  cancelado:    "bg-gray-500/10   text-gray-400   border-gray-500/20",
+const STATUS_COLORS: Record<string, string> = {
+  ativo: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+  atrasado: "text-red-400 bg-red-500/10 border-red-500/30",
+  quitado: "text-gray-400 bg-gray-500/10 border-gray-500/30",
+  renegociado: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
 };
 
-const FUNDING_LABELS: Record<string, string> = {
-  capital_proprio: "Capital Próprio",
-  uso_custodia: "Custódia",
-  externo: "Externo",
-};
-
-function ProgressBar({ paid, total }: { paid: number; total: number }) {
-  const pct = total > 0 ? Math.round((paid / total) * 100) : 0;
+function PayInstallmentModal({ inst, onConfirm, onClose }: {
+  inst: any; onConfirm: (paidDate: string, notes: string) => void; onClose: () => void;
+}) {
+  const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState("");
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 bg-border/40 rounded-full h-1.5 overflow-hidden">
-        <div
-          className={cn("h-1.5 rounded-full transition-all", pct >= 100 ? "bg-emerald-400" : pct >= 50 ? "bg-sky-400" : "bg-amber-400")}
-          style={{ width: `${Math.min(pct, 100)}%` }}
-        />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="font-bold text-foreground">Registrar Pagamento</h3>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}><X className="w-4 h-4" /></Button>
+        </div>
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 space-y-1 text-xs">
+          <div className="flex justify-between"><span className="text-muted-foreground">Parcela</span><span>#{inst.installmentNumber}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Principal</span><span>{formatCurrency(inst.principalAmount)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Juros</span><span className="text-emerald-400">{formatCurrency(inst.interestAmount)}</span></div>
+          <div className="flex justify-between font-bold"><span>Total</span><span>{formatCurrency(inst.totalAmount)}</span></div>
+        </div>
+        <div>
+          <Label className="text-xs">Data do pagamento</Label>
+          <Input type="date" className="mt-1.5 h-8 text-xs" value={paidDate} onChange={e => setPaidDate(e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">Observação (opcional)</Label>
+          <Textarea className="mt-1.5 text-xs resize-none h-14" value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
+        <p className="text-[10px] text-muted-foreground">O pagamento gerará receita financeira automaticamente (juros + amortização).</p>
+        <div className="flex gap-2">
+          <Button variant="outline" className="flex-1 text-xs" onClick={onClose}>Cancelar</Button>
+          <Button className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={() => onConfirm(paidDate, notes)}>
+            Confirmar Pagamento
+          </Button>
+        </div>
       </div>
-      <span className="text-[10px] text-muted-foreground w-8 text-right">{pct}%</span>
     </div>
   );
 }
 
-const DEFAULT_FORM = {
-  clientId: "", clientName: "", principal: "", interestRate: "",
-  totalInstallments: "12", startDate: new Date().toISOString().split("T")[0],
-  expectedEndDate: "", fundingSource: "capital_proprio", notes: "",
-};
-
 export default function CreditPortfolio() {
-  const [open, setOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [form, setForm] = useState(DEFAULT_FORM);
-  const [editRow, setEditRow] = useState<any>(null);
-  const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [payingInst, setPayingInst] = useState<any>(null);
+  const [form, setForm] = useState({ clientId: "", clientName: "", principal: "", interestRate: "", totalInstallments: "12", startDate: new Date().toISOString().slice(0,10), expectedEndDate: "", fundingSource: "", notes: "" });
 
-  const handleEdit = (row: any) => {
-    setForm({
-      clientId: row.clientId ?? "",
-      clientName: row.clientName ?? "",
-      principal: String(row.principal ?? ""),
-      interestRate: String(Math.round(safeNumber(row.interestRate) * 10000) / 100),
-      totalInstallments: String(row.totalInstallments ?? "12"),
-      startDate: typeof row.startDate === "string" ? row.startDate.slice(0,10) : new Date(row.startDate).toISOString().split("T")[0],
-      expectedEndDate: typeof row.expectedEndDate === "string" ? row.expectedEndDate.slice(0,10) : new Date(row.expectedEndDate).toISOString().split("T")[0],
-      fundingSource: row.fundingSource ?? "capital_proprio",
-      notes: row.notes ?? "",
-    });
-    setEditRow(row);
-    setOpen(true);
-  };
-
-  const { data: loans, refetch, isLoading } = trpc.controllership.getLoans.useQuery({
-    status: statusFilter !== "all" ? statusFilter : undefined,
-  });
+  const { data: loans, refetch, isLoading } = trpc.controllership.getLoans.useQuery({ status: statusFilter !== "all" ? statusFilter : undefined });
   const { data: summary } = trpc.controllership.getLoanSummary.useQuery();
+  const { data: installments, refetch: refetchInst } = trpc.controllership.getCreditInstallments.useQuery(
+    { creditId: expanded! },
+    { enabled: !!expanded }
+  );
 
   const createMutation = trpc.controllership.createLoan.useMutation({
-    onSuccess: () => { toast.success("Operação registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => { toast.success("Crédito criado com parcelas calculadas!"); setNewOpen(false); refetch(); },
+    onError: e => toast.error(e.message),
   });
 
-  const updateLoanMutation = trpc.controllership.updateLoan.useMutation({
-    onSuccess: () => { toast.success("Operação atualizada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
-    onError: (e) => toast.error(e.message),
+
+
+  const payMutation = trpc.controllership.recordInstallmentPayment.useMutation({
+    onSuccess: () => {
+      toast.success("Pagamento registrado — receita financeira criada!");
+      setPayingInst(null); refetch(); refetchInst();
+    },
+    onError: e => toast.error(e.message),
   });
 
-  const deleteLoanMutation = trpc.controllership.deleteLoan.useMutation({
-    onSuccess: () => { toast.success("Operação removida."); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const rows = (loans ?? []) as any[];
-  const totalPortfolio = safeNumber(summary?.total);
-  const activeCount    = safeNumber(summary?.active, 0);
-  const totalCount     = safeNumber(summary?.count, 0);
-  const defaulted      = rows.filter(l => l.status === "inadimplente");
-  const totalDefaulted = defaulted.reduce((s, l) => s + safeNumber(l.outstandingBalance), 0);
-
-  const columns: ColumnDef<any>[] = [
-    {
-      key: "clientName", header: "Cliente", searchable: true, minWidth: "160px",
-      cell: (r) => (
-        <div>
-          <p className="text-xs font-semibold text-foreground truncate max-w-[180px]">{r.clientName}</p>
-          <p className="text-[10px] text-muted-foreground">{r.clientId}</p>
-        </div>
-      ),
-    },
-    {
-      key: "principal", header: "Principal", sortable: true, align: "right", width: "120px",
-      cell: (r) => <span className="font-mono text-xs font-semibold text-foreground">{formatCurrency(r.principal)}</span>,
-    },
-    {
-      key: "outstandingBalance", header: "Saldo Devedor", sortable: true, align: "right", width: "130px",
-      cell: (r) => (
-        <span className={cn("font-mono text-xs font-bold", safeNumber(r.outstandingBalance) > 0 ? "text-amber-400" : "text-emerald-400")}>
-          {formatCurrency(r.outstandingBalance)}
-        </span>
-      ),
-    },
-    {
-      key: "interestRate", header: "Taxa/mês", sortable: true, align: "right", width: "90px",
-      cell: (r) => (
-        <span className="font-mono text-xs text-sky-400">
-          {(safeNumber(r.interestRate) * 100).toFixed(2)}%
-        </span>
-      ),
-    },
-    {
-      key: "paidInstallments", header: "Parcelas", width: "140px",
-      cell: (r) => (
-        <div className="space-y-0.5">
-          <p className="text-[10px] text-muted-foreground">{r.paidInstallments ?? 0}/{r.totalInstallments}</p>
-          <ProgressBar paid={safeNumber(r.paidInstallments, 0)} total={safeNumber(r.totalInstallments, 1)} />
-        </div>
-      ),
-    },
-    {
-      key: "startDate", header: "Início", sortable: true, width: "90px",
-      cell: (r) => <span className="text-xs text-muted-foreground">{formatDate(r.startDate)}</span>,
-    },
-    {
-      key: "expectedEndDate", header: "Término", sortable: true, width: "90px",
-      cell: (r) => <span className="text-xs text-muted-foreground">{formatDate(r.expectedEndDate)}</span>,
-    },
-    {
-      key: "fundingSource", header: "Funding", width: "110px",
-      cell: (r) => (
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground">
-          {FUNDING_LABELS[r.fundingSource] ?? r.fundingSource}
-        </span>
-      ),
-    },
-    {
-      key: "status", header: "Status", sortable: true, width: "110px",
-      cell: (r) => (
-        <span className={cn("inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border", STATUS_STYLES[r.status] ?? STATUS_STYLES.ativo)}>
-          {getStatusLabel(r.status)}
-        </span>
-      ),
-    },
-    {
-      key: "id", header: "Ações", align: "center", width: "80px", searchable: false,
-      cell: (r) => (
-        <div className="flex items-center justify-center gap-1">
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-            onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
-            <Edit2 className="w-3 h-3" />
-          </Button>
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
-            onClick={(e) => { e.stopPropagation(); if (confirm("Remover esta operação?")) deleteLoanMutation.mutate({ id: r.id }); }}>
-            <Trash2 className="w-3 h-3" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const loanList = (loans as any[]) ?? [];
+  const totalPrincipal = safeNumber((summary as any)?.total ?? 0);
+  const activeCount    = (summary as any)?.active ?? 0;
+  const totalInterest  = loanList.reduce((s, l) => s + safeNumber(l.interestRate) * safeNumber(l.principal) / 100, 0);
+  const overdueCount   = loanList.filter(l => l.status === "atrasado").length;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Carteira de Crédito</h1>
-          <p className="text-sm text-muted-foreground mt-1">Categoria 2 · Controle de empréstimos e operações de crédito</p>
+          <h1 className="text-2xl font-bold text-foreground">Carteira de Crédito</h1>
+          <p className="text-sm text-muted-foreground mt-1">Empréstimos, parcelas e receitas de juros</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos</SelectItem>
-              <SelectItem value="ativo" className="text-xs">Ativo</SelectItem>
-              <SelectItem value="inadimplente" className="text-xs">Inadimplente</SelectItem>
-              <SelectItem value="quitado" className="text-xs">Quitado</SelectItem>
-              <SelectItem value="renegociado" className="text-xs">Renegociado</SelectItem>
-            </SelectContent>
-          </Select>
-          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
-            <DialogTrigger asChild>
-              <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Operação</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>{editRow ? "Editar Operação de Crédito" : "Registrar Operação de Crédito"}</DialogTitle></DialogHeader>
-              <div className="space-y-3 py-2">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Cliente *</Label>
-                  <Input value={form.clientName} onChange={e => set("clientName")(e.target.value)}
-                    className="mt-1 h-8 text-xs" placeholder="Nome completo do cliente" />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">ID do Cliente</Label>
-                  <Input value={form.clientId} onChange={e => set("clientId")(e.target.value)}
-                    className="mt-1 h-8 text-xs" placeholder="CPF / CNPJ / Código interno" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Principal (R$) *</Label>
-                    <Input type="number" step="0.01" value={form.principal}
-                      onChange={e => set("principal")(e.target.value)} className="mt-1 h-8 text-xs font-mono" />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Taxa % a.m. *</Label>
-                    <Input type="number" step="0.01" placeholder="Ex: 1.8" value={form.interestRate}
-                      onChange={e => set("interestRate")(e.target.value)} className="mt-1 h-8 text-xs font-mono" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Parcelas *</Label>
-                    <Input type="number" min="1" value={form.totalInstallments}
-                      onChange={e => set("totalInstallments")(e.target.value)} className="mt-1 h-8 text-xs" />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Funding</Label>
-                    <Select value={form.fundingSource} onValueChange={set("fundingSource")}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="capital_proprio" className="text-xs">Capital Próprio</SelectItem>
-                        <SelectItem value="uso_custodia" className="text-xs">Custódia</SelectItem>
-                        <SelectItem value="externo" className="text-xs">Externo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Data Início *</Label>
-                    <Input type="date" value={form.startDate} onChange={e => set("startDate")(e.target.value)} className="mt-1 h-8 text-xs" />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Data Término</Label>
-                    <Input type="date" value={form.expectedEndDate} onChange={e => set("expectedEndDate")(e.target.value)} className="mt-1 h-8 text-xs" />
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Observações</Label>
-                  <Input value={form.notes} onChange={e => set("notes")(e.target.value)}
-                    className="mt-1 h-8 text-xs" placeholder="Detalhes da operação..." />
-                </div>
-                <Button
-                  onClick={() => editRow
-                    ? updateLoanMutation.mutate({
-                        id: editRow.id,
-                        principal: form.principal,
-                        interestRate: (parseFloat(form.interestRate) / 100).toFixed(4),
-                        totalInstallments: parseInt(form.totalInstallments),
-                        expectedEndDate: form.expectedEndDate || form.startDate,
-                        fundingSource: form.fundingSource,
-                        notes: form.notes || undefined,
-                      })
-                    : createMutation.mutate({
-                        clientId: form.clientId || form.clientName,
-                        clientName: form.clientName,
-                        principal: form.principal,
-                        interestRate: (parseFloat(form.interestRate) / 100).toFixed(4),
-                        totalInstallments: parseInt(form.totalInstallments),
-                        startDate: form.startDate,
-                        expectedEndDate: form.expectedEndDate || form.startDate,
-                        fundingSource: form.fundingSource,
-                        notes: form.notes || undefined,
-                      })
-                  }
-                  disabled={!form.clientName || !form.principal || !form.interestRate || createMutation.isPending || updateLoanMutation.isPending}
-                  className="w-full"
-                >
-                  {(createMutation.isPending || updateLoanMutation.isPending) ? "Salvando..." : editRow ? "Salvar Alterações" : "Registrar Operação"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+        <div className="flex gap-2">
+          {["all","ativo","atrasado","quitado"].map(s => (
+            <Button key={s} size="sm" variant={statusFilter === s ? "default" : "outline"} className="text-xs h-8"
+              onClick={() => setStatusFilter(s)}>
+              {s === "all" ? "Todos" : s.charAt(0).toUpperCase() + s.slice(1)}
+            </Button>
+          ))}
+          <Button size="sm" className="text-xs h-8 gap-1.5" onClick={() => setNewOpen(true)}>
+            <Plus className="w-3.5 h-3.5" /> Novo Crédito
+          </Button>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Carteira Total</span>
-            <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Total Investido", value: formatCurrency(totalPrincipal), color: "text-blue-400", icon: CreditCard },
+          { label: "Créditos Ativos", value: activeCount, color: "text-emerald-400", icon: CheckCircle },
+          { label: "Juros Esperados", value: formatCurrency(totalInterest), color: "text-yellow-400", icon: Percent, sub: "mensal" },
+          { label: "Em Atraso", value: overdueCount, color: overdueCount > 0 ? "text-red-400" : "text-muted-foreground", icon: AlertTriangle },
+        ].map(({ label, value, color, icon: Icon, sub }) => (
+          <div key={label} className="bg-card border border-border rounded-xl p-4">
+            <div className="flex items-center gap-1.5 mb-2"><Icon className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span></div>
+            <p className={cn("text-xl font-bold font-mono", color)}>{value}</p>
+            {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
           </div>
-          <p className="text-2xl font-bold font-mono text-foreground">{formatCurrencyCompact(totalPortfolio)}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">saldo devedor</p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Operações Ativas</span>
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold font-mono text-emerald-400">{activeCount}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">de {totalCount} no total</p>
-        </div>
-        <div className={cn("border rounded-xl p-4", defaulted.length > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card border-border")}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Inadimplentes</span>
-            <AlertTriangle className={cn("w-3.5 h-3.5", defaulted.length > 0 ? "text-red-400" : "text-muted-foreground")} />
-          </div>
-          <p className={cn("text-2xl font-bold font-mono", defaulted.length > 0 ? "text-red-400" : "text-foreground")}>{defaulted.length}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">{formatCurrencyCompact(totalDefaulted)} em risco</p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Clientes</span>
-            <Users className="w-3.5 h-3.5 text-muted-foreground" />
-          </div>
-          <p className="text-2xl font-bold font-mono text-foreground">{totalCount}</p>
-          <p className="text-[10px] text-muted-foreground mt-1">operações cadastradas</p>
-        </div>
+        ))}
       </div>
 
-      {/* DataTable */}
-      <DataTable
-        data={rows}
-        columns={columns}
-        loading={isLoading}
-        searchPlaceholder="Buscar por cliente, ID..."
-        exportFilename="carteira-credito"
-        emptyTitle="Nenhuma operação de crédito"
-        emptyDescription="Registre uma nova operação usando o botão acima."
-        defaultPageSize={25}
-        rowClassName={(r) => {
-          if (r.status === "inadimplente") return "bg-red-500/5";
-          return undefined;
-        }}
-      />
+      {/* Lista de créditos */}
+      {isLoading ? <div className="text-center py-8 text-muted-foreground text-sm">Carregando...</div>
+      : loanList.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-12 text-center">
+          <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Nenhum crédito cadastrado. Clique em "Novo Crédito" para começar.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {loanList.map((loan: any) => {
+            const isExp = expanded === loan.id;
+            const instList = (installments as any[]) ?? [];
+            const paidInst = instList.filter(i => i.status === 'pago').length;
+            const pendInst = instList.filter(i => i.status !== 'pago').length;
+            const progress = instList.length > 0 ? Math.round((paidInst / instList.length) * 100) : 0;
+            const nextDue = instList.filter(i => i.status !== 'pago').sort((a: any, b: any) => String(a.dueDate).localeCompare(String(b.dueDate)))[0];
+
+            return (
+              <div key={loan.id} className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-accent/10" onClick={() => setExpanded(isExp ? null : loan.id)}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+                      <Users className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{loan.clientName}</p>
+                      <p className="text-[10px] text-muted-foreground">{loan.clientId} · Taxa {loan.interestRate}% a.m.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6 shrink-0">
+                    <div className="text-right">
+                      <p className="text-sm font-bold font-mono text-blue-400">{formatCurrency(loan.principal)}</p>
+                      <p className="text-[10px] text-muted-foreground">{loan.totalInstallments}x parcelas</p>
+                    </div>
+                    {nextDue && (
+                      <div className="text-right hidden md:block">
+                        <p className="text-xs text-muted-foreground">Próximo venc.</p>
+                        <p className="text-xs font-mono text-yellow-400">{formatDate(nextDue.dueDate)}</p>
+                      </div>
+                    )}
+                    <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold", STATUS_COLORS[loan.status] ?? "text-muted-foreground")}>
+                      {loan.status}
+                    </span>
+                    {isExp ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                  </div>
+                </div>
+
+                {isExp && (
+                  <div className="border-t border-border px-5 py-4 space-y-4">
+                    {/* Progress */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">{paidInst} parcelas pagas de {instList.length}</span>
+                        <span className="text-emerald-400 font-mono">{progress}%</span>
+                      </div>
+                      <div className="w-full bg-accent/20 rounded-full h-2">
+                        <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${progress}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Parcelas */}
+                    {instList.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-border">
+                              {["#","Vencimento","Principal","Juros","Total","Status",""].map(h => (
+                                <th key={h} className="text-left px-2 py-2 text-muted-foreground font-medium">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {instList.map((inst: any) => (
+                              <tr key={inst.id} className={cn("hover:bg-accent/10", inst.status === 'pago' && "opacity-60")}>
+                                <td className="px-2 py-2 text-muted-foreground">#{inst.installmentNumber}</td>
+                                <td className="px-2 py-2 text-muted-foreground">{formatDate(inst.dueDate)}</td>
+                                <td className="px-2 py-2 font-mono">{formatCurrency(inst.principalAmount)}</td>
+                                <td className="px-2 py-2 font-mono text-emerald-400">{formatCurrency(inst.interestAmount)}</td>
+                                <td className="px-2 py-2 font-mono font-bold">{formatCurrency(inst.totalAmount)}</td>
+                                <td className="px-2 py-2">
+                                  <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-semibold", inst.status === 'pago' ? "text-gray-400 border-gray-500/30 bg-gray-500/10" : "text-yellow-400 border-yellow-500/30 bg-yellow-500/10")}>
+                                    {inst.status === 'pago' ? `Pago ${formatDate(inst.paidDate ?? '')}` : 'Pendente'}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2">
+                                  {inst.status !== 'pago' && (
+                                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 text-emerald-400 border-emerald-500/30"
+                                      onClick={() => setPayingInst({ ...inst, creditId: loan.id })}>
+                                      Registrar Pgto
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <p className="text-xs text-muted-foreground">Parcelas não calculadas ainda.</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal novo crédito */}
+      {newOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg space-y-4 overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-foreground">Novo Crédito</h3>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setNewOpen(false)}><X className="w-4 h-4" /></Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "ID do Cliente", key: "clientId", placeholder: "CPF/CNPJ" },
+                { label: "Nome do Cliente", key: "clientName", placeholder: "Nome completo" },
+                { label: "Valor Principal (R$)", key: "principal", placeholder: "10000.00" },
+                { label: "Taxa de Juros (% a.m.)", key: "interestRate", placeholder: "2.5" },
+                { label: "Nº de Parcelas", key: "totalInstallments", placeholder: "12" },
+                { label: "Data de Início", key: "startDate", type: "date" },
+                { label: "Data Prev. Término", key: "expectedEndDate", type: "date" },
+                { label: "Fonte dos Recursos", key: "fundingSource", placeholder: "Capital próprio" },
+              ].map(({ label, key, placeholder, type }) => (
+                <div key={key}>
+                  <Label className="text-xs">{label}</Label>
+                  <Input type={type ?? "text"} className="mt-1 h-8 text-xs" placeholder={placeholder}
+                    value={(form as any)[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} />
+                </div>
+              ))}
+            </div>
+            <div>
+              <Label className="text-xs">Observações</Label>
+              <Textarea className="mt-1 text-xs resize-none h-16" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+            <p className="text-[10px] text-muted-foreground">As parcelas serão calculadas automaticamente pelo sistema de amortização Price.</p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 text-xs" onClick={() => setNewOpen(false)}>Cancelar</Button>
+              <Button className="flex-1 text-xs" disabled={createMutation.isPending}
+                onClick={() => createMutation.mutate({ ...form, totalInstallments: parseInt(form.totalInstallments) })}>
+                {createMutation.isPending ? "Criando..." : "Criar Crédito"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal registrar pagamento */}
+      {payingInst && (
+        <PayInstallmentModal
+          inst={payingInst}
+          onClose={() => setPayingInst(null)}
+          onConfirm={(paidDate, notes) => payMutation.mutate({
+            installmentId: payingInst.id,
+            creditId: payingInst.creditId,
+            paidAmount: payingInst.totalAmount,
+            paidDate, notes,
+          })}
+        />
+      )}
     </div>
   );
 }

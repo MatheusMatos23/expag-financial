@@ -45921,6 +45921,5220 @@ var require_mysql2 = __commonJS({
   }
 });
 
+// node_modules/drizzle-orm/selection-proxy.js
+var SelectionProxyHandler;
+var init_selection_proxy = __esm({
+  "node_modules/drizzle-orm/selection-proxy.js"() {
+    init_alias();
+    init_column();
+    init_entity();
+    init_sql();
+    init_subquery();
+    init_view_common();
+    SelectionProxyHandler = class _SelectionProxyHandler {
+      static [entityKind] = "SelectionProxyHandler";
+      config;
+      constructor(config2) {
+        this.config = { ...config2 };
+      }
+      get(subquery, prop) {
+        if (prop === "_") {
+          return {
+            ...subquery["_"],
+            selectedFields: new Proxy(
+              subquery._.selectedFields,
+              this
+            )
+          };
+        }
+        if (prop === ViewBaseConfig) {
+          return {
+            ...subquery[ViewBaseConfig],
+            selectedFields: new Proxy(
+              subquery[ViewBaseConfig].selectedFields,
+              this
+            )
+          };
+        }
+        if (typeof prop === "symbol") {
+          return subquery[prop];
+        }
+        const columns = is(subquery, Subquery) ? subquery._.selectedFields : is(subquery, View) ? subquery[ViewBaseConfig].selectedFields : subquery;
+        const value = columns[prop];
+        if (is(value, SQL.Aliased)) {
+          if (this.config.sqlAliasedBehavior === "sql" && !value.isSelectionField) {
+            return value.sql;
+          }
+          const newValue = value.clone();
+          newValue.isSelectionField = true;
+          return newValue;
+        }
+        if (is(value, SQL)) {
+          if (this.config.sqlBehavior === "sql") {
+            return value;
+          }
+          throw new Error(
+            `You tried to reference "${prop}" field from a subquery, which is a raw SQL field, but it doesn't have an alias declared. Please add an alias to the field using ".as('alias')" method.`
+          );
+        }
+        if (is(value, Column)) {
+          if (this.config.alias) {
+            return new Proxy(
+              value,
+              new ColumnAliasProxyHandler(
+                new Proxy(
+                  value.table,
+                  new TableAliasProxyHandler(this.config.alias, this.config.replaceOriginalName ?? false)
+                )
+              )
+            );
+          }
+          return value;
+        }
+        if (typeof value !== "object" || value === null) {
+          return value;
+        }
+        return new Proxy(value, new _SelectionProxyHandler(this.config));
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/count.js
+var MySqlCountBuilder;
+var init_count = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/count.js"() {
+    init_entity();
+    init_sql();
+    MySqlCountBuilder = class _MySqlCountBuilder extends SQL {
+      constructor(params) {
+        super(_MySqlCountBuilder.buildEmbeddedCount(params.source, params.filters).queryChunks);
+        this.params = params;
+        this.mapWith(Number);
+        this.session = params.session;
+        this.sql = _MySqlCountBuilder.buildCount(
+          params.source,
+          params.filters
+        );
+      }
+      sql;
+      static [entityKind] = "MySqlCountBuilder";
+      [Symbol.toStringTag] = "MySqlCountBuilder";
+      session;
+      static buildEmbeddedCount(source, filters) {
+        return sql`(select count(*) from ${source}${sql.raw(" where ").if(filters)}${filters})`;
+      }
+      static buildCount(source, filters) {
+        return sql`select count(*) as count from ${source}${sql.raw(" where ").if(filters)}${filters}`;
+      }
+      then(onfulfilled, onrejected) {
+        return Promise.resolve(this.session.count(this.sql)).then(
+          onfulfilled,
+          onrejected
+        );
+      }
+      catch(onRejected) {
+        return this.then(void 0, onRejected);
+      }
+      finally(onFinally) {
+        return this.then(
+          (value) => {
+            onFinally?.();
+            return value;
+          },
+          (reason) => {
+            onFinally?.();
+            throw reason;
+          }
+        );
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/checks.js
+var CheckBuilder, Check;
+var init_checks = __esm({
+  "node_modules/drizzle-orm/mysql-core/checks.js"() {
+    init_entity();
+    CheckBuilder = class {
+      constructor(name2, value) {
+        this.name = name2;
+        this.value = value;
+      }
+      static [entityKind] = "MySqlCheckBuilder";
+      brand;
+      /** @internal */
+      build(table) {
+        return new Check(table, this);
+      }
+    };
+    Check = class {
+      constructor(table, builder) {
+        this.table = table;
+        this.name = builder.name;
+        this.value = builder.value;
+      }
+      static [entityKind] = "MySqlCheck";
+      name;
+      value;
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/foreign-keys.js
+var ForeignKeyBuilder2, ForeignKey2;
+var init_foreign_keys2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/foreign-keys.js"() {
+    init_entity();
+    init_table_utils();
+    ForeignKeyBuilder2 = class {
+      static [entityKind] = "MySqlForeignKeyBuilder";
+      /** @internal */
+      reference;
+      /** @internal */
+      _onUpdate;
+      /** @internal */
+      _onDelete;
+      constructor(config2, actions) {
+        this.reference = () => {
+          const { name: name2, columns, foreignColumns } = config2();
+          return { name: name2, columns, foreignTable: foreignColumns[0].table, foreignColumns };
+        };
+        if (actions) {
+          this._onUpdate = actions.onUpdate;
+          this._onDelete = actions.onDelete;
+        }
+      }
+      onUpdate(action) {
+        this._onUpdate = action;
+        return this;
+      }
+      onDelete(action) {
+        this._onDelete = action;
+        return this;
+      }
+      /** @internal */
+      build(table) {
+        return new ForeignKey2(table, this);
+      }
+    };
+    ForeignKey2 = class {
+      constructor(table, builder) {
+        this.table = table;
+        this.reference = builder.reference;
+        this.onUpdate = builder._onUpdate;
+        this.onDelete = builder._onDelete;
+      }
+      static [entityKind] = "MySqlForeignKey";
+      reference;
+      onUpdate;
+      onDelete;
+      getName() {
+        const { name: name2, columns, foreignColumns } = this.reference();
+        const columnNames = columns.map((column) => column.name);
+        const foreignColumnNames = foreignColumns.map((column) => column.name);
+        const chunks = [
+          this.table[TableName],
+          ...columnNames,
+          foreignColumns[0].table[TableName],
+          ...foreignColumnNames
+        ];
+        return name2 ?? `${chunks.join("_")}_fk`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/indexes.js
+function index(name2) {
+  return new IndexBuilderOn(name2, false);
+}
+var IndexBuilderOn, IndexBuilder, Index;
+var init_indexes = __esm({
+  "node_modules/drizzle-orm/mysql-core/indexes.js"() {
+    init_entity();
+    IndexBuilderOn = class {
+      constructor(name2, unique) {
+        this.name = name2;
+        this.unique = unique;
+      }
+      static [entityKind] = "MySqlIndexBuilderOn";
+      on(...columns) {
+        return new IndexBuilder(this.name, columns, this.unique);
+      }
+    };
+    IndexBuilder = class {
+      static [entityKind] = "MySqlIndexBuilder";
+      /** @internal */
+      config;
+      constructor(name2, columns, unique) {
+        this.config = {
+          name: name2,
+          columns,
+          unique
+        };
+      }
+      using(using) {
+        this.config.using = using;
+        return this;
+      }
+      algorythm(algorythm) {
+        this.config.algorythm = algorythm;
+        return this;
+      }
+      lock(lock) {
+        this.config.lock = lock;
+        return this;
+      }
+      /** @internal */
+      build(table) {
+        return new Index(this.config, table);
+      }
+    };
+    Index = class {
+      static [entityKind] = "MySqlIndex";
+      config;
+      constructor(config2, table) {
+        this.config = { ...config2, table };
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/unique-constraint.js
+function uniqueKeyName2(table, columns) {
+  return `${table[TableName]}_${columns.join("_")}_unique`;
+}
+var UniqueConstraintBuilder2, UniqueOnConstraintBuilder2, UniqueConstraint2;
+var init_unique_constraint2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/unique-constraint.js"() {
+    init_entity();
+    init_table_utils();
+    UniqueConstraintBuilder2 = class {
+      constructor(columns, name2) {
+        this.name = name2;
+        this.columns = columns;
+      }
+      static [entityKind] = "MySqlUniqueConstraintBuilder";
+      /** @internal */
+      columns;
+      /** @internal */
+      build(table) {
+        return new UniqueConstraint2(table, this.columns, this.name);
+      }
+    };
+    UniqueOnConstraintBuilder2 = class {
+      static [entityKind] = "MySqlUniqueOnConstraintBuilder";
+      /** @internal */
+      name;
+      constructor(name2) {
+        this.name = name2;
+      }
+      on(...columns) {
+        return new UniqueConstraintBuilder2(columns, this.name);
+      }
+    };
+    UniqueConstraint2 = class {
+      constructor(table, columns, name2) {
+        this.table = table;
+        this.columns = columns;
+        this.name = name2 ?? uniqueKeyName2(this.table, this.columns.map((column) => column.name));
+      }
+      static [entityKind] = "MySqlUniqueConstraint";
+      columns;
+      name;
+      nullsNotDistinct = false;
+      getName() {
+        return this.name;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/common.js
+var MySqlColumnBuilder, MySqlColumn, MySqlColumnBuilderWithAutoIncrement, MySqlColumnWithAutoIncrement;
+var init_common2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/common.js"() {
+    init_column_builder();
+    init_column();
+    init_entity();
+    init_foreign_keys2();
+    init_unique_constraint2();
+    MySqlColumnBuilder = class extends ColumnBuilder {
+      static [entityKind] = "MySqlColumnBuilder";
+      foreignKeyConfigs = [];
+      references(ref, actions = {}) {
+        this.foreignKeyConfigs.push({ ref, actions });
+        return this;
+      }
+      unique(name2) {
+        this.config.isUnique = true;
+        this.config.uniqueName = name2;
+        return this;
+      }
+      generatedAlwaysAs(as, config2) {
+        this.config.generated = {
+          as,
+          type: "always",
+          mode: config2?.mode ?? "virtual"
+        };
+        return this;
+      }
+      /** @internal */
+      buildForeignKeys(column, table) {
+        return this.foreignKeyConfigs.map(({ ref, actions }) => {
+          return ((ref2, actions2) => {
+            const builder = new ForeignKeyBuilder2(() => {
+              const foreignColumn = ref2();
+              return { columns: [column], foreignColumns: [foreignColumn] };
+            });
+            if (actions2.onUpdate) {
+              builder.onUpdate(actions2.onUpdate);
+            }
+            if (actions2.onDelete) {
+              builder.onDelete(actions2.onDelete);
+            }
+            return builder.build(table);
+          })(ref, actions);
+        });
+      }
+    };
+    MySqlColumn = class extends Column {
+      constructor(table, config2) {
+        if (!config2.uniqueName) {
+          config2.uniqueName = uniqueKeyName2(table, [config2.name]);
+        }
+        super(table, config2);
+        this.table = table;
+      }
+      static [entityKind] = "MySqlColumn";
+    };
+    MySqlColumnBuilderWithAutoIncrement = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlColumnBuilderWithAutoIncrement";
+      constructor(name2, dataType, columnType) {
+        super(name2, dataType, columnType);
+        this.config.autoIncrement = false;
+      }
+      autoincrement() {
+        this.config.autoIncrement = true;
+        this.config.hasDefault = true;
+        return this;
+      }
+    };
+    MySqlColumnWithAutoIncrement = class extends MySqlColumn {
+      static [entityKind] = "MySqlColumnWithAutoIncrement";
+      autoIncrement = this.config.autoIncrement;
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/bigint.js
+function bigint(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  if (config2.mode === "number") {
+    return new MySqlBigInt53Builder(name2, config2.unsigned);
+  }
+  return new MySqlBigInt64Builder(name2, config2.unsigned);
+}
+var MySqlBigInt53Builder, MySqlBigInt53, MySqlBigInt64Builder, MySqlBigInt64;
+var init_bigint = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/bigint.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlBigInt53Builder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlBigInt53Builder";
+      constructor(name2, unsigned = false) {
+        super(name2, "number", "MySqlBigInt53");
+        this.config.unsigned = unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlBigInt53(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlBigInt53 = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlBigInt53";
+      getSQLType() {
+        return `bigint${this.config.unsigned ? " unsigned" : ""}`;
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "number") {
+          return value;
+        }
+        return Number(value);
+      }
+    };
+    MySqlBigInt64Builder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlBigInt64Builder";
+      constructor(name2, unsigned = false) {
+        super(name2, "bigint", "MySqlBigInt64");
+        this.config.unsigned = unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlBigInt64(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlBigInt64 = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlBigInt64";
+      getSQLType() {
+        return `bigint${this.config.unsigned ? " unsigned" : ""}`;
+      }
+      // eslint-disable-next-line unicorn/prefer-native-coercion-functions
+      mapFromDriverValue(value) {
+        return BigInt(value);
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/binary.js
+function binary(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlBinaryBuilder(name2, config2.length);
+}
+var MySqlBinaryBuilder, MySqlBinary;
+var init_binary = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/binary.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlBinaryBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlBinaryBuilder";
+      constructor(name2, length) {
+        super(name2, "string", "MySqlBinary");
+        this.config.length = length;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlBinary(table, this.config);
+      }
+    };
+    MySqlBinary = class extends MySqlColumn {
+      static [entityKind] = "MySqlBinary";
+      length = this.config.length;
+      mapFromDriverValue(value) {
+        if (typeof value === "string") return value;
+        if (Buffer.isBuffer(value)) return value.toString();
+        const str = [];
+        for (const v of value) {
+          str.push(v === 49 ? "1" : "0");
+        }
+        return str.join("");
+      }
+      getSQLType() {
+        return this.length === void 0 ? `binary` : `binary(${this.length})`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/boolean.js
+function boolean(name2) {
+  return new MySqlBooleanBuilder(name2 ?? "");
+}
+var MySqlBooleanBuilder, MySqlBoolean;
+var init_boolean = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/boolean.js"() {
+    init_entity();
+    init_common2();
+    MySqlBooleanBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlBooleanBuilder";
+      constructor(name2) {
+        super(name2, "boolean", "MySqlBoolean");
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlBoolean(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlBoolean = class extends MySqlColumn {
+      static [entityKind] = "MySqlBoolean";
+      getSQLType() {
+        return "boolean";
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "boolean") {
+          return value;
+        }
+        return value === 1;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/char.js
+function char(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlCharBuilder(name2, config2);
+}
+var MySqlCharBuilder, MySqlChar;
+var init_char = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/char.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlCharBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlCharBuilder";
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlChar");
+        this.config.length = config2.length;
+        this.config.enum = config2.enum;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlChar(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlChar = class extends MySqlColumn {
+      static [entityKind] = "MySqlChar";
+      length = this.config.length;
+      enumValues = this.config.enum;
+      getSQLType() {
+        return this.length === void 0 ? `char` : `char(${this.length})`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/custom.js
+function customType(customTypeParams) {
+  return (a, b) => {
+    const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+    return new MySqlCustomColumnBuilder(name2, config2, customTypeParams);
+  };
+}
+var MySqlCustomColumnBuilder, MySqlCustomColumn;
+var init_custom = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/custom.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlCustomColumnBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlCustomColumnBuilder";
+      constructor(name2, fieldConfig, customTypeParams) {
+        super(name2, "custom", "MySqlCustomColumn");
+        this.config.fieldConfig = fieldConfig;
+        this.config.customTypeParams = customTypeParams;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlCustomColumn(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlCustomColumn = class extends MySqlColumn {
+      static [entityKind] = "MySqlCustomColumn";
+      sqlName;
+      mapTo;
+      mapFrom;
+      constructor(table, config2) {
+        super(table, config2);
+        this.sqlName = config2.customTypeParams.dataType(config2.fieldConfig);
+        this.mapTo = config2.customTypeParams.toDriver;
+        this.mapFrom = config2.customTypeParams.fromDriver;
+      }
+      getSQLType() {
+        return this.sqlName;
+      }
+      mapFromDriverValue(value) {
+        return typeof this.mapFrom === "function" ? this.mapFrom(value) : value;
+      }
+      mapToDriverValue(value) {
+        return typeof this.mapTo === "function" ? this.mapTo(value) : value;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/date.js
+function date(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  if (config2?.mode === "string") {
+    return new MySqlDateStringBuilder(name2);
+  }
+  return new MySqlDateBuilder(name2);
+}
+var MySqlDateBuilder, MySqlDate, MySqlDateStringBuilder, MySqlDateString;
+var init_date = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/date.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlDateBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlDateBuilder";
+      constructor(name2) {
+        super(name2, "date", "MySqlDate");
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDate(table, this.config);
+      }
+    };
+    MySqlDate = class extends MySqlColumn {
+      static [entityKind] = "MySqlDate";
+      constructor(table, config2) {
+        super(table, config2);
+      }
+      getSQLType() {
+        return `date`;
+      }
+      mapFromDriverValue(value) {
+        return new Date(value);
+      }
+    };
+    MySqlDateStringBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlDateStringBuilder";
+      constructor(name2) {
+        super(name2, "string", "MySqlDateString");
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDateString(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlDateString = class extends MySqlColumn {
+      static [entityKind] = "MySqlDateString";
+      constructor(table, config2) {
+        super(table, config2);
+      }
+      getSQLType() {
+        return `date`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/datetime.js
+function datetime(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  if (config2?.mode === "string") {
+    return new MySqlDateTimeStringBuilder(name2, config2);
+  }
+  return new MySqlDateTimeBuilder(name2, config2);
+}
+var MySqlDateTimeBuilder, MySqlDateTime, MySqlDateTimeStringBuilder, MySqlDateTimeString;
+var init_datetime = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/datetime.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlDateTimeBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlDateTimeBuilder";
+      constructor(name2, config2) {
+        super(name2, "date", "MySqlDateTime");
+        this.config.fsp = config2?.fsp;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDateTime(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlDateTime = class extends MySqlColumn {
+      static [entityKind] = "MySqlDateTime";
+      fsp;
+      constructor(table, config2) {
+        super(table, config2);
+        this.fsp = config2.fsp;
+      }
+      getSQLType() {
+        const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
+        return `datetime${precision}`;
+      }
+      mapToDriverValue(value) {
+        return value.toISOString().replace("T", " ").replace("Z", "");
+      }
+      mapFromDriverValue(value) {
+        return /* @__PURE__ */ new Date(value.replace(" ", "T") + "Z");
+      }
+    };
+    MySqlDateTimeStringBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlDateTimeStringBuilder";
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlDateTimeString");
+        this.config.fsp = config2?.fsp;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDateTimeString(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlDateTimeString = class extends MySqlColumn {
+      static [entityKind] = "MySqlDateTimeString";
+      fsp;
+      constructor(table, config2) {
+        super(table, config2);
+        this.fsp = config2.fsp;
+      }
+      getSQLType() {
+        const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
+        return `datetime${precision}`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/decimal.js
+function decimal(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  const mode = config2?.mode;
+  return mode === "number" ? new MySqlDecimalNumberBuilder(name2, config2) : mode === "bigint" ? new MySqlDecimalBigIntBuilder(name2, config2) : new MySqlDecimalBuilder(name2, config2);
+}
+var MySqlDecimalBuilder, MySqlDecimal, MySqlDecimalNumberBuilder, MySqlDecimalNumber, MySqlDecimalBigIntBuilder, MySqlDecimalBigInt;
+var init_decimal = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/decimal.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlDecimalBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlDecimalBuilder";
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlDecimal");
+        this.config.precision = config2?.precision;
+        this.config.scale = config2?.scale;
+        this.config.unsigned = config2?.unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDecimal(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlDecimal = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlDecimal";
+      precision = this.config.precision;
+      scale = this.config.scale;
+      unsigned = this.config.unsigned;
+      mapFromDriverValue(value) {
+        if (typeof value === "string") return value;
+        return String(value);
+      }
+      getSQLType() {
+        let type = "";
+        if (this.precision !== void 0 && this.scale !== void 0) {
+          type += `decimal(${this.precision},${this.scale})`;
+        } else if (this.precision === void 0) {
+          type += "decimal";
+        } else {
+          type += `decimal(${this.precision})`;
+        }
+        type = type === "decimal(10,0)" || type === "decimal(10)" ? "decimal" : type;
+        return this.unsigned ? `${type} unsigned` : type;
+      }
+    };
+    MySqlDecimalNumberBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlDecimalNumberBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlDecimalNumber");
+        this.config.precision = config2?.precision;
+        this.config.scale = config2?.scale;
+        this.config.unsigned = config2?.unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDecimalNumber(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlDecimalNumber = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlDecimalNumber";
+      precision = this.config.precision;
+      scale = this.config.scale;
+      unsigned = this.config.unsigned;
+      mapFromDriverValue(value) {
+        if (typeof value === "number") return value;
+        return Number(value);
+      }
+      mapToDriverValue = String;
+      getSQLType() {
+        let type = "";
+        if (this.precision !== void 0 && this.scale !== void 0) {
+          type += `decimal(${this.precision},${this.scale})`;
+        } else if (this.precision === void 0) {
+          type += "decimal";
+        } else {
+          type += `decimal(${this.precision})`;
+        }
+        type = type === "decimal(10,0)" || type === "decimal(10)" ? "decimal" : type;
+        return this.unsigned ? `${type} unsigned` : type;
+      }
+    };
+    MySqlDecimalBigIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlDecimalBigIntBuilder";
+      constructor(name2, config2) {
+        super(name2, "bigint", "MySqlDecimalBigInt");
+        this.config.precision = config2?.precision;
+        this.config.scale = config2?.scale;
+        this.config.unsigned = config2?.unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDecimalBigInt(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlDecimalBigInt = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlDecimalBigInt";
+      precision = this.config.precision;
+      scale = this.config.scale;
+      unsigned = this.config.unsigned;
+      mapFromDriverValue = BigInt;
+      mapToDriverValue = String;
+      getSQLType() {
+        let type = "";
+        if (this.precision !== void 0 && this.scale !== void 0) {
+          type += `decimal(${this.precision},${this.scale})`;
+        } else if (this.precision === void 0) {
+          type += "decimal";
+        } else {
+          type += `decimal(${this.precision})`;
+        }
+        type = type === "decimal(10,0)" || type === "decimal(10)" ? "decimal" : type;
+        return this.unsigned ? `${type} unsigned` : type;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/double.js
+function double(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlDoubleBuilder(name2, config2);
+}
+var MySqlDoubleBuilder, MySqlDouble;
+var init_double = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/double.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlDoubleBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlDoubleBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlDouble");
+        this.config.precision = config2?.precision;
+        this.config.scale = config2?.scale;
+        this.config.unsigned = config2?.unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlDouble(table, this.config);
+      }
+    };
+    MySqlDouble = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlDouble";
+      precision = this.config.precision;
+      scale = this.config.scale;
+      unsigned = this.config.unsigned;
+      getSQLType() {
+        let type = "";
+        if (this.precision !== void 0 && this.scale !== void 0) {
+          type += `double(${this.precision},${this.scale})`;
+        } else if (this.precision === void 0) {
+          type += "double";
+        } else {
+          type += `double(${this.precision})`;
+        }
+        return this.unsigned ? `${type} unsigned` : type;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/enum.js
+function mysqlEnum(a, b) {
+  if (typeof a === "string" && Array.isArray(b) || Array.isArray(a)) {
+    const name2 = typeof a === "string" && a.length > 0 ? a : "";
+    const values = (typeof a === "string" ? b : a) ?? [];
+    if (values.length === 0) {
+      throw new Error(`You have an empty array for "${name2}" enum values`);
+    }
+    return new MySqlEnumColumnBuilder(name2, values);
+  }
+  if (typeof a === "string" && typeof b === "object" || typeof a === "object") {
+    const name2 = typeof a === "object" ? "" : a;
+    const values = typeof a === "object" ? Object.values(a) : typeof b === "object" ? Object.values(b) : [];
+    if (values.length === 0) {
+      throw new Error(`You have an empty array for "${name2}" enum values`);
+    }
+    return new MySqlEnumObjectColumnBuilder(name2, values);
+  }
+}
+var MySqlEnumColumnBuilder, MySqlEnumColumn, MySqlEnumObjectColumnBuilder, MySqlEnumObjectColumn;
+var init_enum2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/enum.js"() {
+    init_entity();
+    init_common2();
+    MySqlEnumColumnBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlEnumColumnBuilder";
+      constructor(name2, values) {
+        super(name2, "string", "MySqlEnumColumn");
+        this.config.enumValues = values;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlEnumColumn(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlEnumColumn = class extends MySqlColumn {
+      static [entityKind] = "MySqlEnumColumn";
+      enumValues = this.config.enumValues;
+      getSQLType() {
+        return `enum(${this.enumValues.map((value) => `'${value}'`).join(",")})`;
+      }
+    };
+    MySqlEnumObjectColumnBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlEnumObjectColumnBuilder";
+      constructor(name2, values) {
+        super(name2, "string", "MySqlEnumObjectColumn");
+        this.config.enumValues = values;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlEnumObjectColumn(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlEnumObjectColumn = class extends MySqlColumn {
+      static [entityKind] = "MySqlEnumObjectColumn";
+      enumValues = this.config.enumValues;
+      getSQLType() {
+        return `enum(${this.enumValues.map((value) => `'${value}'`).join(",")})`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/float.js
+function float(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlFloatBuilder(name2, config2);
+}
+var MySqlFloatBuilder, MySqlFloat;
+var init_float = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/float.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlFloatBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlFloatBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlFloat");
+        this.config.precision = config2?.precision;
+        this.config.scale = config2?.scale;
+        this.config.unsigned = config2?.unsigned;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlFloat(table, this.config);
+      }
+    };
+    MySqlFloat = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlFloat";
+      precision = this.config.precision;
+      scale = this.config.scale;
+      unsigned = this.config.unsigned;
+      getSQLType() {
+        let type = "";
+        if (this.precision !== void 0 && this.scale !== void 0) {
+          type += `float(${this.precision},${this.scale})`;
+        } else if (this.precision === void 0) {
+          type += "float";
+        } else {
+          type += `float(${this.precision})`;
+        }
+        return this.unsigned ? `${type} unsigned` : type;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/int.js
+function int(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlIntBuilder(name2, config2);
+}
+var MySqlIntBuilder, MySqlInt;
+var init_int = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/int.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlIntBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlInt");
+        this.config.unsigned = config2 ? config2.unsigned : false;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlInt(table, this.config);
+      }
+    };
+    MySqlInt = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlInt";
+      getSQLType() {
+        return `int${this.config.unsigned ? " unsigned" : ""}`;
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "string") {
+          return Number(value);
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/json.js
+function json(name2) {
+  return new MySqlJsonBuilder(name2 ?? "");
+}
+var MySqlJsonBuilder, MySqlJson;
+var init_json = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/json.js"() {
+    init_entity();
+    init_common2();
+    MySqlJsonBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlJsonBuilder";
+      constructor(name2) {
+        super(name2, "json", "MySqlJson");
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlJson(table, this.config);
+      }
+    };
+    MySqlJson = class extends MySqlColumn {
+      static [entityKind] = "MySqlJson";
+      getSQLType() {
+        return "json";
+      }
+      mapToDriverValue(value) {
+        return JSON.stringify(value);
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/mediumint.js
+function mediumint(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlMediumIntBuilder(name2, config2);
+}
+var MySqlMediumIntBuilder, MySqlMediumInt;
+var init_mediumint = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/mediumint.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlMediumIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlMediumIntBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlMediumInt");
+        this.config.unsigned = config2 ? config2.unsigned : false;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlMediumInt(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlMediumInt = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlMediumInt";
+      getSQLType() {
+        return `mediumint${this.config.unsigned ? " unsigned" : ""}`;
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "string") {
+          return Number(value);
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/real.js
+function real(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlRealBuilder(name2, config2);
+}
+var MySqlRealBuilder, MySqlReal;
+var init_real = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/real.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlRealBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlRealBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlReal");
+        this.config.precision = config2?.precision;
+        this.config.scale = config2?.scale;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlReal(table, this.config);
+      }
+    };
+    MySqlReal = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlReal";
+      precision = this.config.precision;
+      scale = this.config.scale;
+      getSQLType() {
+        if (this.precision !== void 0 && this.scale !== void 0) {
+          return `real(${this.precision}, ${this.scale})`;
+        } else if (this.precision === void 0) {
+          return "real";
+        } else {
+          return `real(${this.precision})`;
+        }
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/serial.js
+function serial(name2) {
+  return new MySqlSerialBuilder(name2 ?? "");
+}
+var MySqlSerialBuilder, MySqlSerial;
+var init_serial = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/serial.js"() {
+    init_entity();
+    init_common2();
+    MySqlSerialBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlSerialBuilder";
+      constructor(name2) {
+        super(name2, "number", "MySqlSerial");
+        this.config.hasDefault = true;
+        this.config.autoIncrement = true;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlSerial(table, this.config);
+      }
+    };
+    MySqlSerial = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlSerial";
+      getSQLType() {
+        return "serial";
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "string") {
+          return Number(value);
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/smallint.js
+function smallint(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlSmallIntBuilder(name2, config2);
+}
+var MySqlSmallIntBuilder, MySqlSmallInt;
+var init_smallint = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/smallint.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlSmallIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlSmallIntBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlSmallInt");
+        this.config.unsigned = config2 ? config2.unsigned : false;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlSmallInt(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlSmallInt = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlSmallInt";
+      getSQLType() {
+        return `smallint${this.config.unsigned ? " unsigned" : ""}`;
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "string") {
+          return Number(value);
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/text.js
+function text(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlTextBuilder(name2, "text", config2);
+}
+function tinytext(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlTextBuilder(name2, "tinytext", config2);
+}
+function mediumtext(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlTextBuilder(name2, "mediumtext", config2);
+}
+function longtext(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlTextBuilder(name2, "longtext", config2);
+}
+var MySqlTextBuilder, MySqlText;
+var init_text = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/text.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlTextBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlTextBuilder";
+      constructor(name2, textType, config2) {
+        super(name2, "string", "MySqlText");
+        this.config.textType = textType;
+        this.config.enumValues = config2.enum;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlText(table, this.config);
+      }
+    };
+    MySqlText = class extends MySqlColumn {
+      static [entityKind] = "MySqlText";
+      textType = this.config.textType;
+      enumValues = this.config.enumValues;
+      getSQLType() {
+        return this.textType;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/time.js
+function time(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlTimeBuilder(name2, config2);
+}
+var MySqlTimeBuilder, MySqlTime;
+var init_time = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/time.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlTimeBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlTimeBuilder";
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlTime");
+        this.config.fsp = config2?.fsp;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlTime(table, this.config);
+      }
+    };
+    MySqlTime = class extends MySqlColumn {
+      static [entityKind] = "MySqlTime";
+      fsp = this.config.fsp;
+      getSQLType() {
+        const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
+        return `time${precision}`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/date.common.js
+var MySqlDateColumnBaseBuilder, MySqlDateBaseColumn;
+var init_date_common = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/date.common.js"() {
+    init_entity();
+    init_sql();
+    init_common2();
+    MySqlDateColumnBaseBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlDateColumnBuilder";
+      defaultNow() {
+        return this.default(sql`(now())`);
+      }
+      // "on update now" also adds an implicit default value to the column - https://dev.mysql.com/doc/refman/8.0/en/timestamp-initialization.html
+      onUpdateNow() {
+        this.config.hasOnUpdateNow = true;
+        this.config.hasDefault = true;
+        return this;
+      }
+    };
+    MySqlDateBaseColumn = class extends MySqlColumn {
+      static [entityKind] = "MySqlDateColumn";
+      hasOnUpdateNow = this.config.hasOnUpdateNow;
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/timestamp.js
+function timestamp(a, b = {}) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  if (config2?.mode === "string") {
+    return new MySqlTimestampStringBuilder(name2, config2);
+  }
+  return new MySqlTimestampBuilder(name2, config2);
+}
+var MySqlTimestampBuilder, MySqlTimestamp, MySqlTimestampStringBuilder, MySqlTimestampString;
+var init_timestamp = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/timestamp.js"() {
+    init_entity();
+    init_utils();
+    init_date_common();
+    MySqlTimestampBuilder = class extends MySqlDateColumnBaseBuilder {
+      static [entityKind] = "MySqlTimestampBuilder";
+      constructor(name2, config2) {
+        super(name2, "date", "MySqlTimestamp");
+        this.config.fsp = config2?.fsp;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlTimestamp(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlTimestamp = class extends MySqlDateBaseColumn {
+      static [entityKind] = "MySqlTimestamp";
+      fsp = this.config.fsp;
+      getSQLType() {
+        const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
+        return `timestamp${precision}`;
+      }
+      mapFromDriverValue(value) {
+        return /* @__PURE__ */ new Date(value + "+0000");
+      }
+      mapToDriverValue(value) {
+        return value.toISOString().slice(0, -1).replace("T", " ");
+      }
+    };
+    MySqlTimestampStringBuilder = class extends MySqlDateColumnBaseBuilder {
+      static [entityKind] = "MySqlTimestampStringBuilder";
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlTimestampString");
+        this.config.fsp = config2?.fsp;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlTimestampString(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlTimestampString = class extends MySqlDateBaseColumn {
+      static [entityKind] = "MySqlTimestampString";
+      fsp = this.config.fsp;
+      getSQLType() {
+        const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
+        return `timestamp${precision}`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/tinyint.js
+function tinyint(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlTinyIntBuilder(name2, config2);
+}
+var MySqlTinyIntBuilder, MySqlTinyInt;
+var init_tinyint = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/tinyint.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlTinyIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
+      static [entityKind] = "MySqlTinyIntBuilder";
+      constructor(name2, config2) {
+        super(name2, "number", "MySqlTinyInt");
+        this.config.unsigned = config2 ? config2.unsigned : false;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlTinyInt(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlTinyInt = class extends MySqlColumnWithAutoIncrement {
+      static [entityKind] = "MySqlTinyInt";
+      getSQLType() {
+        return `tinyint${this.config.unsigned ? " unsigned" : ""}`;
+      }
+      mapFromDriverValue(value) {
+        if (typeof value === "string") {
+          return Number(value);
+        }
+        return value;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/varbinary.js
+function varbinary(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlVarBinaryBuilder(name2, config2);
+}
+var MySqlVarBinaryBuilder, MySqlVarBinary;
+var init_varbinary = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/varbinary.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlVarBinaryBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlVarBinaryBuilder";
+      /** @internal */
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlVarBinary");
+        this.config.length = config2?.length;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlVarBinary(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlVarBinary = class extends MySqlColumn {
+      static [entityKind] = "MySqlVarBinary";
+      length = this.config.length;
+      mapFromDriverValue(value) {
+        if (typeof value === "string") return value;
+        if (Buffer.isBuffer(value)) return value.toString();
+        const str = [];
+        for (const v of value) {
+          str.push(v === 49 ? "1" : "0");
+        }
+        return str.join("");
+      }
+      getSQLType() {
+        return this.length === void 0 ? `varbinary` : `varbinary(${this.length})`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/varchar.js
+function varchar(a, b) {
+  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
+  return new MySqlVarCharBuilder(name2, config2);
+}
+var MySqlVarCharBuilder, MySqlVarChar;
+var init_varchar = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/varchar.js"() {
+    init_entity();
+    init_utils();
+    init_common2();
+    MySqlVarCharBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlVarCharBuilder";
+      /** @internal */
+      constructor(name2, config2) {
+        super(name2, "string", "MySqlVarChar");
+        this.config.length = config2.length;
+        this.config.enum = config2.enum;
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlVarChar(
+          table,
+          this.config
+        );
+      }
+    };
+    MySqlVarChar = class extends MySqlColumn {
+      static [entityKind] = "MySqlVarChar";
+      length = this.config.length;
+      enumValues = this.config.enum;
+      getSQLType() {
+        return this.length === void 0 ? `varchar` : `varchar(${this.length})`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/year.js
+function year(name2) {
+  return new MySqlYearBuilder(name2 ?? "");
+}
+var MySqlYearBuilder, MySqlYear;
+var init_year = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/year.js"() {
+    init_entity();
+    init_common2();
+    MySqlYearBuilder = class extends MySqlColumnBuilder {
+      static [entityKind] = "MySqlYearBuilder";
+      constructor(name2) {
+        super(name2, "number", "MySqlYear");
+      }
+      /** @internal */
+      build(table) {
+        return new MySqlYear(table, this.config);
+      }
+    };
+    MySqlYear = class extends MySqlColumn {
+      static [entityKind] = "MySqlYear";
+      getSQLType() {
+        return `year`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/all.js
+function getMySqlColumnBuilders() {
+  return {
+    bigint,
+    binary,
+    boolean,
+    char,
+    customType,
+    date,
+    datetime,
+    decimal,
+    double,
+    mysqlEnum,
+    float,
+    int,
+    json,
+    mediumint,
+    real,
+    serial,
+    smallint,
+    text,
+    time,
+    timestamp,
+    tinyint,
+    varbinary,
+    varchar,
+    year,
+    longtext,
+    mediumtext,
+    tinytext
+  };
+}
+var init_all = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/all.js"() {
+    init_bigint();
+    init_binary();
+    init_boolean();
+    init_char();
+    init_custom();
+    init_date();
+    init_datetime();
+    init_decimal();
+    init_double();
+    init_enum2();
+    init_float();
+    init_int();
+    init_json();
+    init_mediumint();
+    init_real();
+    init_serial();
+    init_smallint();
+    init_text();
+    init_time();
+    init_timestamp();
+    init_tinyint();
+    init_varbinary();
+    init_varchar();
+    init_year();
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/table.js
+function mysqlTableWithSchema(name2, columns, extraConfig, schema, baseName = name2) {
+  const rawTable = new MySqlTable(name2, schema, baseName);
+  const parsedColumns = typeof columns === "function" ? columns(getMySqlColumnBuilders()) : columns;
+  const builtColumns = Object.fromEntries(
+    Object.entries(parsedColumns).map(([name22, colBuilderBase]) => {
+      const colBuilder = colBuilderBase;
+      colBuilder.setName(name22);
+      const column = colBuilder.build(rawTable);
+      rawTable[InlineForeignKeys2].push(...colBuilder.buildForeignKeys(column, rawTable));
+      return [name22, column];
+    })
+  );
+  const table = Object.assign(rawTable, builtColumns);
+  table[Table.Symbol.Columns] = builtColumns;
+  table[Table.Symbol.ExtraConfigColumns] = builtColumns;
+  if (extraConfig) {
+    table[MySqlTable.Symbol.ExtraConfigBuilder] = extraConfig;
+  }
+  return table;
+}
+var InlineForeignKeys2, MySqlTable, mysqlTable;
+var init_table3 = __esm({
+  "node_modules/drizzle-orm/mysql-core/table.js"() {
+    init_entity();
+    init_table();
+    init_all();
+    InlineForeignKeys2 = Symbol.for("drizzle:MySqlInlineForeignKeys");
+    MySqlTable = class extends Table {
+      static [entityKind] = "MySqlTable";
+      /** @internal */
+      static Symbol = Object.assign({}, Table.Symbol, {
+        InlineForeignKeys: InlineForeignKeys2
+      });
+      /** @internal */
+      [Table.Symbol.Columns];
+      /** @internal */
+      [InlineForeignKeys2] = [];
+      /** @internal */
+      [Table.Symbol.ExtraConfigBuilder] = void 0;
+    };
+    mysqlTable = (name2, columns, extraConfig) => {
+      return mysqlTableWithSchema(name2, columns, extraConfig, void 0, name2);
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/primary-keys.js
+var PrimaryKeyBuilder2, PrimaryKey2;
+var init_primary_keys2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/primary-keys.js"() {
+    init_entity();
+    init_table3();
+    PrimaryKeyBuilder2 = class {
+      static [entityKind] = "MySqlPrimaryKeyBuilder";
+      /** @internal */
+      columns;
+      /** @internal */
+      name;
+      constructor(columns, name2) {
+        this.columns = columns;
+        this.name = name2;
+      }
+      /** @internal */
+      build(table) {
+        return new PrimaryKey2(table, this.columns, this.name);
+      }
+    };
+    PrimaryKey2 = class {
+      constructor(table, columns, name2) {
+        this.table = table;
+        this.columns = columns;
+        this.name = name2;
+      }
+      static [entityKind] = "MySqlPrimaryKey";
+      columns;
+      name;
+      getName() {
+        return this.name ?? `${this.table[MySqlTable.Symbol.Name]}_${this.columns.map((column) => column.name).join("_")}_pk`;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/view-common.js
+var MySqlViewConfig;
+var init_view_common2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/view-common.js"() {
+    MySqlViewConfig = Symbol.for("drizzle:MySqlViewConfig");
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/utils.js
+function extractUsedTable(table) {
+  if (is(table, MySqlTable)) {
+    return [`${table[Table.Symbol.BaseName]}`];
+  }
+  if (is(table, Subquery)) {
+    return table._.usedTables ?? [];
+  }
+  if (is(table, SQL)) {
+    return table.usedTables ?? [];
+  }
+  return [];
+}
+function convertIndexToString(indexes) {
+  return indexes.map((idx) => {
+    return typeof idx === "object" ? idx.config.name : idx;
+  });
+}
+function toArray(value) {
+  return Array.isArray(value) ? value : [value];
+}
+var init_utils2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/utils.js"() {
+    init_entity();
+    init_drizzle_orm();
+    init_subquery();
+    init_table();
+    init_table3();
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/delete.js
+var MySqlDeleteBase;
+var init_delete = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/delete.js"() {
+    init_entity();
+    init_query_promise();
+    init_selection_proxy();
+    init_table();
+    init_utils2();
+    MySqlDeleteBase = class extends QueryPromise {
+      constructor(table, session, dialect, withList) {
+        super();
+        this.table = table;
+        this.session = session;
+        this.dialect = dialect;
+        this.config = { table, withList };
+      }
+      static [entityKind] = "MySqlDelete";
+      config;
+      /**
+       * Adds a `where` clause to the query.
+       *
+       * Calling this method will delete only those rows that fulfill a specified condition.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/delete}
+       *
+       * @param where the `where` clause.
+       *
+       * @example
+       * You can use conditional operators and `sql function` to filter the rows to be deleted.
+       *
+       * ```ts
+       * // Delete all cars with green color
+       * db.delete(cars).where(eq(cars.color, 'green'));
+       * // or
+       * db.delete(cars).where(sql`${cars.color} = 'green'`)
+       * ```
+       *
+       * You can logically combine conditional operators with `and()` and `or()` operators:
+       *
+       * ```ts
+       * // Delete all BMW cars with a green color
+       * db.delete(cars).where(and(eq(cars.color, 'green'), eq(cars.brand, 'BMW')));
+       *
+       * // Delete all cars with the green or blue color
+       * db.delete(cars).where(or(eq(cars.color, 'green'), eq(cars.color, 'blue')));
+       * ```
+       */
+      where(where) {
+        this.config.where = where;
+        return this;
+      }
+      orderBy(...columns) {
+        if (typeof columns[0] === "function") {
+          const orderBy = columns[0](
+            new Proxy(
+              this.config.table[Table.Symbol.Columns],
+              new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
+            )
+          );
+          const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
+          this.config.orderBy = orderByArray;
+        } else {
+          const orderByArray = columns;
+          this.config.orderBy = orderByArray;
+        }
+        return this;
+      }
+      limit(limit) {
+        this.config.limit = limit;
+        return this;
+      }
+      /** @internal */
+      getSQL() {
+        return this.dialect.buildDeleteQuery(this.config);
+      }
+      toSQL() {
+        const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
+        return rest;
+      }
+      prepare() {
+        return this.session.prepareQuery(
+          this.dialect.sqlToQuery(this.getSQL()),
+          this.config.returning,
+          void 0,
+          void 0,
+          void 0,
+          {
+            type: "delete",
+            tables: extractUsedTable(this.config.table)
+          }
+        );
+      }
+      execute = (placeholderValues) => {
+        return this.prepare().execute(placeholderValues);
+      };
+      createIterator = () => {
+        const self2 = this;
+        return async function* (placeholderValues) {
+          yield* self2.prepare().iterator(placeholderValues);
+        };
+      };
+      iterator = this.createIterator();
+      $dynamic() {
+        return this;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/casing.js
+function toSnakeCase(input) {
+  const words = input.replace(/['\u2019]/g, "").match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/g) ?? [];
+  return words.map((word) => word.toLowerCase()).join("_");
+}
+function toCamelCase(input) {
+  const words = input.replace(/['\u2019]/g, "").match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/g) ?? [];
+  return words.reduce((acc, word, i) => {
+    const formattedWord = i === 0 ? word.toLowerCase() : `${word[0].toUpperCase()}${word.slice(1)}`;
+    return acc + formattedWord;
+  }, "");
+}
+function noopCase(input) {
+  return input;
+}
+var CasingCache;
+var init_casing = __esm({
+  "node_modules/drizzle-orm/casing.js"() {
+    init_entity();
+    init_table();
+    CasingCache = class {
+      static [entityKind] = "CasingCache";
+      /** @internal */
+      cache = {};
+      cachedTables = {};
+      convert;
+      constructor(casing) {
+        this.convert = casing === "snake_case" ? toSnakeCase : casing === "camelCase" ? toCamelCase : noopCase;
+      }
+      getColumnCasing(column) {
+        if (!column.keyAsName) return column.name;
+        const schema = column.table[Table.Symbol.Schema] ?? "public";
+        const tableName = column.table[Table.Symbol.OriginalName];
+        const key = `${schema}.${tableName}.${column.name}`;
+        if (!this.cache[key]) {
+          this.cacheTable(column.table);
+        }
+        return this.cache[key];
+      }
+      cacheTable(table) {
+        const schema = table[Table.Symbol.Schema] ?? "public";
+        const tableName = table[Table.Symbol.OriginalName];
+        const tableKey = `${schema}.${tableName}`;
+        if (!this.cachedTables[tableKey]) {
+          for (const column of Object.values(table[Table.Symbol.Columns])) {
+            const columnKey = `${tableKey}.${column.name}`;
+            this.cache[columnKey] = this.convert(column.name);
+          }
+          this.cachedTables[tableKey] = true;
+        }
+      }
+      clearCache() {
+        this.cache = {};
+        this.cachedTables = {};
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/view-base.js
+var MySqlViewBase;
+var init_view_base = __esm({
+  "node_modules/drizzle-orm/mysql-core/view-base.js"() {
+    init_entity();
+    init_sql();
+    MySqlViewBase = class extends View {
+      static [entityKind] = "MySqlViewBase";
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/dialect.js
+var MySqlDialect;
+var init_dialect = __esm({
+  "node_modules/drizzle-orm/mysql-core/dialect.js"() {
+    init_alias();
+    init_casing();
+    init_column();
+    init_entity();
+    init_errors();
+    init_relations();
+    init_expressions();
+    init_sql();
+    init_subquery();
+    init_table();
+    init_utils();
+    init_view_common();
+    init_common2();
+    init_table3();
+    init_view_base();
+    MySqlDialect = class {
+      static [entityKind] = "MySqlDialect";
+      /** @internal */
+      casing;
+      constructor(config2) {
+        this.casing = new CasingCache(config2?.casing);
+      }
+      async migrate(migrations, session, config2) {
+        const migrationsTable = config2.migrationsTable ?? "__drizzle_migrations";
+        const migrationTableCreate = sql`
+			create table if not exists ${sql.identifier(migrationsTable)} (
+				id serial primary key,
+				hash text not null,
+				created_at bigint
+			)
+		`;
+        await session.execute(migrationTableCreate);
+        const dbMigrations = await session.all(
+          sql`select id, hash, created_at from ${sql.identifier(migrationsTable)} order by created_at desc limit 1`
+        );
+        const lastDbMigration = dbMigrations[0];
+        await session.transaction(async (tx) => {
+          for (const migration of migrations) {
+            if (!lastDbMigration || Number(lastDbMigration.created_at) < migration.folderMillis) {
+              for (const stmt of migration.sql) {
+                await tx.execute(sql.raw(stmt));
+              }
+              await tx.execute(
+                sql`insert into ${sql.identifier(migrationsTable)} (\`hash\`, \`created_at\`) values(${migration.hash}, ${migration.folderMillis})`
+              );
+            }
+          }
+        });
+      }
+      escapeName(name2) {
+        return `\`${name2}\``;
+      }
+      escapeParam(_num) {
+        return `?`;
+      }
+      escapeString(str) {
+        return `'${str.replace(/'/g, "''")}'`;
+      }
+      buildWithCTE(queries) {
+        if (!queries?.length) return void 0;
+        const withSqlChunks = [sql`with `];
+        for (const [i, w] of queries.entries()) {
+          withSqlChunks.push(sql`${sql.identifier(w._.alias)} as (${w._.sql})`);
+          if (i < queries.length - 1) {
+            withSqlChunks.push(sql`, `);
+          }
+        }
+        withSqlChunks.push(sql` `);
+        return sql.join(withSqlChunks);
+      }
+      buildDeleteQuery({ table, where, returning, withList, limit, orderBy }) {
+        const withSql = this.buildWithCTE(withList);
+        const returningSql = returning ? sql` returning ${this.buildSelection(returning, { isSingleTable: true })}` : void 0;
+        const whereSql = where ? sql` where ${where}` : void 0;
+        const orderBySql = this.buildOrderBy(orderBy);
+        const limitSql = this.buildLimit(limit);
+        return sql`${withSql}delete from ${table}${whereSql}${orderBySql}${limitSql}${returningSql}`;
+      }
+      buildUpdateSet(table, set2) {
+        const tableColumns = table[Table.Symbol.Columns];
+        const columnNames = Object.keys(tableColumns).filter(
+          (colName) => set2[colName] !== void 0 || tableColumns[colName]?.onUpdateFn !== void 0
+        );
+        const setSize = columnNames.length;
+        return sql.join(columnNames.flatMap((colName, i) => {
+          const col = tableColumns[colName];
+          const value = set2[colName] ?? sql.param(col.onUpdateFn(), col);
+          const res = sql`${sql.identifier(this.casing.getColumnCasing(col))} = ${value}`;
+          if (i < setSize - 1) {
+            return [res, sql.raw(", ")];
+          }
+          return [res];
+        }));
+      }
+      buildUpdateQuery({ table, set: set2, where, returning, withList, limit, orderBy }) {
+        const withSql = this.buildWithCTE(withList);
+        const setSql = this.buildUpdateSet(table, set2);
+        const returningSql = returning ? sql` returning ${this.buildSelection(returning, { isSingleTable: true })}` : void 0;
+        const whereSql = where ? sql` where ${where}` : void 0;
+        const orderBySql = this.buildOrderBy(orderBy);
+        const limitSql = this.buildLimit(limit);
+        return sql`${withSql}update ${table} set ${setSql}${whereSql}${orderBySql}${limitSql}${returningSql}`;
+      }
+      /**
+       * Builds selection SQL with provided fields/expressions
+       *
+       * Examples:
+       *
+       * `select <selection> from`
+       *
+       * `insert ... returning <selection>`
+       *
+       * If `isSingleTable` is true, then columns won't be prefixed with table name
+       */
+      buildSelection(fields, { isSingleTable = false } = {}) {
+        const columnsLen = fields.length;
+        const chunks = fields.flatMap(({ field }, i) => {
+          const chunk = [];
+          if (is(field, SQL.Aliased) && field.isSelectionField) {
+            chunk.push(sql.identifier(field.fieldAlias));
+          } else if (is(field, SQL.Aliased) || is(field, SQL)) {
+            const query = is(field, SQL.Aliased) ? field.sql : field;
+            if (isSingleTable) {
+              chunk.push(
+                new SQL(
+                  query.queryChunks.map((c) => {
+                    if (is(c, MySqlColumn)) {
+                      return sql.identifier(this.casing.getColumnCasing(c));
+                    }
+                    return c;
+                  })
+                )
+              );
+            } else {
+              chunk.push(query);
+            }
+            if (is(field, SQL.Aliased)) {
+              chunk.push(sql` as ${sql.identifier(field.fieldAlias)}`);
+            }
+          } else if (is(field, Column)) {
+            if (isSingleTable) {
+              chunk.push(sql.identifier(this.casing.getColumnCasing(field)));
+            } else {
+              chunk.push(field);
+            }
+          }
+          if (i < columnsLen - 1) {
+            chunk.push(sql`, `);
+          }
+          return chunk;
+        });
+        return sql.join(chunks);
+      }
+      buildLimit(limit) {
+        return typeof limit === "object" || typeof limit === "number" && limit >= 0 ? sql` limit ${limit}` : void 0;
+      }
+      buildOrderBy(orderBy) {
+        return orderBy && orderBy.length > 0 ? sql` order by ${sql.join(orderBy, sql`, `)}` : void 0;
+      }
+      buildIndex({
+        indexes,
+        indexFor
+      }) {
+        return indexes && indexes.length > 0 ? sql` ${sql.raw(indexFor)} INDEX (${sql.raw(indexes.join(`, `))})` : void 0;
+      }
+      buildSelectQuery({
+        withList,
+        fields,
+        fieldsFlat,
+        where,
+        having,
+        table,
+        joins,
+        orderBy,
+        groupBy,
+        limit,
+        offset,
+        lockingClause,
+        distinct,
+        setOperators,
+        useIndex,
+        forceIndex,
+        ignoreIndex
+      }) {
+        const fieldsList = fieldsFlat ?? orderSelectedFields(fields);
+        for (const f of fieldsList) {
+          if (is(f.field, Column) && getTableName(f.field.table) !== (is(table, Subquery) ? table._.alias : is(table, MySqlViewBase) ? table[ViewBaseConfig].name : is(table, SQL) ? void 0 : getTableName(table)) && !((table2) => joins?.some(
+            ({ alias }) => alias === (table2[Table.Symbol.IsAlias] ? getTableName(table2) : table2[Table.Symbol.BaseName])
+          ))(f.field.table)) {
+            const tableName = getTableName(f.field.table);
+            throw new Error(
+              `Your "${f.path.join("->")}" field references a column "${tableName}"."${f.field.name}", but the table "${tableName}" is not part of the query! Did you forget to join it?`
+            );
+          }
+        }
+        const isSingleTable = !joins || joins.length === 0;
+        const withSql = this.buildWithCTE(withList);
+        const distinctSql = distinct ? sql` distinct` : void 0;
+        const selection = this.buildSelection(fieldsList, { isSingleTable });
+        const tableSql = (() => {
+          if (is(table, Table) && table[Table.Symbol.IsAlias]) {
+            return sql`${sql`${sql.identifier(table[Table.Symbol.Schema] ?? "")}.`.if(table[Table.Symbol.Schema])}${sql.identifier(table[Table.Symbol.OriginalName])} ${sql.identifier(table[Table.Symbol.Name])}`;
+          }
+          return table;
+        })();
+        const joinsArray = [];
+        if (joins) {
+          for (const [index2, joinMeta] of joins.entries()) {
+            if (index2 === 0) {
+              joinsArray.push(sql` `);
+            }
+            const table2 = joinMeta.table;
+            const lateralSql = joinMeta.lateral ? sql` lateral` : void 0;
+            const onSql = joinMeta.on ? sql` on ${joinMeta.on}` : void 0;
+            if (is(table2, MySqlTable)) {
+              const tableName = table2[MySqlTable.Symbol.Name];
+              const tableSchema = table2[MySqlTable.Symbol.Schema];
+              const origTableName = table2[MySqlTable.Symbol.OriginalName];
+              const alias = tableName === origTableName ? void 0 : joinMeta.alias;
+              const useIndexSql2 = this.buildIndex({ indexes: joinMeta.useIndex, indexFor: "USE" });
+              const forceIndexSql2 = this.buildIndex({ indexes: joinMeta.forceIndex, indexFor: "FORCE" });
+              const ignoreIndexSql2 = this.buildIndex({ indexes: joinMeta.ignoreIndex, indexFor: "IGNORE" });
+              joinsArray.push(
+                sql`${sql.raw(joinMeta.joinType)} join${lateralSql} ${tableSchema ? sql`${sql.identifier(tableSchema)}.` : void 0}${sql.identifier(origTableName)}${useIndexSql2}${forceIndexSql2}${ignoreIndexSql2}${alias && sql` ${sql.identifier(alias)}`}${onSql}`
+              );
+            } else if (is(table2, View)) {
+              const viewName = table2[ViewBaseConfig].name;
+              const viewSchema = table2[ViewBaseConfig].schema;
+              const origViewName = table2[ViewBaseConfig].originalName;
+              const alias = viewName === origViewName ? void 0 : joinMeta.alias;
+              joinsArray.push(
+                sql`${sql.raw(joinMeta.joinType)} join${lateralSql} ${viewSchema ? sql`${sql.identifier(viewSchema)}.` : void 0}${sql.identifier(origViewName)}${alias && sql` ${sql.identifier(alias)}`}${onSql}`
+              );
+            } else {
+              joinsArray.push(
+                sql`${sql.raw(joinMeta.joinType)} join${lateralSql} ${table2}${onSql}`
+              );
+            }
+            if (index2 < joins.length - 1) {
+              joinsArray.push(sql` `);
+            }
+          }
+        }
+        const joinsSql = sql.join(joinsArray);
+        const whereSql = where ? sql` where ${where}` : void 0;
+        const havingSql = having ? sql` having ${having}` : void 0;
+        const orderBySql = this.buildOrderBy(orderBy);
+        const groupBySql = groupBy && groupBy.length > 0 ? sql` group by ${sql.join(groupBy, sql`, `)}` : void 0;
+        const limitSql = this.buildLimit(limit);
+        const offsetSql = offset ? sql` offset ${offset}` : void 0;
+        const useIndexSql = this.buildIndex({ indexes: useIndex, indexFor: "USE" });
+        const forceIndexSql = this.buildIndex({ indexes: forceIndex, indexFor: "FORCE" });
+        const ignoreIndexSql = this.buildIndex({ indexes: ignoreIndex, indexFor: "IGNORE" });
+        let lockingClausesSql;
+        if (lockingClause) {
+          const { config: config2, strength } = lockingClause;
+          lockingClausesSql = sql` for ${sql.raw(strength)}`;
+          if (config2.noWait) {
+            lockingClausesSql.append(sql` nowait`);
+          } else if (config2.skipLocked) {
+            lockingClausesSql.append(sql` skip locked`);
+          }
+        }
+        const finalQuery = sql`${withSql}select${distinctSql} ${selection} from ${tableSql}${useIndexSql}${forceIndexSql}${ignoreIndexSql}${joinsSql}${whereSql}${groupBySql}${havingSql}${orderBySql}${limitSql}${offsetSql}${lockingClausesSql}`;
+        if (setOperators.length > 0) {
+          return this.buildSetOperations(finalQuery, setOperators);
+        }
+        return finalQuery;
+      }
+      buildSetOperations(leftSelect, setOperators) {
+        const [setOperator, ...rest] = setOperators;
+        if (!setOperator) {
+          throw new Error("Cannot pass undefined values to any set operator");
+        }
+        if (rest.length === 0) {
+          return this.buildSetOperationQuery({ leftSelect, setOperator });
+        }
+        return this.buildSetOperations(
+          this.buildSetOperationQuery({ leftSelect, setOperator }),
+          rest
+        );
+      }
+      buildSetOperationQuery({
+        leftSelect,
+        setOperator: { type, isAll, rightSelect, limit, orderBy, offset }
+      }) {
+        const leftChunk = sql`(${leftSelect.getSQL()}) `;
+        const rightChunk = sql`(${rightSelect.getSQL()})`;
+        let orderBySql;
+        if (orderBy && orderBy.length > 0) {
+          const orderByValues = [];
+          for (const orderByUnit of orderBy) {
+            if (is(orderByUnit, MySqlColumn)) {
+              orderByValues.push(sql.identifier(this.casing.getColumnCasing(orderByUnit)));
+            } else if (is(orderByUnit, SQL)) {
+              for (let i = 0; i < orderByUnit.queryChunks.length; i++) {
+                const chunk = orderByUnit.queryChunks[i];
+                if (is(chunk, MySqlColumn)) {
+                  orderByUnit.queryChunks[i] = sql.identifier(this.casing.getColumnCasing(chunk));
+                }
+              }
+              orderByValues.push(sql`${orderByUnit}`);
+            } else {
+              orderByValues.push(sql`${orderByUnit}`);
+            }
+          }
+          orderBySql = sql` order by ${sql.join(orderByValues, sql`, `)} `;
+        }
+        const limitSql = typeof limit === "object" || typeof limit === "number" && limit >= 0 ? sql` limit ${limit}` : void 0;
+        const operatorChunk = sql.raw(`${type} ${isAll ? "all " : ""}`);
+        const offsetSql = offset ? sql` offset ${offset}` : void 0;
+        return sql`${leftChunk}${operatorChunk}${rightChunk}${orderBySql}${limitSql}${offsetSql}`;
+      }
+      buildInsertQuery({ table, values: valuesOrSelect, ignore, onConflict, select }) {
+        const valuesSqlList = [];
+        const columns = table[Table.Symbol.Columns];
+        const colEntries = Object.entries(columns).filter(
+          ([_, col]) => !col.shouldDisableInsert()
+        );
+        const insertOrder = colEntries.map(([, column]) => sql.identifier(this.casing.getColumnCasing(column)));
+        const generatedIdsResponse = [];
+        if (select) {
+          const select2 = valuesOrSelect;
+          if (is(select2, SQL)) {
+            valuesSqlList.push(select2);
+          } else {
+            valuesSqlList.push(select2.getSQL());
+          }
+        } else {
+          const values = valuesOrSelect;
+          valuesSqlList.push(sql.raw("values "));
+          for (const [valueIndex, value] of values.entries()) {
+            const generatedIds = {};
+            const valueList = [];
+            for (const [fieldName, col] of colEntries) {
+              const colValue = value[fieldName];
+              if (colValue === void 0 || is(colValue, Param) && colValue.value === void 0) {
+                if (col.defaultFn !== void 0) {
+                  const defaultFnResult = col.defaultFn();
+                  generatedIds[fieldName] = defaultFnResult;
+                  const defaultValue = is(defaultFnResult, SQL) ? defaultFnResult : sql.param(defaultFnResult, col);
+                  valueList.push(defaultValue);
+                } else if (!col.default && col.onUpdateFn !== void 0) {
+                  const onUpdateFnResult = col.onUpdateFn();
+                  const newValue = is(onUpdateFnResult, SQL) ? onUpdateFnResult : sql.param(onUpdateFnResult, col);
+                  valueList.push(newValue);
+                } else {
+                  valueList.push(sql`default`);
+                }
+              } else {
+                if (col.defaultFn && is(colValue, Param)) {
+                  generatedIds[fieldName] = colValue.value;
+                }
+                valueList.push(colValue);
+              }
+            }
+            generatedIdsResponse.push(generatedIds);
+            valuesSqlList.push(valueList);
+            if (valueIndex < values.length - 1) {
+              valuesSqlList.push(sql`, `);
+            }
+          }
+        }
+        const valuesSql = sql.join(valuesSqlList);
+        const ignoreSql = ignore ? sql` ignore` : void 0;
+        const onConflictSql = onConflict ? sql` on duplicate key ${onConflict}` : void 0;
+        return {
+          sql: sql`insert${ignoreSql} into ${table} ${insertOrder} ${valuesSql}${onConflictSql}`,
+          generatedIds: generatedIdsResponse
+        };
+      }
+      sqlToQuery(sql2, invokeSource) {
+        return sql2.toQuery({
+          casing: this.casing,
+          escapeName: this.escapeName,
+          escapeParam: this.escapeParam,
+          escapeString: this.escapeString,
+          invokeSource
+        });
+      }
+      buildRelationalQuery({
+        fullSchema,
+        schema,
+        tableNamesMap,
+        table,
+        tableConfig,
+        queryConfig: config2,
+        tableAlias,
+        nestedQueryRelation,
+        joinOn
+      }) {
+        let selection = [];
+        let limit, offset, orderBy, where;
+        const joins = [];
+        if (config2 === true) {
+          const selectionEntries = Object.entries(tableConfig.columns);
+          selection = selectionEntries.map(([key, value]) => ({
+            dbKey: value.name,
+            tsKey: key,
+            field: aliasedTableColumn(value, tableAlias),
+            relationTableTsKey: void 0,
+            isJson: false,
+            selection: []
+          }));
+        } else {
+          const aliasedColumns = Object.fromEntries(
+            Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)])
+          );
+          if (config2.where) {
+            const whereSql = typeof config2.where === "function" ? config2.where(aliasedColumns, getOperators()) : config2.where;
+            where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
+          }
+          const fieldsSelection = [];
+          let selectedColumns = [];
+          if (config2.columns) {
+            let isIncludeMode = false;
+            for (const [field, value] of Object.entries(config2.columns)) {
+              if (value === void 0) {
+                continue;
+              }
+              if (field in tableConfig.columns) {
+                if (!isIncludeMode && value === true) {
+                  isIncludeMode = true;
+                }
+                selectedColumns.push(field);
+              }
+            }
+            if (selectedColumns.length > 0) {
+              selectedColumns = isIncludeMode ? selectedColumns.filter((c) => config2.columns?.[c] === true) : Object.keys(tableConfig.columns).filter((key) => !selectedColumns.includes(key));
+            }
+          } else {
+            selectedColumns = Object.keys(tableConfig.columns);
+          }
+          for (const field of selectedColumns) {
+            const column = tableConfig.columns[field];
+            fieldsSelection.push({ tsKey: field, value: column });
+          }
+          let selectedRelations = [];
+          if (config2.with) {
+            selectedRelations = Object.entries(config2.with).filter((entry) => !!entry[1]).map(([tsKey, queryConfig]) => ({ tsKey, queryConfig, relation: tableConfig.relations[tsKey] }));
+          }
+          let extras;
+          if (config2.extras) {
+            extras = typeof config2.extras === "function" ? config2.extras(aliasedColumns, { sql }) : config2.extras;
+            for (const [tsKey, value] of Object.entries(extras)) {
+              fieldsSelection.push({
+                tsKey,
+                value: mapColumnsInAliasedSQLToAlias(value, tableAlias)
+              });
+            }
+          }
+          for (const { tsKey, value } of fieldsSelection) {
+            selection.push({
+              dbKey: is(value, SQL.Aliased) ? value.fieldAlias : tableConfig.columns[tsKey].name,
+              tsKey,
+              field: is(value, Column) ? aliasedTableColumn(value, tableAlias) : value,
+              relationTableTsKey: void 0,
+              isJson: false,
+              selection: []
+            });
+          }
+          let orderByOrig = typeof config2.orderBy === "function" ? config2.orderBy(aliasedColumns, getOrderByOperators()) : config2.orderBy ?? [];
+          if (!Array.isArray(orderByOrig)) {
+            orderByOrig = [orderByOrig];
+          }
+          orderBy = orderByOrig.map((orderByValue) => {
+            if (is(orderByValue, Column)) {
+              return aliasedTableColumn(orderByValue, tableAlias);
+            }
+            return mapColumnsInSQLToAlias(orderByValue, tableAlias);
+          });
+          limit = config2.limit;
+          offset = config2.offset;
+          for (const {
+            tsKey: selectedRelationTsKey,
+            queryConfig: selectedRelationConfigValue,
+            relation
+          } of selectedRelations) {
+            const normalizedRelation = normalizeRelation(schema, tableNamesMap, relation);
+            const relationTableName = getTableUniqueName(relation.referencedTable);
+            const relationTableTsName = tableNamesMap[relationTableName];
+            const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
+            const joinOn2 = and(
+              ...normalizedRelation.fields.map(
+                (field2, i) => eq(
+                  aliasedTableColumn(normalizedRelation.references[i], relationTableAlias),
+                  aliasedTableColumn(field2, tableAlias)
+                )
+              )
+            );
+            const builtRelation = this.buildRelationalQuery({
+              fullSchema,
+              schema,
+              tableNamesMap,
+              table: fullSchema[relationTableTsName],
+              tableConfig: schema[relationTableTsName],
+              queryConfig: is(relation, One) ? selectedRelationConfigValue === true ? { limit: 1 } : { ...selectedRelationConfigValue, limit: 1 } : selectedRelationConfigValue,
+              tableAlias: relationTableAlias,
+              joinOn: joinOn2,
+              nestedQueryRelation: relation
+            });
+            const field = sql`${sql.identifier(relationTableAlias)}.${sql.identifier("data")}`.as(selectedRelationTsKey);
+            joins.push({
+              on: sql`true`,
+              table: new Subquery(builtRelation.sql, {}, relationTableAlias),
+              alias: relationTableAlias,
+              joinType: "left",
+              lateral: true
+            });
+            selection.push({
+              dbKey: selectedRelationTsKey,
+              tsKey: selectedRelationTsKey,
+              field,
+              relationTableTsKey: relationTableTsName,
+              isJson: true,
+              selection: builtRelation.selection
+            });
+          }
+        }
+        if (selection.length === 0) {
+          throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}")` });
+        }
+        let result;
+        where = and(joinOn, where);
+        if (nestedQueryRelation) {
+          let field = sql`json_array(${sql.join(
+            selection.map(
+              ({ field: field2, tsKey, isJson }) => isJson ? sql`${sql.identifier(`${tableAlias}_${tsKey}`)}.${sql.identifier("data")}` : is(field2, SQL.Aliased) ? field2.sql : field2
+            ),
+            sql`, `
+          )})`;
+          if (is(nestedQueryRelation, Many)) {
+            field = sql`coalesce(json_arrayagg(${field}), json_array())`;
+          }
+          const nestedSelection = [{
+            dbKey: "data",
+            tsKey: "data",
+            field: field.as("data"),
+            isJson: true,
+            relationTableTsKey: tableConfig.tsName,
+            selection
+          }];
+          const needsSubquery = limit !== void 0 || offset !== void 0 || (orderBy?.length ?? 0) > 0;
+          if (needsSubquery) {
+            result = this.buildSelectQuery({
+              table: aliasedTable(table, tableAlias),
+              fields: {},
+              fieldsFlat: [
+                {
+                  path: [],
+                  field: sql.raw("*")
+                },
+                ...(orderBy?.length ?? 0) > 0 ? [{
+                  path: [],
+                  field: sql`row_number() over (order by ${sql.join(orderBy, sql`, `)})`
+                }] : []
+              ],
+              where,
+              limit,
+              offset,
+              setOperators: []
+            });
+            where = void 0;
+            limit = void 0;
+            offset = void 0;
+            orderBy = void 0;
+          } else {
+            result = aliasedTable(table, tableAlias);
+          }
+          result = this.buildSelectQuery({
+            table: is(result, MySqlTable) ? result : new Subquery(result, {}, tableAlias),
+            fields: {},
+            fieldsFlat: nestedSelection.map(({ field: field2 }) => ({
+              path: [],
+              field: is(field2, Column) ? aliasedTableColumn(field2, tableAlias) : field2
+            })),
+            joins,
+            where,
+            limit,
+            offset,
+            orderBy,
+            setOperators: []
+          });
+        } else {
+          result = this.buildSelectQuery({
+            table: aliasedTable(table, tableAlias),
+            fields: {},
+            fieldsFlat: selection.map(({ field }) => ({
+              path: [],
+              field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field
+            })),
+            joins,
+            where,
+            limit,
+            offset,
+            orderBy,
+            setOperators: []
+          });
+        }
+        return {
+          tableTsKey: tableConfig.tsName,
+          sql: result,
+          selection
+        };
+      }
+      buildRelationalQueryWithoutLateralSubqueries({
+        fullSchema,
+        schema,
+        tableNamesMap,
+        table,
+        tableConfig,
+        queryConfig: config2,
+        tableAlias,
+        nestedQueryRelation,
+        joinOn
+      }) {
+        let selection = [];
+        let limit, offset, orderBy = [], where;
+        if (config2 === true) {
+          const selectionEntries = Object.entries(tableConfig.columns);
+          selection = selectionEntries.map(([key, value]) => ({
+            dbKey: value.name,
+            tsKey: key,
+            field: aliasedTableColumn(value, tableAlias),
+            relationTableTsKey: void 0,
+            isJson: false,
+            selection: []
+          }));
+        } else {
+          const aliasedColumns = Object.fromEntries(
+            Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)])
+          );
+          if (config2.where) {
+            const whereSql = typeof config2.where === "function" ? config2.where(aliasedColumns, getOperators()) : config2.where;
+            where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
+          }
+          const fieldsSelection = [];
+          let selectedColumns = [];
+          if (config2.columns) {
+            let isIncludeMode = false;
+            for (const [field, value] of Object.entries(config2.columns)) {
+              if (value === void 0) {
+                continue;
+              }
+              if (field in tableConfig.columns) {
+                if (!isIncludeMode && value === true) {
+                  isIncludeMode = true;
+                }
+                selectedColumns.push(field);
+              }
+            }
+            if (selectedColumns.length > 0) {
+              selectedColumns = isIncludeMode ? selectedColumns.filter((c) => config2.columns?.[c] === true) : Object.keys(tableConfig.columns).filter((key) => !selectedColumns.includes(key));
+            }
+          } else {
+            selectedColumns = Object.keys(tableConfig.columns);
+          }
+          for (const field of selectedColumns) {
+            const column = tableConfig.columns[field];
+            fieldsSelection.push({ tsKey: field, value: column });
+          }
+          let selectedRelations = [];
+          if (config2.with) {
+            selectedRelations = Object.entries(config2.with).filter((entry) => !!entry[1]).map(([tsKey, queryConfig]) => ({ tsKey, queryConfig, relation: tableConfig.relations[tsKey] }));
+          }
+          let extras;
+          if (config2.extras) {
+            extras = typeof config2.extras === "function" ? config2.extras(aliasedColumns, { sql }) : config2.extras;
+            for (const [tsKey, value] of Object.entries(extras)) {
+              fieldsSelection.push({
+                tsKey,
+                value: mapColumnsInAliasedSQLToAlias(value, tableAlias)
+              });
+            }
+          }
+          for (const { tsKey, value } of fieldsSelection) {
+            selection.push({
+              dbKey: is(value, SQL.Aliased) ? value.fieldAlias : tableConfig.columns[tsKey].name,
+              tsKey,
+              field: is(value, Column) ? aliasedTableColumn(value, tableAlias) : value,
+              relationTableTsKey: void 0,
+              isJson: false,
+              selection: []
+            });
+          }
+          let orderByOrig = typeof config2.orderBy === "function" ? config2.orderBy(aliasedColumns, getOrderByOperators()) : config2.orderBy ?? [];
+          if (!Array.isArray(orderByOrig)) {
+            orderByOrig = [orderByOrig];
+          }
+          orderBy = orderByOrig.map((orderByValue) => {
+            if (is(orderByValue, Column)) {
+              return aliasedTableColumn(orderByValue, tableAlias);
+            }
+            return mapColumnsInSQLToAlias(orderByValue, tableAlias);
+          });
+          limit = config2.limit;
+          offset = config2.offset;
+          for (const {
+            tsKey: selectedRelationTsKey,
+            queryConfig: selectedRelationConfigValue,
+            relation
+          } of selectedRelations) {
+            const normalizedRelation = normalizeRelation(schema, tableNamesMap, relation);
+            const relationTableName = getTableUniqueName(relation.referencedTable);
+            const relationTableTsName = tableNamesMap[relationTableName];
+            const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
+            const joinOn2 = and(
+              ...normalizedRelation.fields.map(
+                (field2, i) => eq(
+                  aliasedTableColumn(normalizedRelation.references[i], relationTableAlias),
+                  aliasedTableColumn(field2, tableAlias)
+                )
+              )
+            );
+            const builtRelation = this.buildRelationalQueryWithoutLateralSubqueries({
+              fullSchema,
+              schema,
+              tableNamesMap,
+              table: fullSchema[relationTableTsName],
+              tableConfig: schema[relationTableTsName],
+              queryConfig: is(relation, One) ? selectedRelationConfigValue === true ? { limit: 1 } : { ...selectedRelationConfigValue, limit: 1 } : selectedRelationConfigValue,
+              tableAlias: relationTableAlias,
+              joinOn: joinOn2,
+              nestedQueryRelation: relation
+            });
+            let fieldSql = sql`(${builtRelation.sql})`;
+            if (is(relation, Many)) {
+              fieldSql = sql`coalesce(${fieldSql}, json_array())`;
+            }
+            const field = fieldSql.as(selectedRelationTsKey);
+            selection.push({
+              dbKey: selectedRelationTsKey,
+              tsKey: selectedRelationTsKey,
+              field,
+              relationTableTsKey: relationTableTsName,
+              isJson: true,
+              selection: builtRelation.selection
+            });
+          }
+        }
+        if (selection.length === 0) {
+          throw new DrizzleError({
+            message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}"). You need to have at least one item in "columns", "with" or "extras". If you need to select all columns, omit the "columns" key or set it to undefined.`
+          });
+        }
+        let result;
+        where = and(joinOn, where);
+        if (nestedQueryRelation) {
+          let field = sql`json_array(${sql.join(
+            selection.map(
+              ({ field: field2 }) => is(field2, MySqlColumn) ? sql.identifier(this.casing.getColumnCasing(field2)) : is(field2, SQL.Aliased) ? field2.sql : field2
+            ),
+            sql`, `
+          )})`;
+          if (is(nestedQueryRelation, Many)) {
+            field = sql`json_arrayagg(${field})`;
+          }
+          const nestedSelection = [{
+            dbKey: "data",
+            tsKey: "data",
+            field,
+            isJson: true,
+            relationTableTsKey: tableConfig.tsName,
+            selection
+          }];
+          const needsSubquery = limit !== void 0 || offset !== void 0 || orderBy.length > 0;
+          if (needsSubquery) {
+            result = this.buildSelectQuery({
+              table: aliasedTable(table, tableAlias),
+              fields: {},
+              fieldsFlat: [
+                {
+                  path: [],
+                  field: sql.raw("*")
+                },
+                ...orderBy.length > 0 ? [{
+                  path: [],
+                  field: sql`row_number() over (order by ${sql.join(orderBy, sql`, `)})`
+                }] : []
+              ],
+              where,
+              limit,
+              offset,
+              setOperators: []
+            });
+            where = void 0;
+            limit = void 0;
+            offset = void 0;
+            orderBy = void 0;
+          } else {
+            result = aliasedTable(table, tableAlias);
+          }
+          result = this.buildSelectQuery({
+            table: is(result, MySqlTable) ? result : new Subquery(result, {}, tableAlias),
+            fields: {},
+            fieldsFlat: nestedSelection.map(({ field: field2 }) => ({
+              path: [],
+              field: is(field2, Column) ? aliasedTableColumn(field2, tableAlias) : field2
+            })),
+            where,
+            limit,
+            offset,
+            orderBy,
+            setOperators: []
+          });
+        } else {
+          result = this.buildSelectQuery({
+            table: aliasedTable(table, tableAlias),
+            fields: {},
+            fieldsFlat: selection.map(({ field }) => ({
+              path: [],
+              field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field
+            })),
+            where,
+            limit,
+            offset,
+            orderBy,
+            setOperators: []
+          });
+        }
+        return {
+          tableTsKey: tableConfig.tsName,
+          sql: result,
+          selection
+        };
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/query-builders/query-builder.js
+var TypedQueryBuilder;
+var init_query_builder = __esm({
+  "node_modules/drizzle-orm/query-builders/query-builder.js"() {
+    init_entity();
+    TypedQueryBuilder = class {
+      static [entityKind] = "TypedQueryBuilder";
+      /** @internal */
+      getSelectedFields() {
+        return this._.selectedFields;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/select.js
+function createSetOperator(type, isAll) {
+  return (leftSelect, rightSelect, ...restSelects) => {
+    const setOperators = [rightSelect, ...restSelects].map((select) => ({
+      type,
+      isAll,
+      rightSelect: select
+    }));
+    for (const setOperator of setOperators) {
+      if (!haveSameKeys(leftSelect.getSelectedFields(), setOperator.rightSelect.getSelectedFields())) {
+        throw new Error(
+          "Set operator error (union / intersect / except): selected fields are not the same or are in a different order"
+        );
+      }
+    }
+    return leftSelect.addSetOperators(setOperators);
+  };
+}
+var MySqlSelectBuilder, MySqlSelectQueryBuilderBase, MySqlSelectBase, getMySqlSetOperators, union, unionAll, intersect, intersectAll, except, exceptAll;
+var init_select2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/select.js"() {
+    init_entity();
+    init_table3();
+    init_query_builder();
+    init_query_promise();
+    init_selection_proxy();
+    init_sql();
+    init_subquery();
+    init_table();
+    init_utils();
+    init_view_common();
+    init_utils2();
+    init_view_base();
+    MySqlSelectBuilder = class {
+      static [entityKind] = "MySqlSelectBuilder";
+      fields;
+      session;
+      dialect;
+      withList = [];
+      distinct;
+      constructor(config2) {
+        this.fields = config2.fields;
+        this.session = config2.session;
+        this.dialect = config2.dialect;
+        if (config2.withList) {
+          this.withList = config2.withList;
+        }
+        this.distinct = config2.distinct;
+      }
+      from(source, onIndex) {
+        const isPartialSelect = !!this.fields;
+        let fields;
+        if (this.fields) {
+          fields = this.fields;
+        } else if (is(source, Subquery)) {
+          fields = Object.fromEntries(
+            Object.keys(source._.selectedFields).map((key) => [key, source[key]])
+          );
+        } else if (is(source, MySqlViewBase)) {
+          fields = source[ViewBaseConfig].selectedFields;
+        } else if (is(source, SQL)) {
+          fields = {};
+        } else {
+          fields = getTableColumns(source);
+        }
+        let useIndex = [];
+        let forceIndex = [];
+        let ignoreIndex = [];
+        if (is(source, MySqlTable) && onIndex && typeof onIndex !== "string") {
+          if (onIndex.useIndex) {
+            useIndex = convertIndexToString(toArray(onIndex.useIndex));
+          }
+          if (onIndex.forceIndex) {
+            forceIndex = convertIndexToString(toArray(onIndex.forceIndex));
+          }
+          if (onIndex.ignoreIndex) {
+            ignoreIndex = convertIndexToString(toArray(onIndex.ignoreIndex));
+          }
+        }
+        return new MySqlSelectBase(
+          {
+            table: source,
+            fields,
+            isPartialSelect,
+            session: this.session,
+            dialect: this.dialect,
+            withList: this.withList,
+            distinct: this.distinct,
+            useIndex,
+            forceIndex,
+            ignoreIndex
+          }
+        );
+      }
+    };
+    MySqlSelectQueryBuilderBase = class extends TypedQueryBuilder {
+      static [entityKind] = "MySqlSelectQueryBuilder";
+      _;
+      config;
+      joinsNotNullableMap;
+      tableName;
+      isPartialSelect;
+      /** @internal */
+      session;
+      dialect;
+      cacheConfig = void 0;
+      usedTables = /* @__PURE__ */ new Set();
+      constructor({ table, fields, isPartialSelect, session, dialect, withList, distinct, useIndex, forceIndex, ignoreIndex }) {
+        super();
+        this.config = {
+          withList,
+          table,
+          fields: { ...fields },
+          distinct,
+          setOperators: [],
+          useIndex,
+          forceIndex,
+          ignoreIndex
+        };
+        this.isPartialSelect = isPartialSelect;
+        this.session = session;
+        this.dialect = dialect;
+        this._ = {
+          selectedFields: fields,
+          config: this.config
+        };
+        this.tableName = getTableLikeName(table);
+        this.joinsNotNullableMap = typeof this.tableName === "string" ? { [this.tableName]: true } : {};
+        for (const item of extractUsedTable(table)) this.usedTables.add(item);
+      }
+      /** @internal */
+      getUsedTables() {
+        return [...this.usedTables];
+      }
+      createJoin(joinType, lateral) {
+        return (table, a, b) => {
+          const isCrossJoin = joinType === "cross";
+          let on = isCrossJoin ? void 0 : a;
+          const onIndex = isCrossJoin ? a : b;
+          const baseTableName = this.tableName;
+          const tableName = getTableLikeName(table);
+          for (const item of extractUsedTable(table)) this.usedTables.add(item);
+          if (typeof tableName === "string" && this.config.joins?.some((join) => join.alias === tableName)) {
+            throw new Error(`Alias "${tableName}" is already used in this query`);
+          }
+          if (!this.isPartialSelect) {
+            if (Object.keys(this.joinsNotNullableMap).length === 1 && typeof baseTableName === "string") {
+              this.config.fields = {
+                [baseTableName]: this.config.fields
+              };
+            }
+            if (typeof tableName === "string" && !is(table, SQL)) {
+              const selection = is(table, Subquery) ? table._.selectedFields : is(table, View) ? table[ViewBaseConfig].selectedFields : table[Table.Symbol.Columns];
+              this.config.fields[tableName] = selection;
+            }
+          }
+          if (typeof on === "function") {
+            on = on(
+              new Proxy(
+                this.config.fields,
+                new SelectionProxyHandler({ sqlAliasedBehavior: "sql", sqlBehavior: "sql" })
+              )
+            );
+          }
+          if (!this.config.joins) {
+            this.config.joins = [];
+          }
+          let useIndex = [];
+          let forceIndex = [];
+          let ignoreIndex = [];
+          if (is(table, MySqlTable) && onIndex && typeof onIndex !== "string") {
+            if (onIndex.useIndex) {
+              useIndex = convertIndexToString(toArray(onIndex.useIndex));
+            }
+            if (onIndex.forceIndex) {
+              forceIndex = convertIndexToString(toArray(onIndex.forceIndex));
+            }
+            if (onIndex.ignoreIndex) {
+              ignoreIndex = convertIndexToString(toArray(onIndex.ignoreIndex));
+            }
+          }
+          this.config.joins.push({ on, table, joinType, alias: tableName, useIndex, forceIndex, ignoreIndex, lateral });
+          if (typeof tableName === "string") {
+            switch (joinType) {
+              case "left": {
+                this.joinsNotNullableMap[tableName] = false;
+                break;
+              }
+              case "right": {
+                this.joinsNotNullableMap = Object.fromEntries(
+                  Object.entries(this.joinsNotNullableMap).map(([key]) => [key, false])
+                );
+                this.joinsNotNullableMap[tableName] = true;
+                break;
+              }
+              case "cross":
+              case "inner": {
+                this.joinsNotNullableMap[tableName] = true;
+                break;
+              }
+            }
+          }
+          return this;
+        };
+      }
+      /**
+       * Executes a `left join` operation by adding another table to the current query.
+       *
+       * Calling this method associates each row of the table with the corresponding row from the joined table, if a match is found. If no matching row exists, it sets all columns of the joined table to null.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#left-join}
+       *
+       * @param table the table to join.
+       * @param on the `on` clause.
+       * @param onIndex index hint.
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all users and their pets
+       * const usersWithPets: { user: User; pets: Pet | null; }[] = await db.select()
+       *   .from(users)
+       *   .leftJoin(pets, eq(users.id, pets.ownerId))
+       *
+       * // Select userId and petId
+       * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .leftJoin(pets, eq(users.id, pets.ownerId))
+       *
+       * // Select userId and petId with use index hint
+       * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .leftJoin(pets, eq(users.id, pets.ownerId), {
+       *     useIndex: ['pets_owner_id_index']
+       * })
+       * ```
+       */
+      leftJoin = this.createJoin("left", false);
+      /**
+       * Executes a `left join lateral` operation by adding subquery to the current query.
+       *
+       * A `lateral` join allows the right-hand expression to refer to columns from the left-hand side.
+       *
+       * Calling this method associates each row of the table with the corresponding row from the joined table, if a match is found. If no matching row exists, it sets all columns of the joined table to null.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#left-join-lateral}
+       *
+       * @param table the subquery to join.
+       * @param on the `on` clause.
+       */
+      leftJoinLateral = this.createJoin("left", true);
+      /**
+       * Executes a `right join` operation by adding another table to the current query.
+       *
+       * Calling this method associates each row of the joined table with the corresponding row from the main table, if a match is found. If no matching row exists, it sets all columns of the main table to null.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#right-join}
+       *
+       * @param table the table to join.
+       * @param on the `on` clause.
+       * @param onIndex index hint.
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all users and their pets
+       * const usersWithPets: { user: User | null; pets: Pet; }[] = await db.select()
+       *   .from(users)
+       *   .rightJoin(pets, eq(users.id, pets.ownerId))
+       *
+       * // Select userId and petId
+       * const usersIdsAndPetIds: { userId: number | null; petId: number; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .rightJoin(pets, eq(users.id, pets.ownerId))
+       *
+       * // Select userId and petId with use index hint
+       * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .leftJoin(pets, eq(users.id, pets.ownerId), {
+       *     useIndex: ['pets_owner_id_index']
+       * })
+       * ```
+       */
+      rightJoin = this.createJoin("right", false);
+      /**
+       * Executes an `inner join` operation, creating a new table by combining rows from two tables that have matching values.
+       *
+       * Calling this method retrieves rows that have corresponding entries in both joined tables. Rows without matching entries in either table are excluded, resulting in a table that includes only matching pairs.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#inner-join}
+       *
+       * @param table the table to join.
+       * @param on the `on` clause.
+       * @param onIndex index hint.
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all users and their pets
+       * const usersWithPets: { user: User; pets: Pet; }[] = await db.select()
+       *   .from(users)
+       *   .innerJoin(pets, eq(users.id, pets.ownerId))
+       *
+       * // Select userId and petId
+       * const usersIdsAndPetIds: { userId: number; petId: number; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .innerJoin(pets, eq(users.id, pets.ownerId))
+       *
+       * // Select userId and petId with use index hint
+       * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .leftJoin(pets, eq(users.id, pets.ownerId), {
+       *     useIndex: ['pets_owner_id_index']
+       * })
+       * ```
+       */
+      innerJoin = this.createJoin("inner", false);
+      /**
+       * Executes an `inner join lateral` operation, creating a new table by combining rows from two queries that have matching values.
+       *
+       * A `lateral` join allows the right-hand expression to refer to columns from the left-hand side.
+       *
+       * Calling this method retrieves rows that have corresponding entries in both joined tables. Rows without matching entries in either table are excluded, resulting in a table that includes only matching pairs.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#inner-join-lateral}
+       *
+       * @param table the subquery to join.
+       * @param on the `on` clause.
+       */
+      innerJoinLateral = this.createJoin("inner", true);
+      /**
+       * Executes a `cross join` operation by combining rows from two tables into a new table.
+       *
+       * Calling this method retrieves all rows from both main and joined tables, merging all rows from each table.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#cross-join}
+       *
+       * @param table the table to join.
+       * @param onIndex index hint.
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all users, each user with every pet
+       * const usersWithPets: { user: User; pets: Pet; }[] = await db.select()
+       *   .from(users)
+       *   .crossJoin(pets)
+       *
+       * // Select userId and petId
+       * const usersIdsAndPetIds: { userId: number; petId: number; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .crossJoin(pets)
+       *
+       * // Select userId and petId with use index hint
+       * const usersIdsAndPetIds: { userId: number; petId: number; }[] = await db.select({
+       *   userId: users.id,
+       *   petId: pets.id,
+       * })
+       *   .from(users)
+       *   .crossJoin(pets, {
+       *     useIndex: ['pets_owner_id_index']
+       * })
+       * ```
+       */
+      crossJoin = this.createJoin("cross", false);
+      /**
+       * Executes a `cross join lateral` operation by combining rows from two queries into a new table.
+       *
+       * A `lateral` join allows the right-hand expression to refer to columns from the left-hand side.
+       *
+       * Calling this method retrieves all rows from both main and joined queries, merging all rows from each query.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/joins#cross-join-lateral}
+       *
+       * @param table the query to join.
+       */
+      crossJoinLateral = this.createJoin("cross", true);
+      createSetOperator(type, isAll) {
+        return (rightSelection) => {
+          const rightSelect = typeof rightSelection === "function" ? rightSelection(getMySqlSetOperators()) : rightSelection;
+          if (!haveSameKeys(this.getSelectedFields(), rightSelect.getSelectedFields())) {
+            throw new Error(
+              "Set operator error (union / intersect / except): selected fields are not the same or are in a different order"
+            );
+          }
+          this.config.setOperators.push({ type, isAll, rightSelect });
+          return this;
+        };
+      }
+      /**
+       * Adds `union` set operator to the query.
+       *
+       * Calling this method will combine the result sets of the `select` statements and remove any duplicate rows that appear across them.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/set-operations#union}
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all unique names from customers and users tables
+       * await db.select({ name: users.name })
+       *   .from(users)
+       *   .union(
+       *     db.select({ name: customers.name }).from(customers)
+       *   );
+       * // or
+       * import { union } from 'drizzle-orm/mysql-core'
+       *
+       * await union(
+       *   db.select({ name: users.name }).from(users),
+       *   db.select({ name: customers.name }).from(customers)
+       * );
+       * ```
+       */
+      union = this.createSetOperator("union", false);
+      /**
+       * Adds `union all` set operator to the query.
+       *
+       * Calling this method will combine the result-set of the `select` statements and keep all duplicate rows that appear across them.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/set-operations#union-all}
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all transaction ids from both online and in-store sales
+       * await db.select({ transaction: onlineSales.transactionId })
+       *   .from(onlineSales)
+       *   .unionAll(
+       *     db.select({ transaction: inStoreSales.transactionId }).from(inStoreSales)
+       *   );
+       * // or
+       * import { unionAll } from 'drizzle-orm/mysql-core'
+       *
+       * await unionAll(
+       *   db.select({ transaction: onlineSales.transactionId }).from(onlineSales),
+       *   db.select({ transaction: inStoreSales.transactionId }).from(inStoreSales)
+       * );
+       * ```
+       */
+      unionAll = this.createSetOperator("union", true);
+      /**
+       * Adds `intersect` set operator to the query.
+       *
+       * Calling this method will retain only the rows that are present in both result sets and eliminate duplicates.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/set-operations#intersect}
+       *
+       * @example
+       *
+       * ```ts
+       * // Select course names that are offered in both departments A and B
+       * await db.select({ courseName: depA.courseName })
+       *   .from(depA)
+       *   .intersect(
+       *     db.select({ courseName: depB.courseName }).from(depB)
+       *   );
+       * // or
+       * import { intersect } from 'drizzle-orm/mysql-core'
+       *
+       * await intersect(
+       *   db.select({ courseName: depA.courseName }).from(depA),
+       *   db.select({ courseName: depB.courseName }).from(depB)
+       * );
+       * ```
+       */
+      intersect = this.createSetOperator("intersect", false);
+      /**
+       * Adds `intersect all` set operator to the query.
+       *
+       * Calling this method will retain only the rows that are present in both result sets including all duplicates.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/set-operations#intersect-all}
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all products and quantities that are ordered by both regular and VIP customers
+       * await db.select({
+       *   productId: regularCustomerOrders.productId,
+       *   quantityOrdered: regularCustomerOrders.quantityOrdered
+       * })
+       * .from(regularCustomerOrders)
+       * .intersectAll(
+       *   db.select({
+       *     productId: vipCustomerOrders.productId,
+       *     quantityOrdered: vipCustomerOrders.quantityOrdered
+       *   })
+       *   .from(vipCustomerOrders)
+       * );
+       * // or
+       * import { intersectAll } from 'drizzle-orm/mysql-core'
+       *
+       * await intersectAll(
+       *   db.select({
+       *     productId: regularCustomerOrders.productId,
+       *     quantityOrdered: regularCustomerOrders.quantityOrdered
+       *   })
+       *   .from(regularCustomerOrders),
+       *   db.select({
+       *     productId: vipCustomerOrders.productId,
+       *     quantityOrdered: vipCustomerOrders.quantityOrdered
+       *   })
+       *   .from(vipCustomerOrders)
+       * );
+       * ```
+       */
+      intersectAll = this.createSetOperator("intersect", true);
+      /**
+       * Adds `except` set operator to the query.
+       *
+       * Calling this method will retrieve all unique rows from the left query, except for the rows that are present in the result set of the right query.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/set-operations#except}
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all courses offered in department A but not in department B
+       * await db.select({ courseName: depA.courseName })
+       *   .from(depA)
+       *   .except(
+       *     db.select({ courseName: depB.courseName }).from(depB)
+       *   );
+       * // or
+       * import { except } from 'drizzle-orm/mysql-core'
+       *
+       * await except(
+       *   db.select({ courseName: depA.courseName }).from(depA),
+       *   db.select({ courseName: depB.courseName }).from(depB)
+       * );
+       * ```
+       */
+      except = this.createSetOperator("except", false);
+      /**
+       * Adds `except all` set operator to the query.
+       *
+       * Calling this method will retrieve all rows from the left query, except for the rows that are present in the result set of the right query.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/set-operations#except-all}
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all products that are ordered by regular customers but not by VIP customers
+       * await db.select({
+       *   productId: regularCustomerOrders.productId,
+       *   quantityOrdered: regularCustomerOrders.quantityOrdered,
+       * })
+       * .from(regularCustomerOrders)
+       * .exceptAll(
+       *   db.select({
+       *     productId: vipCustomerOrders.productId,
+       *     quantityOrdered: vipCustomerOrders.quantityOrdered,
+       *   })
+       *   .from(vipCustomerOrders)
+       * );
+       * // or
+       * import { exceptAll } from 'drizzle-orm/mysql-core'
+       *
+       * await exceptAll(
+       *   db.select({
+       *     productId: regularCustomerOrders.productId,
+       *     quantityOrdered: regularCustomerOrders.quantityOrdered
+       *   })
+       *   .from(regularCustomerOrders),
+       *   db.select({
+       *     productId: vipCustomerOrders.productId,
+       *     quantityOrdered: vipCustomerOrders.quantityOrdered
+       *   })
+       *   .from(vipCustomerOrders)
+       * );
+       * ```
+       */
+      exceptAll = this.createSetOperator("except", true);
+      /** @internal */
+      addSetOperators(setOperators) {
+        this.config.setOperators.push(...setOperators);
+        return this;
+      }
+      /**
+       * Adds a `where` clause to the query.
+       *
+       * Calling this method will select only those rows that fulfill a specified condition.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/select#filtering}
+       *
+       * @param where the `where` clause.
+       *
+       * @example
+       * You can use conditional operators and `sql function` to filter the rows to be selected.
+       *
+       * ```ts
+       * // Select all cars with green color
+       * await db.select().from(cars).where(eq(cars.color, 'green'));
+       * // or
+       * await db.select().from(cars).where(sql`${cars.color} = 'green'`)
+       * ```
+       *
+       * You can logically combine conditional operators with `and()` and `or()` operators:
+       *
+       * ```ts
+       * // Select all BMW cars with a green color
+       * await db.select().from(cars).where(and(eq(cars.color, 'green'), eq(cars.brand, 'BMW')));
+       *
+       * // Select all cars with the green or blue color
+       * await db.select().from(cars).where(or(eq(cars.color, 'green'), eq(cars.color, 'blue')));
+       * ```
+       */
+      where(where) {
+        if (typeof where === "function") {
+          where = where(
+            new Proxy(
+              this.config.fields,
+              new SelectionProxyHandler({ sqlAliasedBehavior: "sql", sqlBehavior: "sql" })
+            )
+          );
+        }
+        this.config.where = where;
+        return this;
+      }
+      /**
+       * Adds a `having` clause to the query.
+       *
+       * Calling this method will select only those rows that fulfill a specified condition. It is typically used with aggregate functions to filter the aggregated data based on a specified condition.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/select#aggregations}
+       *
+       * @param having the `having` clause.
+       *
+       * @example
+       *
+       * ```ts
+       * // Select all brands with more than one car
+       * await db.select({
+       * 	brand: cars.brand,
+       * 	count: sql<number>`cast(count(${cars.id}) as int)`,
+       * })
+       *   .from(cars)
+       *   .groupBy(cars.brand)
+       *   .having(({ count }) => gt(count, 1));
+       * ```
+       */
+      having(having) {
+        if (typeof having === "function") {
+          having = having(
+            new Proxy(
+              this.config.fields,
+              new SelectionProxyHandler({ sqlAliasedBehavior: "sql", sqlBehavior: "sql" })
+            )
+          );
+        }
+        this.config.having = having;
+        return this;
+      }
+      groupBy(...columns) {
+        if (typeof columns[0] === "function") {
+          const groupBy = columns[0](
+            new Proxy(
+              this.config.fields,
+              new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
+            )
+          );
+          this.config.groupBy = Array.isArray(groupBy) ? groupBy : [groupBy];
+        } else {
+          this.config.groupBy = columns;
+        }
+        return this;
+      }
+      orderBy(...columns) {
+        if (typeof columns[0] === "function") {
+          const orderBy = columns[0](
+            new Proxy(
+              this.config.fields,
+              new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
+            )
+          );
+          const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
+          if (this.config.setOperators.length > 0) {
+            this.config.setOperators.at(-1).orderBy = orderByArray;
+          } else {
+            this.config.orderBy = orderByArray;
+          }
+        } else {
+          const orderByArray = columns;
+          if (this.config.setOperators.length > 0) {
+            this.config.setOperators.at(-1).orderBy = orderByArray;
+          } else {
+            this.config.orderBy = orderByArray;
+          }
+        }
+        return this;
+      }
+      /**
+       * Adds a `limit` clause to the query.
+       *
+       * Calling this method will set the maximum number of rows that will be returned by this query.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/select#limit--offset}
+       *
+       * @param limit the `limit` clause.
+       *
+       * @example
+       *
+       * ```ts
+       * // Get the first 10 people from this query.
+       * await db.select().from(people).limit(10);
+       * ```
+       */
+      limit(limit) {
+        if (this.config.setOperators.length > 0) {
+          this.config.setOperators.at(-1).limit = limit;
+        } else {
+          this.config.limit = limit;
+        }
+        return this;
+      }
+      /**
+       * Adds an `offset` clause to the query.
+       *
+       * Calling this method will skip a number of rows when returning results from this query.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/select#limit--offset}
+       *
+       * @param offset the `offset` clause.
+       *
+       * @example
+       *
+       * ```ts
+       * // Get the 10th-20th people from this query.
+       * await db.select().from(people).offset(10).limit(10);
+       * ```
+       */
+      offset(offset) {
+        if (this.config.setOperators.length > 0) {
+          this.config.setOperators.at(-1).offset = offset;
+        } else {
+          this.config.offset = offset;
+        }
+        return this;
+      }
+      /**
+       * Adds a `for` clause to the query.
+       *
+       * Calling this method will specify a lock strength for this query that controls how strictly it acquires exclusive access to the rows being queried.
+       *
+       * See docs: {@link https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html}
+       *
+       * @param strength the lock strength.
+       * @param config the lock configuration.
+       */
+      for(strength, config2 = {}) {
+        this.config.lockingClause = { strength, config: config2 };
+        return this;
+      }
+      /** @internal */
+      getSQL() {
+        return this.dialect.buildSelectQuery(this.config);
+      }
+      toSQL() {
+        const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
+        return rest;
+      }
+      as(alias) {
+        const usedTables = [];
+        usedTables.push(...extractUsedTable(this.config.table));
+        if (this.config.joins) {
+          for (const it of this.config.joins) usedTables.push(...extractUsedTable(it.table));
+        }
+        return new Proxy(
+          new Subquery(this.getSQL(), this.config.fields, alias, false, [...new Set(usedTables)]),
+          new SelectionProxyHandler({ alias, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
+        );
+      }
+      /** @internal */
+      getSelectedFields() {
+        return new Proxy(
+          this.config.fields,
+          new SelectionProxyHandler({ alias: this.tableName, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
+        );
+      }
+      $dynamic() {
+        return this;
+      }
+      $withCache(config2) {
+        this.cacheConfig = config2 === void 0 ? { config: {}, enable: true, autoInvalidate: true } : config2 === false ? { enable: false } : { enable: true, autoInvalidate: true, ...config2 };
+        return this;
+      }
+    };
+    MySqlSelectBase = class extends MySqlSelectQueryBuilderBase {
+      static [entityKind] = "MySqlSelect";
+      prepare() {
+        if (!this.session) {
+          throw new Error("Cannot execute a query on a query builder. Please use a database instance instead.");
+        }
+        const fieldsList = orderSelectedFields(this.config.fields);
+        const query = this.session.prepareQuery(this.dialect.sqlToQuery(this.getSQL()), fieldsList, void 0, void 0, void 0, {
+          type: "select",
+          tables: [...this.usedTables]
+        }, this.cacheConfig);
+        query.joinsNotNullableMap = this.joinsNotNullableMap;
+        return query;
+      }
+      execute = (placeholderValues) => {
+        return this.prepare().execute(placeholderValues);
+      };
+      createIterator = () => {
+        const self2 = this;
+        return async function* (placeholderValues) {
+          yield* self2.prepare().iterator(placeholderValues);
+        };
+      };
+      iterator = this.createIterator();
+    };
+    applyMixins(MySqlSelectBase, [QueryPromise]);
+    getMySqlSetOperators = () => ({
+      union,
+      unionAll,
+      intersect,
+      intersectAll,
+      except,
+      exceptAll
+    });
+    union = createSetOperator("union", false);
+    unionAll = createSetOperator("union", true);
+    intersect = createSetOperator("intersect", false);
+    intersectAll = createSetOperator("intersect", true);
+    except = createSetOperator("except", false);
+    exceptAll = createSetOperator("except", true);
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/query-builder.js
+var QueryBuilder;
+var init_query_builder2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/query-builder.js"() {
+    init_entity();
+    init_dialect();
+    init_selection_proxy();
+    init_subquery();
+    init_select2();
+    QueryBuilder = class {
+      static [entityKind] = "MySqlQueryBuilder";
+      dialect;
+      dialectConfig;
+      constructor(dialect) {
+        this.dialect = is(dialect, MySqlDialect) ? dialect : void 0;
+        this.dialectConfig = is(dialect, MySqlDialect) ? void 0 : dialect;
+      }
+      $with = (alias, selection) => {
+        const queryBuilder = this;
+        const as = (qb) => {
+          if (typeof qb === "function") {
+            qb = qb(queryBuilder);
+          }
+          return new Proxy(
+            new WithSubquery(
+              qb.getSQL(),
+              selection ?? ("getSelectedFields" in qb ? qb.getSelectedFields() ?? {} : {}),
+              alias,
+              true
+            ),
+            new SelectionProxyHandler({ alias, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
+          );
+        };
+        return { as };
+      };
+      with(...queries) {
+        const self2 = this;
+        function select(fields) {
+          return new MySqlSelectBuilder({
+            fields: fields ?? void 0,
+            session: void 0,
+            dialect: self2.getDialect(),
+            withList: queries
+          });
+        }
+        function selectDistinct(fields) {
+          return new MySqlSelectBuilder({
+            fields: fields ?? void 0,
+            session: void 0,
+            dialect: self2.getDialect(),
+            withList: queries,
+            distinct: true
+          });
+        }
+        return { select, selectDistinct };
+      }
+      select(fields) {
+        return new MySqlSelectBuilder({ fields: fields ?? void 0, session: void 0, dialect: this.getDialect() });
+      }
+      selectDistinct(fields) {
+        return new MySqlSelectBuilder({
+          fields: fields ?? void 0,
+          session: void 0,
+          dialect: this.getDialect(),
+          distinct: true
+        });
+      }
+      // Lazy load dialect to avoid circular dependency
+      getDialect() {
+        if (!this.dialect) {
+          this.dialect = new MySqlDialect(this.dialectConfig);
+        }
+        return this.dialect;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/insert.js
+var MySqlInsertBuilder, MySqlInsertBase;
+var init_insert = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/insert.js"() {
+    init_entity();
+    init_query_promise();
+    init_sql();
+    init_table();
+    init_utils();
+    init_utils2();
+    init_query_builder2();
+    MySqlInsertBuilder = class {
+      constructor(table, session, dialect) {
+        this.table = table;
+        this.session = session;
+        this.dialect = dialect;
+      }
+      static [entityKind] = "MySqlInsertBuilder";
+      shouldIgnore = false;
+      ignore() {
+        this.shouldIgnore = true;
+        return this;
+      }
+      values(values) {
+        values = Array.isArray(values) ? values : [values];
+        if (values.length === 0) {
+          throw new Error("values() must be called with at least one value");
+        }
+        const mappedValues = values.map((entry) => {
+          const result = {};
+          const cols = this.table[Table.Symbol.Columns];
+          for (const colKey of Object.keys(entry)) {
+            const colValue = entry[colKey];
+            result[colKey] = is(colValue, SQL) ? colValue : new Param(colValue, cols[colKey]);
+          }
+          return result;
+        });
+        return new MySqlInsertBase(this.table, mappedValues, this.shouldIgnore, this.session, this.dialect);
+      }
+      select(selectQuery) {
+        const select = typeof selectQuery === "function" ? selectQuery(new QueryBuilder()) : selectQuery;
+        if (!is(select, SQL) && !haveSameKeys(this.table[Columns], select._.selectedFields)) {
+          throw new Error(
+            "Insert select error: selected fields are not the same or are in a different order compared to the table definition"
+          );
+        }
+        return new MySqlInsertBase(this.table, select, this.shouldIgnore, this.session, this.dialect, true);
+      }
+    };
+    MySqlInsertBase = class extends QueryPromise {
+      constructor(table, values, ignore, session, dialect, select) {
+        super();
+        this.session = session;
+        this.dialect = dialect;
+        this.config = { table, values, select, ignore };
+      }
+      static [entityKind] = "MySqlInsert";
+      config;
+      cacheConfig;
+      /**
+       * Adds an `on duplicate key update` clause to the query.
+       *
+       * Calling this method will update the row if any unique index conflicts. MySQL will automatically determine the conflict target based on the primary key and unique indexes.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/insert#on-duplicate-key-update}
+       *
+       * @param config The `set` clause
+       *
+       * @example
+       * ```ts
+       * await db.insert(cars)
+       *   .values({ id: 1, brand: 'BMW'})
+       *   .onDuplicateKeyUpdate({ set: { brand: 'Porsche' }});
+       * ```
+       *
+       * While MySQL does not directly support doing nothing on conflict, you can perform a no-op by setting any column's value to itself and achieve the same effect:
+       *
+       * ```ts
+       * import { sql } from 'drizzle-orm';
+       *
+       * await db.insert(cars)
+       *   .values({ id: 1, brand: 'BMW' })
+       *   .onDuplicateKeyUpdate({ set: { id: sql`id` } });
+       * ```
+       */
+      onDuplicateKeyUpdate(config2) {
+        const setSql = this.dialect.buildUpdateSet(this.config.table, mapUpdateSet(this.config.table, config2.set));
+        this.config.onConflict = sql`update ${setSql}`;
+        return this;
+      }
+      $returningId() {
+        const returning = [];
+        for (const [key, value] of Object.entries(this.config.table[Table.Symbol.Columns])) {
+          if (value.primary) {
+            returning.push({ field: value, path: [key] });
+          }
+        }
+        this.config.returning = returning;
+        return this;
+      }
+      /** @internal */
+      getSQL() {
+        return this.dialect.buildInsertQuery(this.config).sql;
+      }
+      toSQL() {
+        const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
+        return rest;
+      }
+      prepare() {
+        const { sql: sql2, generatedIds } = this.dialect.buildInsertQuery(this.config);
+        return this.session.prepareQuery(
+          this.dialect.sqlToQuery(sql2),
+          void 0,
+          void 0,
+          generatedIds,
+          this.config.returning,
+          {
+            type: "insert",
+            tables: extractUsedTable(this.config.table)
+          },
+          this.cacheConfig
+        );
+      }
+      execute = (placeholderValues) => {
+        return this.prepare().execute(placeholderValues);
+      };
+      createIterator = () => {
+        const self2 = this;
+        return async function* (placeholderValues) {
+          yield* self2.prepare().iterator(placeholderValues);
+        };
+      };
+      iterator = this.createIterator();
+      $dynamic() {
+        return this;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/select.types.js
+var init_select_types = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/select.types.js"() {
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/update.js
+var MySqlUpdateBuilder, MySqlUpdateBase;
+var init_update = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/update.js"() {
+    init_entity();
+    init_query_promise();
+    init_selection_proxy();
+    init_table();
+    init_utils();
+    init_utils2();
+    MySqlUpdateBuilder = class {
+      constructor(table, session, dialect, withList) {
+        this.table = table;
+        this.session = session;
+        this.dialect = dialect;
+        this.withList = withList;
+      }
+      static [entityKind] = "MySqlUpdateBuilder";
+      set(values) {
+        return new MySqlUpdateBase(this.table, mapUpdateSet(this.table, values), this.session, this.dialect, this.withList);
+      }
+    };
+    MySqlUpdateBase = class extends QueryPromise {
+      constructor(table, set2, session, dialect, withList) {
+        super();
+        this.session = session;
+        this.dialect = dialect;
+        this.config = { set: set2, table, withList };
+      }
+      static [entityKind] = "MySqlUpdate";
+      config;
+      cacheConfig;
+      /**
+       * Adds a 'where' clause to the query.
+       *
+       * Calling this method will update only those rows that fulfill a specified condition.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/update}
+       *
+       * @param where the 'where' clause.
+       *
+       * @example
+       * You can use conditional operators and `sql function` to filter the rows to be updated.
+       *
+       * ```ts
+       * // Update all cars with green color
+       * db.update(cars).set({ color: 'red' })
+       *   .where(eq(cars.color, 'green'));
+       * // or
+       * db.update(cars).set({ color: 'red' })
+       *   .where(sql`${cars.color} = 'green'`)
+       * ```
+       *
+       * You can logically combine conditional operators with `and()` and `or()` operators:
+       *
+       * ```ts
+       * // Update all BMW cars with a green color
+       * db.update(cars).set({ color: 'red' })
+       *   .where(and(eq(cars.color, 'green'), eq(cars.brand, 'BMW')));
+       *
+       * // Update all cars with the green or blue color
+       * db.update(cars).set({ color: 'red' })
+       *   .where(or(eq(cars.color, 'green'), eq(cars.color, 'blue')));
+       * ```
+       */
+      where(where) {
+        this.config.where = where;
+        return this;
+      }
+      orderBy(...columns) {
+        if (typeof columns[0] === "function") {
+          const orderBy = columns[0](
+            new Proxy(
+              this.config.table[Table.Symbol.Columns],
+              new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
+            )
+          );
+          const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
+          this.config.orderBy = orderByArray;
+        } else {
+          const orderByArray = columns;
+          this.config.orderBy = orderByArray;
+        }
+        return this;
+      }
+      limit(limit) {
+        this.config.limit = limit;
+        return this;
+      }
+      /** @internal */
+      getSQL() {
+        return this.dialect.buildUpdateQuery(this.config);
+      }
+      toSQL() {
+        const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
+        return rest;
+      }
+      prepare() {
+        return this.session.prepareQuery(
+          this.dialect.sqlToQuery(this.getSQL()),
+          void 0,
+          void 0,
+          void 0,
+          this.config.returning,
+          {
+            type: "insert",
+            tables: extractUsedTable(this.config.table)
+          },
+          this.cacheConfig
+        );
+      }
+      execute = (placeholderValues) => {
+        return this.prepare().execute(placeholderValues);
+      };
+      createIterator = () => {
+        const self2 = this;
+        return async function* (placeholderValues) {
+          yield* self2.prepare().iterator(placeholderValues);
+        };
+      };
+      iterator = this.createIterator();
+      $dynamic() {
+        return this;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/index.js
+var init_query_builders = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/index.js"() {
+    init_delete();
+    init_insert();
+    init_query_builder2();
+    init_select2();
+    init_select_types();
+    init_update();
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/query-builders/query.js
+var RelationalQueryBuilder, MySqlRelationalQuery;
+var init_query = __esm({
+  "node_modules/drizzle-orm/mysql-core/query-builders/query.js"() {
+    init_entity();
+    init_query_promise();
+    init_relations();
+    RelationalQueryBuilder = class {
+      constructor(fullSchema, schema, tableNamesMap, table, tableConfig, dialect, session, mode) {
+        this.fullSchema = fullSchema;
+        this.schema = schema;
+        this.tableNamesMap = tableNamesMap;
+        this.table = table;
+        this.tableConfig = tableConfig;
+        this.dialect = dialect;
+        this.session = session;
+        this.mode = mode;
+      }
+      static [entityKind] = "MySqlRelationalQueryBuilder";
+      findMany(config2) {
+        return new MySqlRelationalQuery(
+          this.fullSchema,
+          this.schema,
+          this.tableNamesMap,
+          this.table,
+          this.tableConfig,
+          this.dialect,
+          this.session,
+          config2 ? config2 : {},
+          "many",
+          this.mode
+        );
+      }
+      findFirst(config2) {
+        return new MySqlRelationalQuery(
+          this.fullSchema,
+          this.schema,
+          this.tableNamesMap,
+          this.table,
+          this.tableConfig,
+          this.dialect,
+          this.session,
+          config2 ? { ...config2, limit: 1 } : { limit: 1 },
+          "first",
+          this.mode
+        );
+      }
+    };
+    MySqlRelationalQuery = class extends QueryPromise {
+      constructor(fullSchema, schema, tableNamesMap, table, tableConfig, dialect, session, config2, queryMode, mode) {
+        super();
+        this.fullSchema = fullSchema;
+        this.schema = schema;
+        this.tableNamesMap = tableNamesMap;
+        this.table = table;
+        this.tableConfig = tableConfig;
+        this.dialect = dialect;
+        this.session = session;
+        this.config = config2;
+        this.queryMode = queryMode;
+        this.mode = mode;
+      }
+      static [entityKind] = "MySqlRelationalQuery";
+      prepare() {
+        const { query, builtQuery } = this._toSQL();
+        return this.session.prepareQuery(
+          builtQuery,
+          void 0,
+          (rawRows) => {
+            const rows = rawRows.map((row) => mapRelationalRow(this.schema, this.tableConfig, row, query.selection));
+            if (this.queryMode === "first") {
+              return rows[0];
+            }
+            return rows;
+          }
+        );
+      }
+      _getQuery() {
+        const query = this.mode === "planetscale" ? this.dialect.buildRelationalQueryWithoutLateralSubqueries({
+          fullSchema: this.fullSchema,
+          schema: this.schema,
+          tableNamesMap: this.tableNamesMap,
+          table: this.table,
+          tableConfig: this.tableConfig,
+          queryConfig: this.config,
+          tableAlias: this.tableConfig.tsName
+        }) : this.dialect.buildRelationalQuery({
+          fullSchema: this.fullSchema,
+          schema: this.schema,
+          tableNamesMap: this.tableNamesMap,
+          table: this.table,
+          tableConfig: this.tableConfig,
+          queryConfig: this.config,
+          tableAlias: this.tableConfig.tsName
+        });
+        return query;
+      }
+      _toSQL() {
+        const query = this._getQuery();
+        const builtQuery = this.dialect.sqlToQuery(query.sql);
+        return { builtQuery, query };
+      }
+      /** @internal */
+      getSQL() {
+        return this._getQuery().sql;
+      }
+      toSQL() {
+        return this._toSQL().builtQuery;
+      }
+      execute() {
+        return this.prepare().execute();
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/db.js
+var MySqlDatabase;
+var init_db = __esm({
+  "node_modules/drizzle-orm/mysql-core/db.js"() {
+    init_entity();
+    init_selection_proxy();
+    init_sql();
+    init_subquery();
+    init_count();
+    init_query_builders();
+    init_query();
+    MySqlDatabase = class {
+      constructor(dialect, session, schema, mode) {
+        this.dialect = dialect;
+        this.session = session;
+        this.mode = mode;
+        this._ = schema ? {
+          schema: schema.schema,
+          fullSchema: schema.fullSchema,
+          tableNamesMap: schema.tableNamesMap
+        } : {
+          schema: void 0,
+          fullSchema: {},
+          tableNamesMap: {}
+        };
+        this.query = {};
+        if (this._.schema) {
+          for (const [tableName, columns] of Object.entries(this._.schema)) {
+            this.query[tableName] = new RelationalQueryBuilder(
+              schema.fullSchema,
+              this._.schema,
+              this._.tableNamesMap,
+              schema.fullSchema[tableName],
+              columns,
+              dialect,
+              session,
+              this.mode
+            );
+          }
+        }
+        this.$cache = { invalidate: async (_params) => {
+        } };
+      }
+      static [entityKind] = "MySqlDatabase";
+      query;
+      /**
+       * Creates a subquery that defines a temporary named result set as a CTE.
+       *
+       * It is useful for breaking down complex queries into simpler parts and for reusing the result set in subsequent parts of the query.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/select#with-clause}
+       *
+       * @param alias The alias for the subquery.
+       *
+       * Failure to provide an alias will result in a DrizzleTypeError, preventing the subquery from being referenced in other queries.
+       *
+       * @example
+       *
+       * ```ts
+       * // Create a subquery with alias 'sq' and use it in the select query
+       * const sq = db.$with('sq').as(db.select().from(users).where(eq(users.id, 42)));
+       *
+       * const result = await db.with(sq).select().from(sq);
+       * ```
+       *
+       * To select arbitrary SQL values as fields in a CTE and reference them in other CTEs or in the main query, you need to add aliases to them:
+       *
+       * ```ts
+       * // Select an arbitrary SQL value as a field in a CTE and reference it in the main query
+       * const sq = db.$with('sq').as(db.select({
+       *   name: sql<string>`upper(${users.name})`.as('name'),
+       * })
+       * .from(users));
+       *
+       * const result = await db.with(sq).select({ name: sq.name }).from(sq);
+       * ```
+       */
+      $with = (alias, selection) => {
+        const self2 = this;
+        const as = (qb) => {
+          if (typeof qb === "function") {
+            qb = qb(new QueryBuilder(self2.dialect));
+          }
+          return new Proxy(
+            new WithSubquery(
+              qb.getSQL(),
+              selection ?? ("getSelectedFields" in qb ? qb.getSelectedFields() ?? {} : {}),
+              alias,
+              true
+            ),
+            new SelectionProxyHandler({ alias, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
+          );
+        };
+        return { as };
+      };
+      $count(source, filters) {
+        return new MySqlCountBuilder({ source, filters, session: this.session });
+      }
+      $cache;
+      /**
+       * Incorporates a previously defined CTE (using `$with`) into the main query.
+       *
+       * This method allows the main query to reference a temporary named result set.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/select#with-clause}
+       *
+       * @param queries The CTEs to incorporate into the main query.
+       *
+       * @example
+       *
+       * ```ts
+       * // Define a subquery 'sq' as a CTE using $with
+       * const sq = db.$with('sq').as(db.select().from(users).where(eq(users.id, 42)));
+       *
+       * // Incorporate the CTE 'sq' into the main query and select from it
+       * const result = await db.with(sq).select().from(sq);
+       * ```
+       */
+      with(...queries) {
+        const self2 = this;
+        function select(fields) {
+          return new MySqlSelectBuilder({
+            fields: fields ?? void 0,
+            session: self2.session,
+            dialect: self2.dialect,
+            withList: queries
+          });
+        }
+        function selectDistinct(fields) {
+          return new MySqlSelectBuilder({
+            fields: fields ?? void 0,
+            session: self2.session,
+            dialect: self2.dialect,
+            withList: queries,
+            distinct: true
+          });
+        }
+        function update(table) {
+          return new MySqlUpdateBuilder(table, self2.session, self2.dialect, queries);
+        }
+        function delete_(table) {
+          return new MySqlDeleteBase(table, self2.session, self2.dialect, queries);
+        }
+        return { select, selectDistinct, update, delete: delete_ };
+      }
+      select(fields) {
+        return new MySqlSelectBuilder({ fields: fields ?? void 0, session: this.session, dialect: this.dialect });
+      }
+      selectDistinct(fields) {
+        return new MySqlSelectBuilder({
+          fields: fields ?? void 0,
+          session: this.session,
+          dialect: this.dialect,
+          distinct: true
+        });
+      }
+      /**
+       * Creates an update query.
+       *
+       * Calling this method without `.where()` clause will update all rows in a table. The `.where()` clause specifies which rows should be updated.
+       *
+       * Use `.set()` method to specify which values to update.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/update}
+       *
+       * @param table The table to update.
+       *
+       * @example
+       *
+       * ```ts
+       * // Update all rows in the 'cars' table
+       * await db.update(cars).set({ color: 'red' });
+       *
+       * // Update rows with filters and conditions
+       * await db.update(cars).set({ color: 'red' }).where(eq(cars.brand, 'BMW'));
+       * ```
+       */
+      update(table) {
+        return new MySqlUpdateBuilder(table, this.session, this.dialect);
+      }
+      /**
+       * Creates an insert query.
+       *
+       * Calling this method will create new rows in a table. Use `.values()` method to specify which values to insert.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/insert}
+       *
+       * @param table The table to insert into.
+       *
+       * @example
+       *
+       * ```ts
+       * // Insert one row
+       * await db.insert(cars).values({ brand: 'BMW' });
+       *
+       * // Insert multiple rows
+       * await db.insert(cars).values([{ brand: 'BMW' }, { brand: 'Porsche' }]);
+       * ```
+       */
+      insert(table) {
+        return new MySqlInsertBuilder(table, this.session, this.dialect);
+      }
+      /**
+       * Creates a delete query.
+       *
+       * Calling this method without `.where()` clause will delete all rows in a table. The `.where()` clause specifies which rows should be deleted.
+       *
+       * See docs: {@link https://orm.drizzle.team/docs/delete}
+       *
+       * @param table The table to delete from.
+       *
+       * @example
+       *
+       * ```ts
+       * // Delete all rows in the 'cars' table
+       * await db.delete(cars);
+       *
+       * // Delete rows with filters and conditions
+       * await db.delete(cars).where(eq(cars.color, 'green'));
+       * ```
+       */
+      delete(table) {
+        return new MySqlDeleteBase(table, this.session, this.dialect);
+      }
+      execute(query) {
+        return this.session.execute(typeof query === "string" ? sql.raw(query) : query.getSQL());
+      }
+      transaction(transaction, config2) {
+        return this.session.transaction(transaction, config2);
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/cache/core/cache.js
+async function hashQuery(sql2, params) {
+  const dataToHash = `${sql2}-${JSON.stringify(params)}`;
+  const encoder2 = new TextEncoder();
+  const data = encoder2.encode(dataToHash);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = [...new Uint8Array(hashBuffer)];
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex;
+}
+var Cache, NoopCache;
+var init_cache = __esm({
+  "node_modules/drizzle-orm/cache/core/cache.js"() {
+    init_entity();
+    Cache = class {
+      static [entityKind] = "Cache";
+    };
+    NoopCache = class extends Cache {
+      strategy() {
+        return "all";
+      }
+      static [entityKind] = "NoopCache";
+      async get(_key) {
+        return void 0;
+      }
+      async put(_hashedQuery, _response, _tables, _config) {
+      }
+      async onMutate(_params) {
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/session.js
+var MySqlPreparedQuery, MySqlSession, MySqlTransaction;
+var init_session = __esm({
+  "node_modules/drizzle-orm/mysql-core/session.js"() {
+    init_cache();
+    init_entity();
+    init_errors();
+    init_sql();
+    init_db();
+    MySqlPreparedQuery = class {
+      constructor(cache2, queryMetadata, cacheConfig) {
+        this.cache = cache2;
+        this.queryMetadata = queryMetadata;
+        this.cacheConfig = cacheConfig;
+        if (cache2 && cache2.strategy() === "all" && cacheConfig === void 0) {
+          this.cacheConfig = { enable: true, autoInvalidate: true };
+        }
+        if (!this.cacheConfig?.enable) {
+          this.cacheConfig = void 0;
+        }
+      }
+      static [entityKind] = "MySqlPreparedQuery";
+      /** @internal */
+      async queryWithCache(queryString, params, query) {
+        if (this.cache === void 0 || is(this.cache, NoopCache) || this.queryMetadata === void 0) {
+          try {
+            return await query();
+          } catch (e) {
+            throw new DrizzleQueryError(queryString, params, e);
+          }
+        }
+        if (this.cacheConfig && !this.cacheConfig.enable) {
+          try {
+            return await query();
+          } catch (e) {
+            throw new DrizzleQueryError(queryString, params, e);
+          }
+        }
+        if ((this.queryMetadata.type === "insert" || this.queryMetadata.type === "update" || this.queryMetadata.type === "delete") && this.queryMetadata.tables.length > 0) {
+          try {
+            const [res] = await Promise.all([
+              query(),
+              this.cache.onMutate({ tables: this.queryMetadata.tables })
+            ]);
+            return res;
+          } catch (e) {
+            throw new DrizzleQueryError(queryString, params, e);
+          }
+        }
+        if (!this.cacheConfig) {
+          try {
+            return await query();
+          } catch (e) {
+            throw new DrizzleQueryError(queryString, params, e);
+          }
+        }
+        if (this.queryMetadata.type === "select") {
+          const fromCache = await this.cache.get(
+            this.cacheConfig.tag ?? await hashQuery(queryString, params),
+            this.queryMetadata.tables,
+            this.cacheConfig.tag !== void 0,
+            this.cacheConfig.autoInvalidate
+          );
+          if (fromCache === void 0) {
+            let result;
+            try {
+              result = await query();
+            } catch (e) {
+              throw new DrizzleQueryError(queryString, params, e);
+            }
+            await this.cache.put(
+              this.cacheConfig.tag ?? await hashQuery(queryString, params),
+              result,
+              // make sure we send tables that were used in a query only if user wants to invalidate it on each write
+              this.cacheConfig.autoInvalidate ? this.queryMetadata.tables : [],
+              this.cacheConfig.tag !== void 0,
+              this.cacheConfig.config
+            );
+            return result;
+          }
+          return fromCache;
+        }
+        try {
+          return await query();
+        } catch (e) {
+          throw new DrizzleQueryError(queryString, params, e);
+        }
+      }
+      /** @internal */
+      joinsNotNullableMap;
+    };
+    MySqlSession = class {
+      constructor(dialect) {
+        this.dialect = dialect;
+      }
+      static [entityKind] = "MySqlSession";
+      execute(query) {
+        return this.prepareQuery(
+          this.dialect.sqlToQuery(query),
+          void 0
+        ).execute();
+      }
+      async count(sql2) {
+        const res = await this.execute(sql2);
+        return Number(
+          res[0][0]["count"]
+        );
+      }
+      getSetTransactionSQL(config2) {
+        const parts = [];
+        if (config2.isolationLevel) {
+          parts.push(`isolation level ${config2.isolationLevel}`);
+        }
+        return parts.length ? sql`set transaction ${sql.raw(parts.join(" "))}` : void 0;
+      }
+      getStartTransactionSQL(config2) {
+        const parts = [];
+        if (config2.withConsistentSnapshot) {
+          parts.push("with consistent snapshot");
+        }
+        if (config2.accessMode) {
+          parts.push(config2.accessMode);
+        }
+        return parts.length ? sql`start transaction ${sql.raw(parts.join(" "))}` : void 0;
+      }
+    };
+    MySqlTransaction = class extends MySqlDatabase {
+      constructor(dialect, session, schema, nestedIndex, mode) {
+        super(dialect, session, schema, mode);
+        this.schema = schema;
+        this.nestedIndex = nestedIndex;
+      }
+      static [entityKind] = "MySqlTransaction";
+      rollback() {
+        throw new TransactionRollbackError();
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/alias.js
+var init_alias2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/alias.js"() {
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/columns/index.js
+var init_columns = __esm({
+  "node_modules/drizzle-orm/mysql-core/columns/index.js"() {
+    init_bigint();
+    init_binary();
+    init_boolean();
+    init_char();
+    init_common2();
+    init_custom();
+    init_date();
+    init_datetime();
+    init_decimal();
+    init_double();
+    init_enum2();
+    init_float();
+    init_int();
+    init_json();
+    init_mediumint();
+    init_real();
+    init_serial();
+    init_smallint();
+    init_text();
+    init_time();
+    init_timestamp();
+    init_tinyint();
+    init_varbinary();
+    init_varchar();
+    init_year();
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/view.js
+function mysqlViewWithSchema(name2, selection, schema) {
+  if (selection) {
+    return new ManualViewBuilder(name2, selection, schema);
+  }
+  return new ViewBuilder(name2, schema);
+}
+var ViewBuilderCore, ViewBuilder, ManualViewBuilder, MySqlView;
+var init_view = __esm({
+  "node_modules/drizzle-orm/mysql-core/view.js"() {
+    init_entity();
+    init_selection_proxy();
+    init_utils();
+    init_query_builder2();
+    init_table3();
+    init_view_base();
+    init_view_common2();
+    ViewBuilderCore = class {
+      constructor(name2, schema) {
+        this.name = name2;
+        this.schema = schema;
+      }
+      static [entityKind] = "MySqlViewBuilder";
+      config = {};
+      algorithm(algorithm) {
+        this.config.algorithm = algorithm;
+        return this;
+      }
+      sqlSecurity(sqlSecurity) {
+        this.config.sqlSecurity = sqlSecurity;
+        return this;
+      }
+      withCheckOption(withCheckOption) {
+        this.config.withCheckOption = withCheckOption ?? "cascaded";
+        return this;
+      }
+    };
+    ViewBuilder = class extends ViewBuilderCore {
+      static [entityKind] = "MySqlViewBuilder";
+      as(qb) {
+        if (typeof qb === "function") {
+          qb = qb(new QueryBuilder());
+        }
+        const selectionProxy = new SelectionProxyHandler({
+          alias: this.name,
+          sqlBehavior: "error",
+          sqlAliasedBehavior: "alias",
+          replaceOriginalName: true
+        });
+        const aliasedSelection = new Proxy(qb.getSelectedFields(), selectionProxy);
+        return new Proxy(
+          new MySqlView({
+            mysqlConfig: this.config,
+            config: {
+              name: this.name,
+              schema: this.schema,
+              selectedFields: aliasedSelection,
+              query: qb.getSQL().inlineParams()
+            }
+          }),
+          selectionProxy
+        );
+      }
+    };
+    ManualViewBuilder = class extends ViewBuilderCore {
+      static [entityKind] = "MySqlManualViewBuilder";
+      columns;
+      constructor(name2, columns, schema) {
+        super(name2, schema);
+        this.columns = getTableColumns(mysqlTable(name2, columns));
+      }
+      existing() {
+        return new Proxy(
+          new MySqlView({
+            mysqlConfig: void 0,
+            config: {
+              name: this.name,
+              schema: this.schema,
+              selectedFields: this.columns,
+              query: void 0
+            }
+          }),
+          new SelectionProxyHandler({
+            alias: this.name,
+            sqlBehavior: "error",
+            sqlAliasedBehavior: "alias",
+            replaceOriginalName: true
+          })
+        );
+      }
+      as(query) {
+        return new Proxy(
+          new MySqlView({
+            mysqlConfig: this.config,
+            config: {
+              name: this.name,
+              schema: this.schema,
+              selectedFields: this.columns,
+              query: query.inlineParams()
+            }
+          }),
+          new SelectionProxyHandler({
+            alias: this.name,
+            sqlBehavior: "error",
+            sqlAliasedBehavior: "alias",
+            replaceOriginalName: true
+          })
+        );
+      }
+    };
+    MySqlView = class extends MySqlViewBase {
+      static [entityKind] = "MySqlView";
+      [MySqlViewConfig];
+      constructor({ mysqlConfig, config: config2 }) {
+        super(config2);
+        this[MySqlViewConfig] = mysqlConfig;
+      }
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/schema.js
+var MySqlSchema;
+var init_schema = __esm({
+  "node_modules/drizzle-orm/mysql-core/schema.js"() {
+    init_entity();
+    init_table3();
+    init_view();
+    MySqlSchema = class {
+      constructor(schemaName) {
+        this.schemaName = schemaName;
+      }
+      static [entityKind] = "MySqlSchema";
+      table = (name2, columns, extraConfig) => {
+        return mysqlTableWithSchema(name2, columns, extraConfig, this.schemaName);
+      };
+      view = (name2, columns) => {
+        return mysqlViewWithSchema(name2, columns, this.schemaName);
+      };
+    };
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/subquery.js
+var init_subquery2 = __esm({
+  "node_modules/drizzle-orm/mysql-core/subquery.js"() {
+  }
+});
+
+// node_modules/drizzle-orm/mysql-core/index.js
+var init_mysql_core = __esm({
+  "node_modules/drizzle-orm/mysql-core/index.js"() {
+    init_alias2();
+    init_checks();
+    init_columns();
+    init_db();
+    init_dialect();
+    init_foreign_keys2();
+    init_indexes();
+    init_primary_keys2();
+    init_query_builders();
+    init_schema();
+    init_session();
+    init_subquery2();
+    init_table3();
+    init_unique_constraint2();
+    init_utils2();
+    init_view_common2();
+    init_view();
+  }
+});
+
+// drizzle/schema.ts
+var schema_exports = {};
+__export(schema_exports, {
+  alerts: () => alerts,
+  apiTransactions: () => apiTransactions,
+  bankTransactions: () => bankTransactions,
+  cashFlow: () => cashFlow,
+  costCenters: () => costCenters,
+  creditInstallments: () => creditInstallments,
+  creditPortfolio: () => creditPortfolio,
+  divergences: () => divergences,
+  dre: () => dre,
+  expenses: () => expenses,
+  managerialBalances: () => managerialBalances,
+  manualAdjustments: () => manualAdjustments,
+  payables: () => payables,
+  reconciliationSessions: () => reconciliationSessions,
+  revenues: () => revenues,
+  systemConfig: () => systemConfig,
+  users: () => users
+});
+var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, dre, cashFlow, alerts, systemConfig;
+var init_schema2 = __esm({
+  "drizzle/schema.ts"() {
+    "use strict";
+    init_mysql_core();
+    users = mysqlTable("users", {
+      id: int("id").autoincrement().primaryKey(),
+      openId: varchar("openId", { length: 64 }).notNull().unique(),
+      name: text("name"),
+      email: varchar("email", { length: 320 }),
+      passwordHash: varchar("passwordHash", { length: 256 }),
+      // para login local
+      loginMethod: varchar("loginMethod", { length: 64 }),
+      role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+      lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
+    });
+    reconciliationSessions = mysqlTable("reconciliation_sessions", {
+      id: int("id").autoincrement().primaryKey(),
+      userId: int("userId").notNull(),
+      referenceDate: date("referenceDate").notNull(),
+      status: mysqlEnum("status", ["processing", "completed", "error"]).default("processing").notNull(),
+      totalBankCredits: decimal("totalBankCredits", { precision: 18, scale: 2 }).default("0"),
+      totalBankDebits: decimal("totalBankDebits", { precision: 18, scale: 2 }).default("0"),
+      totalApiCredits: decimal("totalApiCredits", { precision: 18, scale: 2 }).default("0"),
+      totalApiDebits: decimal("totalApiDebits", { precision: 18, scale: 2 }).default("0"),
+      matchedCount: int("matchedCount").default(0),
+      divergentCount: int("divergentCount").default(0),
+      pendingCount: int("pendingCount").default(0),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    bankTransactions = mysqlTable("bank_transactions", {
+      id: int("id").autoincrement().primaryKey(),
+      sessionId: int("sessionId").notNull(),
+      type: mysqlEnum("type", ["credit", "debit"]).notNull(),
+      transactionDate: date("transactionDate").notNull(),
+      description: text("description"),
+      amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+      channel: varchar("channel", { length: 50 }),
+      // PIX, TED, BOLETO, etc.
+      bankName: varchar("bankName", { length: 100 }),
+      externalId: varchar("externalId", { length: 100 }),
+      matchStatus: mysqlEnum("matchStatus", ["pending", "matched", "divergent", "manual"]).default("pending").notNull(),
+      matchedApiTransactionId: int("matchedApiTransactionId"),
+      matchType: mysqlEnum("matchType", ["exact", "partial", "approximate", "manual", "divergent"]),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      sessionIdx: index("bt_session_idx").on(table.sessionId),
+      dateIdx: index("bt_date_idx").on(table.transactionDate),
+      statusIdx: index("bt_status_idx").on(table.matchStatus),
+      sessionTypeIdx: index("bt_session_type_idx").on(table.sessionId, table.type)
+    }));
+    apiTransactions = mysqlTable("api_transactions", {
+      id: int("id").autoincrement().primaryKey(),
+      sessionId: int("sessionId").notNull(),
+      type: mysqlEnum("type", ["credit", "debit"]).notNull(),
+      transactionDate: date("transactionDate").notNull(),
+      description: text("description"),
+      amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+      channel: varchar("channel", { length: 50 }),
+      clientId: varchar("clientId", { length: 100 }),
+      clientName: varchar("clientName", { length: 200 }),
+      externalId: varchar("externalId", { length: 100 }),
+      matchStatus: mysqlEnum("matchStatus", ["pending", "matched", "divergent", "manual"]).default("pending").notNull(),
+      matchedBankTransactionId: int("matchedBankTransactionId"),
+      matchType: mysqlEnum("matchType", ["exact", "partial", "approximate", "manual", "divergent"]),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      sessionIdx: index("at_session_idx").on(table.sessionId),
+      dateIdx: index("at_date_idx").on(table.transactionDate),
+      statusIdx: index("at_status_idx").on(table.matchStatus),
+      sessionTypeIdx: index("at_session_type_idx").on(table.sessionId, table.type)
+    }));
+    divergences = mysqlTable("divergences", {
+      id: int("id").autoincrement().primaryKey(),
+      sessionId: int("sessionId").notNull(),
+      divergenceDate: date("divergenceDate").notNull(),
+      bankName: varchar("bankName", { length: 100 }),
+      clientId: varchar("clientId", { length: 100 }),
+      clientName: varchar("clientName", { length: 200 }),
+      divergenceType: mysqlEnum("divergenceType", ["bank_surplus", "bank_shortage"]).notNull(),
+      // sobra ou falta no banco
+      amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+      origin: varchar("origin", { length: 100 }),
+      category: mysqlEnum("category", [
+        "receita_nao_lancada",
+        "pix_sem_cliente",
+        "receita_financeira",
+        "estorno",
+        "devolucao",
+        "deposito_nao_identificado",
+        "tarifa_nao_apropriada",
+        "ted_orfa",
+        "receita_operacional",
+        "emprestimo_operacional",
+        "uso_saldo_clientes",
+        "despesa_nao_lancada",
+        "tarifa_bancaria",
+        "imposto",
+        "repasse_externo",
+        "ajuste_manual",
+        "saida_operacional",
+        "liquidacao_divergente",
+        "outros"
+      ]).notNull(),
+      subcategory: varchar("subcategory", { length: 100 }),
+      responsible: varchar("responsible", { length: 200 }),
+      status: mysqlEnum("status", [
+        "pendente",
+        "em_analise",
+        "identificado",
+        "regularizado",
+        "reclassificado",
+        "baixado",
+        "em_aberto",
+        "escalado_diretoria"
+      ]).default("pendente").notNull(),
+      slaDeadline: date("slaDeadline"),
+      priority: mysqlEnum("priority", ["low", "medium", "high", "critical"]).default("medium").notNull(),
+      evidence: text("evidence"),
+      observation: text("observation"),
+      actionTaken: text("actionTaken"),
+      // NDI — Não Identificado: entrada no banco sem correspondência na API
+      isNdi: boolean("isNdi").default(false),
+      ndiNote: text("ndiNote"),
+      // Estorno: transação estornada automaticamente detectada
+      isEstorno: boolean("isEstorno").default(false),
+      bankTransactionId: int("bankTransactionId"),
+      apiTransactionId: int("apiTransactionId"),
+      bankDescription: varchar("bankDescription", { length: 500 }),
+      apiDescription: varchar("apiDescription", { length: 500 }),
+      externalId: varchar("externalId", { length: 200 }),
+      bankAmount: decimal("bankAmount", { precision: 18, scale: 2 }),
+      apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }),
+      transactionType: mysqlEnum("transactionType", ["credit", "debit"]),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      sessionIdx: index("div_session_idx").on(table.sessionId),
+      statusIdx: index("div_status_idx").on(table.status),
+      priorityIdx: index("div_priority_idx").on(table.priority),
+      dateIdx: index("div_date_idx").on(table.divergenceDate),
+      statusPriorityIdx: index("div_status_priority_idx").on(table.status, table.priority)
+    }));
+    managerialBalances = mysqlTable("managerial_balances", {
+      id: int("id").autoincrement().primaryKey(),
+      referenceDate: date("referenceDate").notNull().unique(),
+      bankBalance: decimal("bankBalance", { precision: 18, scale: 2 }).default("0").notNull(),
+      clientBalance: decimal("clientBalance", { precision: 18, scale: 2 }).default("0").notNull(),
+      committedBalance: decimal("committedBalance", { precision: 18, scale: 2 }).default("0").notNull(),
+      divergenceBalance: decimal("divergenceBalance", { precision: 18, scale: 2 }).default("0").notNull(),
+      realCash: decimal("realCash", { precision: 18, scale: 2 }).default("0").notNull(),
+      // bankBalance - clientBalance - committedBalance ± divergenceBalance
+      ownCash: decimal("ownCash", { precision: 18, scale: 2 }).default("0").notNull(),
+      committedCash: decimal("committedCash", { precision: 18, scale: 2 }).default("0").notNull(),
+      freeCash: decimal("freeCash", { precision: 18, scale: 2 }).default("0").notNull(),
+      thirdPartyResources: decimal("thirdPartyResources", { precision: 18, scale: 2 }).default("0"),
+      futureObligations: decimal("futureObligations", { precision: 18, scale: 2 }).default("0"),
+      fundingNeeded: decimal("fundingNeeded", { precision: 18, scale: 2 }).default("0"),
+      openDivergences: int("openDivergences").default(0),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    revenues = mysqlTable("revenues", {
+      id: int("id").autoincrement().primaryKey(),
+      referenceDate: date("referenceDate").notNull(),
+      type: mysqlEnum("type", [
+        "pix",
+        "ted",
+        "boleto",
+        "credito",
+        "antecipacao",
+        "pos",
+        "white_label",
+        "receita_financeira",
+        "receita_operacional",
+        "outros"
+      ]).notNull(),
+      description: text("description"),
+      amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+      clientId: varchar("clientId", { length: 100 }),
+      clientName: varchar("clientName", { length: 200 }),
+      status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
+      bankTransactionId: int("bankTransactionId"),
+      costCenterId: int("costCenterId"),
+      createdByName: varchar("createdByName", { length: 200 }),
+      // Rastreamento de origem — adicionado via migração 0005
+      sessionId: int("sessionId"),
+      divergenceId: int("divergenceId"),
+      origin: varchar("origin", { length: 50 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      dateIdx: index("rev_date_idx").on(table.referenceDate),
+      statusIdx: index("rev_status_idx").on(table.status),
+      typeIdx: index("rev_type_idx").on(table.type),
+      sessionIdx: index("rev_session_idx").on(table.sessionId)
+    }));
+    expenses = mysqlTable("expenses", {
+      id: int("id").autoincrement().primaryKey(),
+      referenceDate: date("referenceDate").notNull(),
+      category: mysqlEnum("category", [
+        "bancaria",
+        "api",
+        "tecnologia",
+        "infra",
+        "operacional",
+        "comercial",
+        "folha",
+        "comissao",
+        "impostos",
+        "reembolso",
+        "chargeback",
+        "estorno",
+        "marketing",
+        "juridico",
+        "administrativo",
+        "outros"
+      ]).notNull(),
+      subcategory: varchar("subcategory", { length: 100 }),
+      description: text("description"),
+      amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+      supplier: varchar("supplier", { length: 200 }),
+      status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
+      bankTransactionId: int("bankTransactionId"),
+      costCenterId: int("costCenterId"),
+      createdByName: varchar("createdByName", { length: 200 }),
+      // Rastreamento de origem — adicionado via migração 0005
+      sessionId: int("sessionId"),
+      divergenceId: int("divergenceId"),
+      origin: varchar("origin", { length: 50 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    manualAdjustments = mysqlTable("manual_adjustments", {
+      id: int("id").autoincrement().primaryKey(),
+      sessionId: int("sessionId"),
+      description: text("description").notNull(),
+      adjustmentType: mysqlEnum("adjustmentType", [
+        "bank_split",
+        // banco divide pagamento em parcelas
+        "api_split",
+        // API divide em múltiplas entradas
+        "rounding",
+        // diferença de centavos
+        "manual"
+        // ajuste genérico
+      ]).notNull().default("manual"),
+      apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }).notNull(),
+      bankAmounts: text("bankAmounts"),
+      // JSON array de valores do banco
+      totalBankAmount: decimal("totalBankAmount", { precision: 18, scale: 2 }),
+      difference: decimal("difference", { precision: 18, scale: 2 }),
+      divergenceIds: text("divergenceIds"),
+      // JSON array de divergência IDs resolvidas
+      status: mysqlEnum("status", ["pendente", "aprovado", "rejeitado"]).default("aprovado").notNull(),
+      createdByName: varchar("createdByName", { length: 200 }),
+      notes: text("notes"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      sessionIdx: index("adj_session_idx").on(table.sessionId)
+    }));
+    payables = mysqlTable("payables", {
+      id: int("id").autoincrement().primaryKey(),
+      description: text("description").notNull(),
+      supplier: varchar("supplier", { length: 200 }),
+      category: mysqlEnum("category", [
+        "bancaria",
+        "api",
+        "tecnologia",
+        "infra",
+        "operacional",
+        "comercial",
+        "folha",
+        "comissao",
+        "impostos",
+        "reembolso",
+        "marketing",
+        "juridico",
+        "administrativo",
+        "outros"
+      ]).notNull(),
+      amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
+      dueDate: date("dueDate").notNull(),
+      paidDate: date("paidDate"),
+      status: mysqlEnum("status", ["pendente", "pago", "vencido", "cancelado"]).default("pendente").notNull(),
+      recurrent: boolean("recurrent").default(false),
+      recurrenceDay: int("recurrenceDay"),
+      notes: text("notes"),
+      createdByName: varchar("createdByName", { length: 200 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      dueDateIdx: index("pay_due_date_idx").on(table.dueDate),
+      statusIdx: index("pay_status_idx").on(table.status),
+      statusDueDateIdx: index("pay_status_due_idx").on(table.status, table.dueDate)
+    }));
+    creditPortfolio = mysqlTable("credit_portfolio", {
+      id: int("id").autoincrement().primaryKey(),
+      clientId: varchar("clientId", { length: 100 }).notNull(),
+      clientName: varchar("clientName", { length: 200 }).notNull(),
+      principal: decimal("principal", { precision: 18, scale: 2 }).notNull(),
+      interestRate: decimal("interestRate", { precision: 8, scale: 4 }).notNull(),
+      // taxa mensal
+      totalInstallments: int("totalInstallments").notNull(),
+      paidInstallments: int("paidInstallments").default(0).notNull(),
+      totalInterestEarned: decimal("totalInterestEarned", { precision: 18, scale: 2 }).default("0"),
+      outstandingBalance: decimal("outstandingBalance", { precision: 18, scale: 2 }).notNull(),
+      status: mysqlEnum("status", ["ativo", "quitado", "inadimplente", "renegociado", "cancelado"]).default("ativo").notNull(),
+      startDate: date("startDate").notNull(),
+      expectedEndDate: date("expectedEndDate").notNull(),
+      lastPaymentDate: date("lastPaymentDate"),
+      fundingSource: mysqlEnum("fundingSource", ["capital_proprio", "uso_custodia", "externo"]).default("capital_proprio"),
+      notes: text("notes"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      statusIdx: index("cp_status_idx").on(table.status),
+      clientIdx: index("cp_client_idx").on(table.clientId)
+    }));
+    creditInstallments = mysqlTable("credit_installments", {
+      id: int("id").autoincrement().primaryKey(),
+      creditId: int("creditId").notNull(),
+      installmentNumber: int("installmentNumber").notNull(),
+      dueDate: date("dueDate").notNull(),
+      principalAmount: decimal("principalAmount", { precision: 18, scale: 2 }).notNull(),
+      interestAmount: decimal("interestAmount", { precision: 18, scale: 2 }).notNull(),
+      totalAmount: decimal("totalAmount", { precision: 18, scale: 2 }).notNull(),
+      paidAmount: decimal("paidAmount", { precision: 18, scale: 2 }).default("0"),
+      paidDate: date("paidDate"),
+      status: mysqlEnum("status", ["pendente", "pago", "vencido", "parcial"]).default("pendente").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      creditIdx: index("ci_credit_idx").on(table.creditId),
+      statusIdx: index("ci_status_idx").on(table.status),
+      dueDateIdx: index("ci_due_date_idx").on(table.dueDate)
+    }));
+    costCenters = mysqlTable("cost_centers", {
+      id: int("id").autoincrement().primaryKey(),
+      name: varchar("name", { length: 200 }).notNull(),
+      type: mysqlEnum("type", ["receita", "despesa_fixa", "despesa_variavel", "imposto", "investimento", "credito"]).notNull(),
+      description: text("description"),
+      budget: decimal("budget", { precision: 18, scale: 2 }),
+      active: boolean("active").default(true).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
+    dre = mysqlTable("dre", {
+      id: int("id").autoincrement().primaryKey(),
+      referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(),
+      // YYYY-MM
+      grossRevenue: decimal("grossRevenue", { precision: 18, scale: 2 }).default("0"),
+      netRevenue: decimal("netRevenue", { precision: 18, scale: 2 }).default("0"),
+      financialCosts: decimal("financialCosts", { precision: 18, scale: 2 }).default("0"),
+      operationalCosts: decimal("operationalCosts", { precision: 18, scale: 2 }).default("0"),
+      adminExpenses: decimal("adminExpenses", { precision: 18, scale: 2 }).default("0"),
+      commercialExpenses: decimal("commercialExpenses", { precision: 18, scale: 2 }).default("0"),
+      taxes: decimal("taxes", { precision: 18, scale: 2 }).default("0"),
+      operationalResult: decimal("operationalResult", { precision: 18, scale: 2 }).default("0"),
+      financialResult: decimal("financialResult", { precision: 18, scale: 2 }).default("0"),
+      netProfit: decimal("netProfit", { precision: 18, scale: 2 }).default("0"),
+      margin: decimal("margin", { precision: 8, scale: 4 }).default("0"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    cashFlow = mysqlTable("cash_flow", {
+      id: int("id").autoincrement().primaryKey(),
+      referenceDate: date("referenceDate").notNull().unique(),
+      openingBalance: decimal("openingBalance", { precision: 18, scale: 2 }).default("0"),
+      projectedInflows: decimal("projectedInflows", { precision: 18, scale: 2 }).default("0"),
+      realizedInflows: decimal("realizedInflows", { precision: 18, scale: 2 }).default("0"),
+      projectedOutflows: decimal("projectedOutflows", { precision: 18, scale: 2 }).default("0"),
+      realizedOutflows: decimal("realizedOutflows", { precision: 18, scale: 2 }).default("0"),
+      closingBalance: decimal("closingBalance", { precision: 18, scale: 2 }).default("0"),
+      freeCash: decimal("freeCash", { precision: 18, scale: 2 }).default("0"),
+      committedCash: decimal("committedCash", { precision: 18, scale: 2 }).default("0"),
+      fundingNeeded: decimal("fundingNeeded", { precision: 18, scale: 2 }).default("0"),
+      // Projeções
+      projectionD7: decimal("projectionD7", { precision: 18, scale: 2 }),
+      projectionD15: decimal("projectionD15", { precision: 18, scale: 2 }),
+      projectionD30: decimal("projectionD30", { precision: 18, scale: 2 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    alerts = mysqlTable("alerts", {
+      id: int("id").autoincrement().primaryKey(),
+      type: mysqlEnum("type", [
+        "cash_shortage",
+        "negative_cash",
+        "insufficient_funding",
+        "excessive_client_balance_use",
+        "critical_divergence",
+        "overdue_payable",
+        "credit_default",
+        "concentration_excess"
+      ]).notNull(),
+      title: varchar("title", { length: 300 }).notNull(),
+      message: text("message").notNull(),
+      severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
+      status: mysqlEnum("status", ["active", "acknowledged", "resolved"]).default("active").notNull(),
+      referenceId: int("referenceId"),
+      referenceType: varchar("referenceType", { length: 50 }),
+      acknowledgedBy: int("acknowledgedBy"),
+      acknowledgedAt: timestamp("acknowledgedAt"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    systemConfig = mysqlTable("system_config", {
+      id: int("id").autoincrement().primaryKey(),
+      key: varchar("key", { length: 100 }).notNull().unique(),
+      value: text("value").notNull(),
+      description: text("description"),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+  }
+});
+
 // node_modules/delayed-stream/lib/delayed_stream.js
 var require_delayed_stream = __commonJS({
   "node_modules/delayed-stream/lib/delayed_stream.js"(exports, module) {
@@ -102884,4210 +108098,18 @@ init_drizzle_orm();
 var import_mysql2 = __toESM(require_mysql2(), 1);
 init_entity();
 init_logger();
-
-// node_modules/drizzle-orm/mysql-core/db.js
-init_entity();
-
-// node_modules/drizzle-orm/selection-proxy.js
-init_alias();
-init_column();
-init_entity();
-init_sql();
-init_subquery();
-init_view_common();
-var SelectionProxyHandler = class _SelectionProxyHandler {
-  static [entityKind] = "SelectionProxyHandler";
-  config;
-  constructor(config2) {
-    this.config = { ...config2 };
-  }
-  get(subquery, prop) {
-    if (prop === "_") {
-      return {
-        ...subquery["_"],
-        selectedFields: new Proxy(
-          subquery._.selectedFields,
-          this
-        )
-      };
-    }
-    if (prop === ViewBaseConfig) {
-      return {
-        ...subquery[ViewBaseConfig],
-        selectedFields: new Proxy(
-          subquery[ViewBaseConfig].selectedFields,
-          this
-        )
-      };
-    }
-    if (typeof prop === "symbol") {
-      return subquery[prop];
-    }
-    const columns = is(subquery, Subquery) ? subquery._.selectedFields : is(subquery, View) ? subquery[ViewBaseConfig].selectedFields : subquery;
-    const value = columns[prop];
-    if (is(value, SQL.Aliased)) {
-      if (this.config.sqlAliasedBehavior === "sql" && !value.isSelectionField) {
-        return value.sql;
-      }
-      const newValue = value.clone();
-      newValue.isSelectionField = true;
-      return newValue;
-    }
-    if (is(value, SQL)) {
-      if (this.config.sqlBehavior === "sql") {
-        return value;
-      }
-      throw new Error(
-        `You tried to reference "${prop}" field from a subquery, which is a raw SQL field, but it doesn't have an alias declared. Please add an alias to the field using ".as('alias')" method.`
-      );
-    }
-    if (is(value, Column)) {
-      if (this.config.alias) {
-        return new Proxy(
-          value,
-          new ColumnAliasProxyHandler(
-            new Proxy(
-              value.table,
-              new TableAliasProxyHandler(this.config.alias, this.config.replaceOriginalName ?? false)
-            )
-          )
-        );
-      }
-      return value;
-    }
-    if (typeof value !== "object" || value === null) {
-      return value;
-    }
-    return new Proxy(value, new _SelectionProxyHandler(this.config));
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/db.js
-init_sql();
-init_subquery();
-
-// node_modules/drizzle-orm/mysql-core/query-builders/count.js
-init_entity();
-init_sql();
-var MySqlCountBuilder = class _MySqlCountBuilder extends SQL {
-  constructor(params) {
-    super(_MySqlCountBuilder.buildEmbeddedCount(params.source, params.filters).queryChunks);
-    this.params = params;
-    this.mapWith(Number);
-    this.session = params.session;
-    this.sql = _MySqlCountBuilder.buildCount(
-      params.source,
-      params.filters
-    );
-  }
-  sql;
-  static [entityKind] = "MySqlCountBuilder";
-  [Symbol.toStringTag] = "MySqlCountBuilder";
-  session;
-  static buildEmbeddedCount(source, filters) {
-    return sql`(select count(*) from ${source}${sql.raw(" where ").if(filters)}${filters})`;
-  }
-  static buildCount(source, filters) {
-    return sql`select count(*) as count from ${source}${sql.raw(" where ").if(filters)}${filters}`;
-  }
-  then(onfulfilled, onrejected) {
-    return Promise.resolve(this.session.count(this.sql)).then(
-      onfulfilled,
-      onrejected
-    );
-  }
-  catch(onRejected) {
-    return this.then(void 0, onRejected);
-  }
-  finally(onFinally) {
-    return this.then(
-      (value) => {
-        onFinally?.();
-        return value;
-      },
-      (reason) => {
-        onFinally?.();
-        throw reason;
-      }
-    );
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/delete.js
-init_entity();
-init_query_promise();
-init_table();
-
-// node_modules/drizzle-orm/mysql-core/utils.js
-init_entity();
-init_drizzle_orm();
-init_subquery();
-init_table();
-
-// node_modules/drizzle-orm/mysql-core/foreign-keys.js
-init_entity();
-init_table_utils();
-var ForeignKeyBuilder2 = class {
-  static [entityKind] = "MySqlForeignKeyBuilder";
-  /** @internal */
-  reference;
-  /** @internal */
-  _onUpdate;
-  /** @internal */
-  _onDelete;
-  constructor(config2, actions) {
-    this.reference = () => {
-      const { name: name2, columns, foreignColumns } = config2();
-      return { name: name2, columns, foreignTable: foreignColumns[0].table, foreignColumns };
-    };
-    if (actions) {
-      this._onUpdate = actions.onUpdate;
-      this._onDelete = actions.onDelete;
-    }
-  }
-  onUpdate(action) {
-    this._onUpdate = action;
-    return this;
-  }
-  onDelete(action) {
-    this._onDelete = action;
-    return this;
-  }
-  /** @internal */
-  build(table) {
-    return new ForeignKey2(table, this);
-  }
-};
-var ForeignKey2 = class {
-  constructor(table, builder) {
-    this.table = table;
-    this.reference = builder.reference;
-    this.onUpdate = builder._onUpdate;
-    this.onDelete = builder._onDelete;
-  }
-  static [entityKind] = "MySqlForeignKey";
-  reference;
-  onUpdate;
-  onDelete;
-  getName() {
-    const { name: name2, columns, foreignColumns } = this.reference();
-    const columnNames = columns.map((column) => column.name);
-    const foreignColumnNames = foreignColumns.map((column) => column.name);
-    const chunks = [
-      this.table[TableName],
-      ...columnNames,
-      foreignColumns[0].table[TableName],
-      ...foreignColumnNames
-    ];
-    return name2 ?? `${chunks.join("_")}_fk`;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/indexes.js
-init_entity();
-var IndexBuilderOn = class {
-  constructor(name2, unique) {
-    this.name = name2;
-    this.unique = unique;
-  }
-  static [entityKind] = "MySqlIndexBuilderOn";
-  on(...columns) {
-    return new IndexBuilder(this.name, columns, this.unique);
-  }
-};
-var IndexBuilder = class {
-  static [entityKind] = "MySqlIndexBuilder";
-  /** @internal */
-  config;
-  constructor(name2, columns, unique) {
-    this.config = {
-      name: name2,
-      columns,
-      unique
-    };
-  }
-  using(using) {
-    this.config.using = using;
-    return this;
-  }
-  algorythm(algorythm) {
-    this.config.algorythm = algorythm;
-    return this;
-  }
-  lock(lock) {
-    this.config.lock = lock;
-    return this;
-  }
-  /** @internal */
-  build(table) {
-    return new Index(this.config, table);
-  }
-};
-var Index = class {
-  static [entityKind] = "MySqlIndex";
-  config;
-  constructor(config2, table) {
-    this.config = { ...config2, table };
-  }
-};
-function index(name2) {
-  return new IndexBuilderOn(name2, false);
-}
-
-// node_modules/drizzle-orm/mysql-core/table.js
-init_entity();
-init_table();
-
-// node_modules/drizzle-orm/mysql-core/columns/bigint.js
-init_entity();
-init_utils();
-
-// node_modules/drizzle-orm/mysql-core/columns/common.js
-init_column_builder();
-init_column();
-init_entity();
-
-// node_modules/drizzle-orm/mysql-core/unique-constraint.js
-init_entity();
-init_table_utils();
-function uniqueKeyName2(table, columns) {
-  return `${table[TableName]}_${columns.join("_")}_unique`;
-}
-var UniqueConstraintBuilder2 = class {
-  constructor(columns, name2) {
-    this.name = name2;
-    this.columns = columns;
-  }
-  static [entityKind] = "MySqlUniqueConstraintBuilder";
-  /** @internal */
-  columns;
-  /** @internal */
-  build(table) {
-    return new UniqueConstraint2(table, this.columns, this.name);
-  }
-};
-var UniqueOnConstraintBuilder2 = class {
-  static [entityKind] = "MySqlUniqueOnConstraintBuilder";
-  /** @internal */
-  name;
-  constructor(name2) {
-    this.name = name2;
-  }
-  on(...columns) {
-    return new UniqueConstraintBuilder2(columns, this.name);
-  }
-};
-var UniqueConstraint2 = class {
-  constructor(table, columns, name2) {
-    this.table = table;
-    this.columns = columns;
-    this.name = name2 ?? uniqueKeyName2(this.table, this.columns.map((column) => column.name));
-  }
-  static [entityKind] = "MySqlUniqueConstraint";
-  columns;
-  name;
-  nullsNotDistinct = false;
-  getName() {
-    return this.name;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/columns/common.js
-var MySqlColumnBuilder = class extends ColumnBuilder {
-  static [entityKind] = "MySqlColumnBuilder";
-  foreignKeyConfigs = [];
-  references(ref, actions = {}) {
-    this.foreignKeyConfigs.push({ ref, actions });
-    return this;
-  }
-  unique(name2) {
-    this.config.isUnique = true;
-    this.config.uniqueName = name2;
-    return this;
-  }
-  generatedAlwaysAs(as, config2) {
-    this.config.generated = {
-      as,
-      type: "always",
-      mode: config2?.mode ?? "virtual"
-    };
-    return this;
-  }
-  /** @internal */
-  buildForeignKeys(column, table) {
-    return this.foreignKeyConfigs.map(({ ref, actions }) => {
-      return ((ref2, actions2) => {
-        const builder = new ForeignKeyBuilder2(() => {
-          const foreignColumn = ref2();
-          return { columns: [column], foreignColumns: [foreignColumn] };
-        });
-        if (actions2.onUpdate) {
-          builder.onUpdate(actions2.onUpdate);
-        }
-        if (actions2.onDelete) {
-          builder.onDelete(actions2.onDelete);
-        }
-        return builder.build(table);
-      })(ref, actions);
-    });
-  }
-};
-var MySqlColumn = class extends Column {
-  constructor(table, config2) {
-    if (!config2.uniqueName) {
-      config2.uniqueName = uniqueKeyName2(table, [config2.name]);
-    }
-    super(table, config2);
-    this.table = table;
-  }
-  static [entityKind] = "MySqlColumn";
-};
-var MySqlColumnBuilderWithAutoIncrement = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlColumnBuilderWithAutoIncrement";
-  constructor(name2, dataType, columnType) {
-    super(name2, dataType, columnType);
-    this.config.autoIncrement = false;
-  }
-  autoincrement() {
-    this.config.autoIncrement = true;
-    this.config.hasDefault = true;
-    return this;
-  }
-};
-var MySqlColumnWithAutoIncrement = class extends MySqlColumn {
-  static [entityKind] = "MySqlColumnWithAutoIncrement";
-  autoIncrement = this.config.autoIncrement;
-};
-
-// node_modules/drizzle-orm/mysql-core/columns/bigint.js
-var MySqlBigInt53Builder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlBigInt53Builder";
-  constructor(name2, unsigned = false) {
-    super(name2, "number", "MySqlBigInt53");
-    this.config.unsigned = unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlBigInt53(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlBigInt53 = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlBigInt53";
-  getSQLType() {
-    return `bigint${this.config.unsigned ? " unsigned" : ""}`;
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "number") {
-      return value;
-    }
-    return Number(value);
-  }
-};
-var MySqlBigInt64Builder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlBigInt64Builder";
-  constructor(name2, unsigned = false) {
-    super(name2, "bigint", "MySqlBigInt64");
-    this.config.unsigned = unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlBigInt64(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlBigInt64 = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlBigInt64";
-  getSQLType() {
-    return `bigint${this.config.unsigned ? " unsigned" : ""}`;
-  }
-  // eslint-disable-next-line unicorn/prefer-native-coercion-functions
-  mapFromDriverValue(value) {
-    return BigInt(value);
-  }
-};
-function bigint(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  if (config2.mode === "number") {
-    return new MySqlBigInt53Builder(name2, config2.unsigned);
-  }
-  return new MySqlBigInt64Builder(name2, config2.unsigned);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/binary.js
-init_entity();
-init_utils();
-var MySqlBinaryBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlBinaryBuilder";
-  constructor(name2, length) {
-    super(name2, "string", "MySqlBinary");
-    this.config.length = length;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlBinary(table, this.config);
-  }
-};
-var MySqlBinary = class extends MySqlColumn {
-  static [entityKind] = "MySqlBinary";
-  length = this.config.length;
-  mapFromDriverValue(value) {
-    if (typeof value === "string") return value;
-    if (Buffer.isBuffer(value)) return value.toString();
-    const str = [];
-    for (const v of value) {
-      str.push(v === 49 ? "1" : "0");
-    }
-    return str.join("");
-  }
-  getSQLType() {
-    return this.length === void 0 ? `binary` : `binary(${this.length})`;
-  }
-};
-function binary(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlBinaryBuilder(name2, config2.length);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/boolean.js
-init_entity();
-var MySqlBooleanBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlBooleanBuilder";
-  constructor(name2) {
-    super(name2, "boolean", "MySqlBoolean");
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlBoolean(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlBoolean = class extends MySqlColumn {
-  static [entityKind] = "MySqlBoolean";
-  getSQLType() {
-    return "boolean";
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "boolean") {
-      return value;
-    }
-    return value === 1;
-  }
-};
-function boolean(name2) {
-  return new MySqlBooleanBuilder(name2 ?? "");
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/char.js
-init_entity();
-init_utils();
-var MySqlCharBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlCharBuilder";
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlChar");
-    this.config.length = config2.length;
-    this.config.enum = config2.enum;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlChar(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlChar = class extends MySqlColumn {
-  static [entityKind] = "MySqlChar";
-  length = this.config.length;
-  enumValues = this.config.enum;
-  getSQLType() {
-    return this.length === void 0 ? `char` : `char(${this.length})`;
-  }
-};
-function char(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlCharBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/custom.js
-init_entity();
-init_utils();
-var MySqlCustomColumnBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlCustomColumnBuilder";
-  constructor(name2, fieldConfig, customTypeParams) {
-    super(name2, "custom", "MySqlCustomColumn");
-    this.config.fieldConfig = fieldConfig;
-    this.config.customTypeParams = customTypeParams;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlCustomColumn(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlCustomColumn = class extends MySqlColumn {
-  static [entityKind] = "MySqlCustomColumn";
-  sqlName;
-  mapTo;
-  mapFrom;
-  constructor(table, config2) {
-    super(table, config2);
-    this.sqlName = config2.customTypeParams.dataType(config2.fieldConfig);
-    this.mapTo = config2.customTypeParams.toDriver;
-    this.mapFrom = config2.customTypeParams.fromDriver;
-  }
-  getSQLType() {
-    return this.sqlName;
-  }
-  mapFromDriverValue(value) {
-    return typeof this.mapFrom === "function" ? this.mapFrom(value) : value;
-  }
-  mapToDriverValue(value) {
-    return typeof this.mapTo === "function" ? this.mapTo(value) : value;
-  }
-};
-function customType(customTypeParams) {
-  return (a, b) => {
-    const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-    return new MySqlCustomColumnBuilder(name2, config2, customTypeParams);
-  };
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/date.js
-init_entity();
-init_utils();
-var MySqlDateBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlDateBuilder";
-  constructor(name2) {
-    super(name2, "date", "MySqlDate");
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDate(table, this.config);
-  }
-};
-var MySqlDate = class extends MySqlColumn {
-  static [entityKind] = "MySqlDate";
-  constructor(table, config2) {
-    super(table, config2);
-  }
-  getSQLType() {
-    return `date`;
-  }
-  mapFromDriverValue(value) {
-    return new Date(value);
-  }
-};
-var MySqlDateStringBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlDateStringBuilder";
-  constructor(name2) {
-    super(name2, "string", "MySqlDateString");
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDateString(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlDateString = class extends MySqlColumn {
-  static [entityKind] = "MySqlDateString";
-  constructor(table, config2) {
-    super(table, config2);
-  }
-  getSQLType() {
-    return `date`;
-  }
-};
-function date(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  if (config2?.mode === "string") {
-    return new MySqlDateStringBuilder(name2);
-  }
-  return new MySqlDateBuilder(name2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/datetime.js
-init_entity();
-init_utils();
-var MySqlDateTimeBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlDateTimeBuilder";
-  constructor(name2, config2) {
-    super(name2, "date", "MySqlDateTime");
-    this.config.fsp = config2?.fsp;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDateTime(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlDateTime = class extends MySqlColumn {
-  static [entityKind] = "MySqlDateTime";
-  fsp;
-  constructor(table, config2) {
-    super(table, config2);
-    this.fsp = config2.fsp;
-  }
-  getSQLType() {
-    const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
-    return `datetime${precision}`;
-  }
-  mapToDriverValue(value) {
-    return value.toISOString().replace("T", " ").replace("Z", "");
-  }
-  mapFromDriverValue(value) {
-    return /* @__PURE__ */ new Date(value.replace(" ", "T") + "Z");
-  }
-};
-var MySqlDateTimeStringBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlDateTimeStringBuilder";
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlDateTimeString");
-    this.config.fsp = config2?.fsp;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDateTimeString(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlDateTimeString = class extends MySqlColumn {
-  static [entityKind] = "MySqlDateTimeString";
-  fsp;
-  constructor(table, config2) {
-    super(table, config2);
-    this.fsp = config2.fsp;
-  }
-  getSQLType() {
-    const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
-    return `datetime${precision}`;
-  }
-};
-function datetime(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  if (config2?.mode === "string") {
-    return new MySqlDateTimeStringBuilder(name2, config2);
-  }
-  return new MySqlDateTimeBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/decimal.js
-init_entity();
-init_utils();
-var MySqlDecimalBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlDecimalBuilder";
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlDecimal");
-    this.config.precision = config2?.precision;
-    this.config.scale = config2?.scale;
-    this.config.unsigned = config2?.unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDecimal(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlDecimal = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlDecimal";
-  precision = this.config.precision;
-  scale = this.config.scale;
-  unsigned = this.config.unsigned;
-  mapFromDriverValue(value) {
-    if (typeof value === "string") return value;
-    return String(value);
-  }
-  getSQLType() {
-    let type = "";
-    if (this.precision !== void 0 && this.scale !== void 0) {
-      type += `decimal(${this.precision},${this.scale})`;
-    } else if (this.precision === void 0) {
-      type += "decimal";
-    } else {
-      type += `decimal(${this.precision})`;
-    }
-    type = type === "decimal(10,0)" || type === "decimal(10)" ? "decimal" : type;
-    return this.unsigned ? `${type} unsigned` : type;
-  }
-};
-var MySqlDecimalNumberBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlDecimalNumberBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlDecimalNumber");
-    this.config.precision = config2?.precision;
-    this.config.scale = config2?.scale;
-    this.config.unsigned = config2?.unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDecimalNumber(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlDecimalNumber = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlDecimalNumber";
-  precision = this.config.precision;
-  scale = this.config.scale;
-  unsigned = this.config.unsigned;
-  mapFromDriverValue(value) {
-    if (typeof value === "number") return value;
-    return Number(value);
-  }
-  mapToDriverValue = String;
-  getSQLType() {
-    let type = "";
-    if (this.precision !== void 0 && this.scale !== void 0) {
-      type += `decimal(${this.precision},${this.scale})`;
-    } else if (this.precision === void 0) {
-      type += "decimal";
-    } else {
-      type += `decimal(${this.precision})`;
-    }
-    type = type === "decimal(10,0)" || type === "decimal(10)" ? "decimal" : type;
-    return this.unsigned ? `${type} unsigned` : type;
-  }
-};
-var MySqlDecimalBigIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlDecimalBigIntBuilder";
-  constructor(name2, config2) {
-    super(name2, "bigint", "MySqlDecimalBigInt");
-    this.config.precision = config2?.precision;
-    this.config.scale = config2?.scale;
-    this.config.unsigned = config2?.unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDecimalBigInt(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlDecimalBigInt = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlDecimalBigInt";
-  precision = this.config.precision;
-  scale = this.config.scale;
-  unsigned = this.config.unsigned;
-  mapFromDriverValue = BigInt;
-  mapToDriverValue = String;
-  getSQLType() {
-    let type = "";
-    if (this.precision !== void 0 && this.scale !== void 0) {
-      type += `decimal(${this.precision},${this.scale})`;
-    } else if (this.precision === void 0) {
-      type += "decimal";
-    } else {
-      type += `decimal(${this.precision})`;
-    }
-    type = type === "decimal(10,0)" || type === "decimal(10)" ? "decimal" : type;
-    return this.unsigned ? `${type} unsigned` : type;
-  }
-};
-function decimal(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  const mode = config2?.mode;
-  return mode === "number" ? new MySqlDecimalNumberBuilder(name2, config2) : mode === "bigint" ? new MySqlDecimalBigIntBuilder(name2, config2) : new MySqlDecimalBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/double.js
-init_entity();
-init_utils();
-var MySqlDoubleBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlDoubleBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlDouble");
-    this.config.precision = config2?.precision;
-    this.config.scale = config2?.scale;
-    this.config.unsigned = config2?.unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlDouble(table, this.config);
-  }
-};
-var MySqlDouble = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlDouble";
-  precision = this.config.precision;
-  scale = this.config.scale;
-  unsigned = this.config.unsigned;
-  getSQLType() {
-    let type = "";
-    if (this.precision !== void 0 && this.scale !== void 0) {
-      type += `double(${this.precision},${this.scale})`;
-    } else if (this.precision === void 0) {
-      type += "double";
-    } else {
-      type += `double(${this.precision})`;
-    }
-    return this.unsigned ? `${type} unsigned` : type;
-  }
-};
-function double(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlDoubleBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/enum.js
-init_entity();
-var MySqlEnumColumnBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlEnumColumnBuilder";
-  constructor(name2, values) {
-    super(name2, "string", "MySqlEnumColumn");
-    this.config.enumValues = values;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlEnumColumn(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlEnumColumn = class extends MySqlColumn {
-  static [entityKind] = "MySqlEnumColumn";
-  enumValues = this.config.enumValues;
-  getSQLType() {
-    return `enum(${this.enumValues.map((value) => `'${value}'`).join(",")})`;
-  }
-};
-var MySqlEnumObjectColumnBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlEnumObjectColumnBuilder";
-  constructor(name2, values) {
-    super(name2, "string", "MySqlEnumObjectColumn");
-    this.config.enumValues = values;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlEnumObjectColumn(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlEnumObjectColumn = class extends MySqlColumn {
-  static [entityKind] = "MySqlEnumObjectColumn";
-  enumValues = this.config.enumValues;
-  getSQLType() {
-    return `enum(${this.enumValues.map((value) => `'${value}'`).join(",")})`;
-  }
-};
-function mysqlEnum(a, b) {
-  if (typeof a === "string" && Array.isArray(b) || Array.isArray(a)) {
-    const name2 = typeof a === "string" && a.length > 0 ? a : "";
-    const values = (typeof a === "string" ? b : a) ?? [];
-    if (values.length === 0) {
-      throw new Error(`You have an empty array for "${name2}" enum values`);
-    }
-    return new MySqlEnumColumnBuilder(name2, values);
-  }
-  if (typeof a === "string" && typeof b === "object" || typeof a === "object") {
-    const name2 = typeof a === "object" ? "" : a;
-    const values = typeof a === "object" ? Object.values(a) : typeof b === "object" ? Object.values(b) : [];
-    if (values.length === 0) {
-      throw new Error(`You have an empty array for "${name2}" enum values`);
-    }
-    return new MySqlEnumObjectColumnBuilder(name2, values);
-  }
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/float.js
-init_entity();
-init_utils();
-var MySqlFloatBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlFloatBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlFloat");
-    this.config.precision = config2?.precision;
-    this.config.scale = config2?.scale;
-    this.config.unsigned = config2?.unsigned;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlFloat(table, this.config);
-  }
-};
-var MySqlFloat = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlFloat";
-  precision = this.config.precision;
-  scale = this.config.scale;
-  unsigned = this.config.unsigned;
-  getSQLType() {
-    let type = "";
-    if (this.precision !== void 0 && this.scale !== void 0) {
-      type += `float(${this.precision},${this.scale})`;
-    } else if (this.precision === void 0) {
-      type += "float";
-    } else {
-      type += `float(${this.precision})`;
-    }
-    return this.unsigned ? `${type} unsigned` : type;
-  }
-};
-function float(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlFloatBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/int.js
-init_entity();
-init_utils();
-var MySqlIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlIntBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlInt");
-    this.config.unsigned = config2 ? config2.unsigned : false;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlInt(table, this.config);
-  }
-};
-var MySqlInt = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlInt";
-  getSQLType() {
-    return `int${this.config.unsigned ? " unsigned" : ""}`;
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "string") {
-      return Number(value);
-    }
-    return value;
-  }
-};
-function int(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlIntBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/json.js
-init_entity();
-var MySqlJsonBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlJsonBuilder";
-  constructor(name2) {
-    super(name2, "json", "MySqlJson");
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlJson(table, this.config);
-  }
-};
-var MySqlJson = class extends MySqlColumn {
-  static [entityKind] = "MySqlJson";
-  getSQLType() {
-    return "json";
-  }
-  mapToDriverValue(value) {
-    return JSON.stringify(value);
-  }
-};
-function json(name2) {
-  return new MySqlJsonBuilder(name2 ?? "");
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/mediumint.js
-init_entity();
-init_utils();
-var MySqlMediumIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlMediumIntBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlMediumInt");
-    this.config.unsigned = config2 ? config2.unsigned : false;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlMediumInt(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlMediumInt = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlMediumInt";
-  getSQLType() {
-    return `mediumint${this.config.unsigned ? " unsigned" : ""}`;
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "string") {
-      return Number(value);
-    }
-    return value;
-  }
-};
-function mediumint(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlMediumIntBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/real.js
-init_entity();
-init_utils();
-var MySqlRealBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlRealBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlReal");
-    this.config.precision = config2?.precision;
-    this.config.scale = config2?.scale;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlReal(table, this.config);
-  }
-};
-var MySqlReal = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlReal";
-  precision = this.config.precision;
-  scale = this.config.scale;
-  getSQLType() {
-    if (this.precision !== void 0 && this.scale !== void 0) {
-      return `real(${this.precision}, ${this.scale})`;
-    } else if (this.precision === void 0) {
-      return "real";
-    } else {
-      return `real(${this.precision})`;
-    }
-  }
-};
-function real(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlRealBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/serial.js
-init_entity();
-var MySqlSerialBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlSerialBuilder";
-  constructor(name2) {
-    super(name2, "number", "MySqlSerial");
-    this.config.hasDefault = true;
-    this.config.autoIncrement = true;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlSerial(table, this.config);
-  }
-};
-var MySqlSerial = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlSerial";
-  getSQLType() {
-    return "serial";
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "string") {
-      return Number(value);
-    }
-    return value;
-  }
-};
-function serial(name2) {
-  return new MySqlSerialBuilder(name2 ?? "");
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/smallint.js
-init_entity();
-init_utils();
-var MySqlSmallIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlSmallIntBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlSmallInt");
-    this.config.unsigned = config2 ? config2.unsigned : false;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlSmallInt(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlSmallInt = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlSmallInt";
-  getSQLType() {
-    return `smallint${this.config.unsigned ? " unsigned" : ""}`;
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "string") {
-      return Number(value);
-    }
-    return value;
-  }
-};
-function smallint(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlSmallIntBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/text.js
-init_entity();
-init_utils();
-var MySqlTextBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlTextBuilder";
-  constructor(name2, textType, config2) {
-    super(name2, "string", "MySqlText");
-    this.config.textType = textType;
-    this.config.enumValues = config2.enum;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlText(table, this.config);
-  }
-};
-var MySqlText = class extends MySqlColumn {
-  static [entityKind] = "MySqlText";
-  textType = this.config.textType;
-  enumValues = this.config.enumValues;
-  getSQLType() {
-    return this.textType;
-  }
-};
-function text(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlTextBuilder(name2, "text", config2);
-}
-function tinytext(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlTextBuilder(name2, "tinytext", config2);
-}
-function mediumtext(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlTextBuilder(name2, "mediumtext", config2);
-}
-function longtext(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlTextBuilder(name2, "longtext", config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/time.js
-init_entity();
-init_utils();
-var MySqlTimeBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlTimeBuilder";
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlTime");
-    this.config.fsp = config2?.fsp;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlTime(table, this.config);
-  }
-};
-var MySqlTime = class extends MySqlColumn {
-  static [entityKind] = "MySqlTime";
-  fsp = this.config.fsp;
-  getSQLType() {
-    const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
-    return `time${precision}`;
-  }
-};
-function time(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlTimeBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/timestamp.js
-init_entity();
-init_utils();
-
-// node_modules/drizzle-orm/mysql-core/columns/date.common.js
-init_entity();
-init_sql();
-var MySqlDateColumnBaseBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlDateColumnBuilder";
-  defaultNow() {
-    return this.default(sql`(now())`);
-  }
-  // "on update now" also adds an implicit default value to the column - https://dev.mysql.com/doc/refman/8.0/en/timestamp-initialization.html
-  onUpdateNow() {
-    this.config.hasOnUpdateNow = true;
-    this.config.hasDefault = true;
-    return this;
-  }
-};
-var MySqlDateBaseColumn = class extends MySqlColumn {
-  static [entityKind] = "MySqlDateColumn";
-  hasOnUpdateNow = this.config.hasOnUpdateNow;
-};
-
-// node_modules/drizzle-orm/mysql-core/columns/timestamp.js
-var MySqlTimestampBuilder = class extends MySqlDateColumnBaseBuilder {
-  static [entityKind] = "MySqlTimestampBuilder";
-  constructor(name2, config2) {
-    super(name2, "date", "MySqlTimestamp");
-    this.config.fsp = config2?.fsp;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlTimestamp(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlTimestamp = class extends MySqlDateBaseColumn {
-  static [entityKind] = "MySqlTimestamp";
-  fsp = this.config.fsp;
-  getSQLType() {
-    const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
-    return `timestamp${precision}`;
-  }
-  mapFromDriverValue(value) {
-    return /* @__PURE__ */ new Date(value + "+0000");
-  }
-  mapToDriverValue(value) {
-    return value.toISOString().slice(0, -1).replace("T", " ");
-  }
-};
-var MySqlTimestampStringBuilder = class extends MySqlDateColumnBaseBuilder {
-  static [entityKind] = "MySqlTimestampStringBuilder";
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlTimestampString");
-    this.config.fsp = config2?.fsp;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlTimestampString(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlTimestampString = class extends MySqlDateBaseColumn {
-  static [entityKind] = "MySqlTimestampString";
-  fsp = this.config.fsp;
-  getSQLType() {
-    const precision = this.fsp === void 0 ? "" : `(${this.fsp})`;
-    return `timestamp${precision}`;
-  }
-};
-function timestamp(a, b = {}) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  if (config2?.mode === "string") {
-    return new MySqlTimestampStringBuilder(name2, config2);
-  }
-  return new MySqlTimestampBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/tinyint.js
-init_entity();
-init_utils();
-var MySqlTinyIntBuilder = class extends MySqlColumnBuilderWithAutoIncrement {
-  static [entityKind] = "MySqlTinyIntBuilder";
-  constructor(name2, config2) {
-    super(name2, "number", "MySqlTinyInt");
-    this.config.unsigned = config2 ? config2.unsigned : false;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlTinyInt(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlTinyInt = class extends MySqlColumnWithAutoIncrement {
-  static [entityKind] = "MySqlTinyInt";
-  getSQLType() {
-    return `tinyint${this.config.unsigned ? " unsigned" : ""}`;
-  }
-  mapFromDriverValue(value) {
-    if (typeof value === "string") {
-      return Number(value);
-    }
-    return value;
-  }
-};
-function tinyint(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlTinyIntBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/varbinary.js
-init_entity();
-init_utils();
-var MySqlVarBinaryBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlVarBinaryBuilder";
-  /** @internal */
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlVarBinary");
-    this.config.length = config2?.length;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlVarBinary(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlVarBinary = class extends MySqlColumn {
-  static [entityKind] = "MySqlVarBinary";
-  length = this.config.length;
-  mapFromDriverValue(value) {
-    if (typeof value === "string") return value;
-    if (Buffer.isBuffer(value)) return value.toString();
-    const str = [];
-    for (const v of value) {
-      str.push(v === 49 ? "1" : "0");
-    }
-    return str.join("");
-  }
-  getSQLType() {
-    return this.length === void 0 ? `varbinary` : `varbinary(${this.length})`;
-  }
-};
-function varbinary(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlVarBinaryBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/varchar.js
-init_entity();
-init_utils();
-var MySqlVarCharBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlVarCharBuilder";
-  /** @internal */
-  constructor(name2, config2) {
-    super(name2, "string", "MySqlVarChar");
-    this.config.length = config2.length;
-    this.config.enum = config2.enum;
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlVarChar(
-      table,
-      this.config
-    );
-  }
-};
-var MySqlVarChar = class extends MySqlColumn {
-  static [entityKind] = "MySqlVarChar";
-  length = this.config.length;
-  enumValues = this.config.enum;
-  getSQLType() {
-    return this.length === void 0 ? `varchar` : `varchar(${this.length})`;
-  }
-};
-function varchar(a, b) {
-  const { name: name2, config: config2 } = getColumnNameAndConfig(a, b);
-  return new MySqlVarCharBuilder(name2, config2);
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/year.js
-init_entity();
-var MySqlYearBuilder = class extends MySqlColumnBuilder {
-  static [entityKind] = "MySqlYearBuilder";
-  constructor(name2) {
-    super(name2, "number", "MySqlYear");
-  }
-  /** @internal */
-  build(table) {
-    return new MySqlYear(table, this.config);
-  }
-};
-var MySqlYear = class extends MySqlColumn {
-  static [entityKind] = "MySqlYear";
-  getSQLType() {
-    return `year`;
-  }
-};
-function year(name2) {
-  return new MySqlYearBuilder(name2 ?? "");
-}
-
-// node_modules/drizzle-orm/mysql-core/columns/all.js
-function getMySqlColumnBuilders() {
-  return {
-    bigint,
-    binary,
-    boolean,
-    char,
-    customType,
-    date,
-    datetime,
-    decimal,
-    double,
-    mysqlEnum,
-    float,
-    int,
-    json,
-    mediumint,
-    real,
-    serial,
-    smallint,
-    text,
-    time,
-    timestamp,
-    tinyint,
-    varbinary,
-    varchar,
-    year,
-    longtext,
-    mediumtext,
-    tinytext
-  };
-}
-
-// node_modules/drizzle-orm/mysql-core/table.js
-var InlineForeignKeys2 = Symbol.for("drizzle:MySqlInlineForeignKeys");
-var MySqlTable = class extends Table {
-  static [entityKind] = "MySqlTable";
-  /** @internal */
-  static Symbol = Object.assign({}, Table.Symbol, {
-    InlineForeignKeys: InlineForeignKeys2
-  });
-  /** @internal */
-  [Table.Symbol.Columns];
-  /** @internal */
-  [InlineForeignKeys2] = [];
-  /** @internal */
-  [Table.Symbol.ExtraConfigBuilder] = void 0;
-};
-function mysqlTableWithSchema(name2, columns, extraConfig, schema, baseName = name2) {
-  const rawTable = new MySqlTable(name2, schema, baseName);
-  const parsedColumns = typeof columns === "function" ? columns(getMySqlColumnBuilders()) : columns;
-  const builtColumns = Object.fromEntries(
-    Object.entries(parsedColumns).map(([name22, colBuilderBase]) => {
-      const colBuilder = colBuilderBase;
-      colBuilder.setName(name22);
-      const column = colBuilder.build(rawTable);
-      rawTable[InlineForeignKeys2].push(...colBuilder.buildForeignKeys(column, rawTable));
-      return [name22, column];
-    })
-  );
-  const table = Object.assign(rawTable, builtColumns);
-  table[Table.Symbol.Columns] = builtColumns;
-  table[Table.Symbol.ExtraConfigColumns] = builtColumns;
-  if (extraConfig) {
-    table[MySqlTable.Symbol.ExtraConfigBuilder] = extraConfig;
-  }
-  return table;
-}
-var mysqlTable = (name2, columns, extraConfig) => {
-  return mysqlTableWithSchema(name2, columns, extraConfig, void 0, name2);
-};
-
-// node_modules/drizzle-orm/mysql-core/utils.js
-function extractUsedTable(table) {
-  if (is(table, MySqlTable)) {
-    return [`${table[Table.Symbol.BaseName]}`];
-  }
-  if (is(table, Subquery)) {
-    return table._.usedTables ?? [];
-  }
-  if (is(table, SQL)) {
-    return table.usedTables ?? [];
-  }
-  return [];
-}
-function convertIndexToString(indexes) {
-  return indexes.map((idx) => {
-    return typeof idx === "object" ? idx.config.name : idx;
-  });
-}
-function toArray(value) {
-  return Array.isArray(value) ? value : [value];
-}
-
-// node_modules/drizzle-orm/mysql-core/query-builders/delete.js
-var MySqlDeleteBase = class extends QueryPromise {
-  constructor(table, session, dialect, withList) {
-    super();
-    this.table = table;
-    this.session = session;
-    this.dialect = dialect;
-    this.config = { table, withList };
-  }
-  static [entityKind] = "MySqlDelete";
-  config;
-  /**
-   * Adds a `where` clause to the query.
-   *
-   * Calling this method will delete only those rows that fulfill a specified condition.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/delete}
-   *
-   * @param where the `where` clause.
-   *
-   * @example
-   * You can use conditional operators and `sql function` to filter the rows to be deleted.
-   *
-   * ```ts
-   * // Delete all cars with green color
-   * db.delete(cars).where(eq(cars.color, 'green'));
-   * // or
-   * db.delete(cars).where(sql`${cars.color} = 'green'`)
-   * ```
-   *
-   * You can logically combine conditional operators with `and()` and `or()` operators:
-   *
-   * ```ts
-   * // Delete all BMW cars with a green color
-   * db.delete(cars).where(and(eq(cars.color, 'green'), eq(cars.brand, 'BMW')));
-   *
-   * // Delete all cars with the green or blue color
-   * db.delete(cars).where(or(eq(cars.color, 'green'), eq(cars.color, 'blue')));
-   * ```
-   */
-  where(where) {
-    this.config.where = where;
-    return this;
-  }
-  orderBy(...columns) {
-    if (typeof columns[0] === "function") {
-      const orderBy = columns[0](
-        new Proxy(
-          this.config.table[Table.Symbol.Columns],
-          new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
-        )
-      );
-      const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
-      this.config.orderBy = orderByArray;
-    } else {
-      const orderByArray = columns;
-      this.config.orderBy = orderByArray;
-    }
-    return this;
-  }
-  limit(limit) {
-    this.config.limit = limit;
-    return this;
-  }
-  /** @internal */
-  getSQL() {
-    return this.dialect.buildDeleteQuery(this.config);
-  }
-  toSQL() {
-    const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
-    return rest;
-  }
-  prepare() {
-    return this.session.prepareQuery(
-      this.dialect.sqlToQuery(this.getSQL()),
-      this.config.returning,
-      void 0,
-      void 0,
-      void 0,
-      {
-        type: "delete",
-        tables: extractUsedTable(this.config.table)
-      }
-    );
-  }
-  execute = (placeholderValues) => {
-    return this.prepare().execute(placeholderValues);
-  };
-  createIterator = () => {
-    const self2 = this;
-    return async function* (placeholderValues) {
-      yield* self2.prepare().iterator(placeholderValues);
-    };
-  };
-  iterator = this.createIterator();
-  $dynamic() {
-    return this;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/insert.js
-init_entity();
-init_query_promise();
-init_sql();
-init_table();
-init_utils();
-
-// node_modules/drizzle-orm/mysql-core/query-builders/query-builder.js
-init_entity();
-
-// node_modules/drizzle-orm/mysql-core/dialect.js
-init_alias();
-
-// node_modules/drizzle-orm/casing.js
-init_entity();
-init_table();
-function toSnakeCase(input) {
-  const words = input.replace(/['\u2019]/g, "").match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/g) ?? [];
-  return words.map((word) => word.toLowerCase()).join("_");
-}
-function toCamelCase(input) {
-  const words = input.replace(/['\u2019]/g, "").match(/[\da-z]+|[A-Z]+(?![a-z])|[A-Z][\da-z]+/g) ?? [];
-  return words.reduce((acc, word, i) => {
-    const formattedWord = i === 0 ? word.toLowerCase() : `${word[0].toUpperCase()}${word.slice(1)}`;
-    return acc + formattedWord;
-  }, "");
-}
-function noopCase(input) {
-  return input;
-}
-var CasingCache = class {
-  static [entityKind] = "CasingCache";
-  /** @internal */
-  cache = {};
-  cachedTables = {};
-  convert;
-  constructor(casing) {
-    this.convert = casing === "snake_case" ? toSnakeCase : casing === "camelCase" ? toCamelCase : noopCase;
-  }
-  getColumnCasing(column) {
-    if (!column.keyAsName) return column.name;
-    const schema = column.table[Table.Symbol.Schema] ?? "public";
-    const tableName = column.table[Table.Symbol.OriginalName];
-    const key = `${schema}.${tableName}.${column.name}`;
-    if (!this.cache[key]) {
-      this.cacheTable(column.table);
-    }
-    return this.cache[key];
-  }
-  cacheTable(table) {
-    const schema = table[Table.Symbol.Schema] ?? "public";
-    const tableName = table[Table.Symbol.OriginalName];
-    const tableKey = `${schema}.${tableName}`;
-    if (!this.cachedTables[tableKey]) {
-      for (const column of Object.values(table[Table.Symbol.Columns])) {
-        const columnKey = `${tableKey}.${column.name}`;
-        this.cache[columnKey] = this.convert(column.name);
-      }
-      this.cachedTables[tableKey] = true;
-    }
-  }
-  clearCache() {
-    this.cache = {};
-    this.cachedTables = {};
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/dialect.js
-init_column();
-init_entity();
-init_errors();
-init_relations();
-init_expressions();
-init_sql();
-init_subquery();
-init_table();
-init_utils();
-init_view_common();
-
-// node_modules/drizzle-orm/mysql-core/view-base.js
-init_entity();
-init_sql();
-var MySqlViewBase = class extends View {
-  static [entityKind] = "MySqlViewBase";
-};
-
-// node_modules/drizzle-orm/mysql-core/dialect.js
-var MySqlDialect = class {
-  static [entityKind] = "MySqlDialect";
-  /** @internal */
-  casing;
-  constructor(config2) {
-    this.casing = new CasingCache(config2?.casing);
-  }
-  async migrate(migrations, session, config2) {
-    const migrationsTable = config2.migrationsTable ?? "__drizzle_migrations";
-    const migrationTableCreate = sql`
-			create table if not exists ${sql.identifier(migrationsTable)} (
-				id serial primary key,
-				hash text not null,
-				created_at bigint
-			)
-		`;
-    await session.execute(migrationTableCreate);
-    const dbMigrations = await session.all(
-      sql`select id, hash, created_at from ${sql.identifier(migrationsTable)} order by created_at desc limit 1`
-    );
-    const lastDbMigration = dbMigrations[0];
-    await session.transaction(async (tx) => {
-      for (const migration of migrations) {
-        if (!lastDbMigration || Number(lastDbMigration.created_at) < migration.folderMillis) {
-          for (const stmt of migration.sql) {
-            await tx.execute(sql.raw(stmt));
-          }
-          await tx.execute(
-            sql`insert into ${sql.identifier(migrationsTable)} (\`hash\`, \`created_at\`) values(${migration.hash}, ${migration.folderMillis})`
-          );
-        }
-      }
-    });
-  }
-  escapeName(name2) {
-    return `\`${name2}\``;
-  }
-  escapeParam(_num) {
-    return `?`;
-  }
-  escapeString(str) {
-    return `'${str.replace(/'/g, "''")}'`;
-  }
-  buildWithCTE(queries) {
-    if (!queries?.length) return void 0;
-    const withSqlChunks = [sql`with `];
-    for (const [i, w] of queries.entries()) {
-      withSqlChunks.push(sql`${sql.identifier(w._.alias)} as (${w._.sql})`);
-      if (i < queries.length - 1) {
-        withSqlChunks.push(sql`, `);
-      }
-    }
-    withSqlChunks.push(sql` `);
-    return sql.join(withSqlChunks);
-  }
-  buildDeleteQuery({ table, where, returning, withList, limit, orderBy }) {
-    const withSql = this.buildWithCTE(withList);
-    const returningSql = returning ? sql` returning ${this.buildSelection(returning, { isSingleTable: true })}` : void 0;
-    const whereSql = where ? sql` where ${where}` : void 0;
-    const orderBySql = this.buildOrderBy(orderBy);
-    const limitSql = this.buildLimit(limit);
-    return sql`${withSql}delete from ${table}${whereSql}${orderBySql}${limitSql}${returningSql}`;
-  }
-  buildUpdateSet(table, set2) {
-    const tableColumns = table[Table.Symbol.Columns];
-    const columnNames = Object.keys(tableColumns).filter(
-      (colName) => set2[colName] !== void 0 || tableColumns[colName]?.onUpdateFn !== void 0
-    );
-    const setSize = columnNames.length;
-    return sql.join(columnNames.flatMap((colName, i) => {
-      const col = tableColumns[colName];
-      const value = set2[colName] ?? sql.param(col.onUpdateFn(), col);
-      const res = sql`${sql.identifier(this.casing.getColumnCasing(col))} = ${value}`;
-      if (i < setSize - 1) {
-        return [res, sql.raw(", ")];
-      }
-      return [res];
-    }));
-  }
-  buildUpdateQuery({ table, set: set2, where, returning, withList, limit, orderBy }) {
-    const withSql = this.buildWithCTE(withList);
-    const setSql = this.buildUpdateSet(table, set2);
-    const returningSql = returning ? sql` returning ${this.buildSelection(returning, { isSingleTable: true })}` : void 0;
-    const whereSql = where ? sql` where ${where}` : void 0;
-    const orderBySql = this.buildOrderBy(orderBy);
-    const limitSql = this.buildLimit(limit);
-    return sql`${withSql}update ${table} set ${setSql}${whereSql}${orderBySql}${limitSql}${returningSql}`;
-  }
-  /**
-   * Builds selection SQL with provided fields/expressions
-   *
-   * Examples:
-   *
-   * `select <selection> from`
-   *
-   * `insert ... returning <selection>`
-   *
-   * If `isSingleTable` is true, then columns won't be prefixed with table name
-   */
-  buildSelection(fields, { isSingleTable = false } = {}) {
-    const columnsLen = fields.length;
-    const chunks = fields.flatMap(({ field }, i) => {
-      const chunk = [];
-      if (is(field, SQL.Aliased) && field.isSelectionField) {
-        chunk.push(sql.identifier(field.fieldAlias));
-      } else if (is(field, SQL.Aliased) || is(field, SQL)) {
-        const query = is(field, SQL.Aliased) ? field.sql : field;
-        if (isSingleTable) {
-          chunk.push(
-            new SQL(
-              query.queryChunks.map((c) => {
-                if (is(c, MySqlColumn)) {
-                  return sql.identifier(this.casing.getColumnCasing(c));
-                }
-                return c;
-              })
-            )
-          );
-        } else {
-          chunk.push(query);
-        }
-        if (is(field, SQL.Aliased)) {
-          chunk.push(sql` as ${sql.identifier(field.fieldAlias)}`);
-        }
-      } else if (is(field, Column)) {
-        if (isSingleTable) {
-          chunk.push(sql.identifier(this.casing.getColumnCasing(field)));
-        } else {
-          chunk.push(field);
-        }
-      }
-      if (i < columnsLen - 1) {
-        chunk.push(sql`, `);
-      }
-      return chunk;
-    });
-    return sql.join(chunks);
-  }
-  buildLimit(limit) {
-    return typeof limit === "object" || typeof limit === "number" && limit >= 0 ? sql` limit ${limit}` : void 0;
-  }
-  buildOrderBy(orderBy) {
-    return orderBy && orderBy.length > 0 ? sql` order by ${sql.join(orderBy, sql`, `)}` : void 0;
-  }
-  buildIndex({
-    indexes,
-    indexFor
-  }) {
-    return indexes && indexes.length > 0 ? sql` ${sql.raw(indexFor)} INDEX (${sql.raw(indexes.join(`, `))})` : void 0;
-  }
-  buildSelectQuery({
-    withList,
-    fields,
-    fieldsFlat,
-    where,
-    having,
-    table,
-    joins,
-    orderBy,
-    groupBy,
-    limit,
-    offset,
-    lockingClause,
-    distinct,
-    setOperators,
-    useIndex,
-    forceIndex,
-    ignoreIndex
-  }) {
-    const fieldsList = fieldsFlat ?? orderSelectedFields(fields);
-    for (const f of fieldsList) {
-      if (is(f.field, Column) && getTableName(f.field.table) !== (is(table, Subquery) ? table._.alias : is(table, MySqlViewBase) ? table[ViewBaseConfig].name : is(table, SQL) ? void 0 : getTableName(table)) && !((table2) => joins?.some(
-        ({ alias }) => alias === (table2[Table.Symbol.IsAlias] ? getTableName(table2) : table2[Table.Symbol.BaseName])
-      ))(f.field.table)) {
-        const tableName = getTableName(f.field.table);
-        throw new Error(
-          `Your "${f.path.join("->")}" field references a column "${tableName}"."${f.field.name}", but the table "${tableName}" is not part of the query! Did you forget to join it?`
-        );
-      }
-    }
-    const isSingleTable = !joins || joins.length === 0;
-    const withSql = this.buildWithCTE(withList);
-    const distinctSql = distinct ? sql` distinct` : void 0;
-    const selection = this.buildSelection(fieldsList, { isSingleTable });
-    const tableSql = (() => {
-      if (is(table, Table) && table[Table.Symbol.IsAlias]) {
-        return sql`${sql`${sql.identifier(table[Table.Symbol.Schema] ?? "")}.`.if(table[Table.Symbol.Schema])}${sql.identifier(table[Table.Symbol.OriginalName])} ${sql.identifier(table[Table.Symbol.Name])}`;
-      }
-      return table;
-    })();
-    const joinsArray = [];
-    if (joins) {
-      for (const [index2, joinMeta] of joins.entries()) {
-        if (index2 === 0) {
-          joinsArray.push(sql` `);
-        }
-        const table2 = joinMeta.table;
-        const lateralSql = joinMeta.lateral ? sql` lateral` : void 0;
-        const onSql = joinMeta.on ? sql` on ${joinMeta.on}` : void 0;
-        if (is(table2, MySqlTable)) {
-          const tableName = table2[MySqlTable.Symbol.Name];
-          const tableSchema = table2[MySqlTable.Symbol.Schema];
-          const origTableName = table2[MySqlTable.Symbol.OriginalName];
-          const alias = tableName === origTableName ? void 0 : joinMeta.alias;
-          const useIndexSql2 = this.buildIndex({ indexes: joinMeta.useIndex, indexFor: "USE" });
-          const forceIndexSql2 = this.buildIndex({ indexes: joinMeta.forceIndex, indexFor: "FORCE" });
-          const ignoreIndexSql2 = this.buildIndex({ indexes: joinMeta.ignoreIndex, indexFor: "IGNORE" });
-          joinsArray.push(
-            sql`${sql.raw(joinMeta.joinType)} join${lateralSql} ${tableSchema ? sql`${sql.identifier(tableSchema)}.` : void 0}${sql.identifier(origTableName)}${useIndexSql2}${forceIndexSql2}${ignoreIndexSql2}${alias && sql` ${sql.identifier(alias)}`}${onSql}`
-          );
-        } else if (is(table2, View)) {
-          const viewName = table2[ViewBaseConfig].name;
-          const viewSchema = table2[ViewBaseConfig].schema;
-          const origViewName = table2[ViewBaseConfig].originalName;
-          const alias = viewName === origViewName ? void 0 : joinMeta.alias;
-          joinsArray.push(
-            sql`${sql.raw(joinMeta.joinType)} join${lateralSql} ${viewSchema ? sql`${sql.identifier(viewSchema)}.` : void 0}${sql.identifier(origViewName)}${alias && sql` ${sql.identifier(alias)}`}${onSql}`
-          );
-        } else {
-          joinsArray.push(
-            sql`${sql.raw(joinMeta.joinType)} join${lateralSql} ${table2}${onSql}`
-          );
-        }
-        if (index2 < joins.length - 1) {
-          joinsArray.push(sql` `);
-        }
-      }
-    }
-    const joinsSql = sql.join(joinsArray);
-    const whereSql = where ? sql` where ${where}` : void 0;
-    const havingSql = having ? sql` having ${having}` : void 0;
-    const orderBySql = this.buildOrderBy(orderBy);
-    const groupBySql = groupBy && groupBy.length > 0 ? sql` group by ${sql.join(groupBy, sql`, `)}` : void 0;
-    const limitSql = this.buildLimit(limit);
-    const offsetSql = offset ? sql` offset ${offset}` : void 0;
-    const useIndexSql = this.buildIndex({ indexes: useIndex, indexFor: "USE" });
-    const forceIndexSql = this.buildIndex({ indexes: forceIndex, indexFor: "FORCE" });
-    const ignoreIndexSql = this.buildIndex({ indexes: ignoreIndex, indexFor: "IGNORE" });
-    let lockingClausesSql;
-    if (lockingClause) {
-      const { config: config2, strength } = lockingClause;
-      lockingClausesSql = sql` for ${sql.raw(strength)}`;
-      if (config2.noWait) {
-        lockingClausesSql.append(sql` nowait`);
-      } else if (config2.skipLocked) {
-        lockingClausesSql.append(sql` skip locked`);
-      }
-    }
-    const finalQuery = sql`${withSql}select${distinctSql} ${selection} from ${tableSql}${useIndexSql}${forceIndexSql}${ignoreIndexSql}${joinsSql}${whereSql}${groupBySql}${havingSql}${orderBySql}${limitSql}${offsetSql}${lockingClausesSql}`;
-    if (setOperators.length > 0) {
-      return this.buildSetOperations(finalQuery, setOperators);
-    }
-    return finalQuery;
-  }
-  buildSetOperations(leftSelect, setOperators) {
-    const [setOperator, ...rest] = setOperators;
-    if (!setOperator) {
-      throw new Error("Cannot pass undefined values to any set operator");
-    }
-    if (rest.length === 0) {
-      return this.buildSetOperationQuery({ leftSelect, setOperator });
-    }
-    return this.buildSetOperations(
-      this.buildSetOperationQuery({ leftSelect, setOperator }),
-      rest
-    );
-  }
-  buildSetOperationQuery({
-    leftSelect,
-    setOperator: { type, isAll, rightSelect, limit, orderBy, offset }
-  }) {
-    const leftChunk = sql`(${leftSelect.getSQL()}) `;
-    const rightChunk = sql`(${rightSelect.getSQL()})`;
-    let orderBySql;
-    if (orderBy && orderBy.length > 0) {
-      const orderByValues = [];
-      for (const orderByUnit of orderBy) {
-        if (is(orderByUnit, MySqlColumn)) {
-          orderByValues.push(sql.identifier(this.casing.getColumnCasing(orderByUnit)));
-        } else if (is(orderByUnit, SQL)) {
-          for (let i = 0; i < orderByUnit.queryChunks.length; i++) {
-            const chunk = orderByUnit.queryChunks[i];
-            if (is(chunk, MySqlColumn)) {
-              orderByUnit.queryChunks[i] = sql.identifier(this.casing.getColumnCasing(chunk));
-            }
-          }
-          orderByValues.push(sql`${orderByUnit}`);
-        } else {
-          orderByValues.push(sql`${orderByUnit}`);
-        }
-      }
-      orderBySql = sql` order by ${sql.join(orderByValues, sql`, `)} `;
-    }
-    const limitSql = typeof limit === "object" || typeof limit === "number" && limit >= 0 ? sql` limit ${limit}` : void 0;
-    const operatorChunk = sql.raw(`${type} ${isAll ? "all " : ""}`);
-    const offsetSql = offset ? sql` offset ${offset}` : void 0;
-    return sql`${leftChunk}${operatorChunk}${rightChunk}${orderBySql}${limitSql}${offsetSql}`;
-  }
-  buildInsertQuery({ table, values: valuesOrSelect, ignore, onConflict, select }) {
-    const valuesSqlList = [];
-    const columns = table[Table.Symbol.Columns];
-    const colEntries = Object.entries(columns).filter(
-      ([_, col]) => !col.shouldDisableInsert()
-    );
-    const insertOrder = colEntries.map(([, column]) => sql.identifier(this.casing.getColumnCasing(column)));
-    const generatedIdsResponse = [];
-    if (select) {
-      const select2 = valuesOrSelect;
-      if (is(select2, SQL)) {
-        valuesSqlList.push(select2);
-      } else {
-        valuesSqlList.push(select2.getSQL());
-      }
-    } else {
-      const values = valuesOrSelect;
-      valuesSqlList.push(sql.raw("values "));
-      for (const [valueIndex, value] of values.entries()) {
-        const generatedIds = {};
-        const valueList = [];
-        for (const [fieldName, col] of colEntries) {
-          const colValue = value[fieldName];
-          if (colValue === void 0 || is(colValue, Param) && colValue.value === void 0) {
-            if (col.defaultFn !== void 0) {
-              const defaultFnResult = col.defaultFn();
-              generatedIds[fieldName] = defaultFnResult;
-              const defaultValue = is(defaultFnResult, SQL) ? defaultFnResult : sql.param(defaultFnResult, col);
-              valueList.push(defaultValue);
-            } else if (!col.default && col.onUpdateFn !== void 0) {
-              const onUpdateFnResult = col.onUpdateFn();
-              const newValue = is(onUpdateFnResult, SQL) ? onUpdateFnResult : sql.param(onUpdateFnResult, col);
-              valueList.push(newValue);
-            } else {
-              valueList.push(sql`default`);
-            }
-          } else {
-            if (col.defaultFn && is(colValue, Param)) {
-              generatedIds[fieldName] = colValue.value;
-            }
-            valueList.push(colValue);
-          }
-        }
-        generatedIdsResponse.push(generatedIds);
-        valuesSqlList.push(valueList);
-        if (valueIndex < values.length - 1) {
-          valuesSqlList.push(sql`, `);
-        }
-      }
-    }
-    const valuesSql = sql.join(valuesSqlList);
-    const ignoreSql = ignore ? sql` ignore` : void 0;
-    const onConflictSql = onConflict ? sql` on duplicate key ${onConflict}` : void 0;
-    return {
-      sql: sql`insert${ignoreSql} into ${table} ${insertOrder} ${valuesSql}${onConflictSql}`,
-      generatedIds: generatedIdsResponse
-    };
-  }
-  sqlToQuery(sql2, invokeSource) {
-    return sql2.toQuery({
-      casing: this.casing,
-      escapeName: this.escapeName,
-      escapeParam: this.escapeParam,
-      escapeString: this.escapeString,
-      invokeSource
-    });
-  }
-  buildRelationalQuery({
-    fullSchema,
-    schema,
-    tableNamesMap,
-    table,
-    tableConfig,
-    queryConfig: config2,
-    tableAlias,
-    nestedQueryRelation,
-    joinOn
-  }) {
-    let selection = [];
-    let limit, offset, orderBy, where;
-    const joins = [];
-    if (config2 === true) {
-      const selectionEntries = Object.entries(tableConfig.columns);
-      selection = selectionEntries.map(([key, value]) => ({
-        dbKey: value.name,
-        tsKey: key,
-        field: aliasedTableColumn(value, tableAlias),
-        relationTableTsKey: void 0,
-        isJson: false,
-        selection: []
-      }));
-    } else {
-      const aliasedColumns = Object.fromEntries(
-        Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)])
-      );
-      if (config2.where) {
-        const whereSql = typeof config2.where === "function" ? config2.where(aliasedColumns, getOperators()) : config2.where;
-        where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
-      }
-      const fieldsSelection = [];
-      let selectedColumns = [];
-      if (config2.columns) {
-        let isIncludeMode = false;
-        for (const [field, value] of Object.entries(config2.columns)) {
-          if (value === void 0) {
-            continue;
-          }
-          if (field in tableConfig.columns) {
-            if (!isIncludeMode && value === true) {
-              isIncludeMode = true;
-            }
-            selectedColumns.push(field);
-          }
-        }
-        if (selectedColumns.length > 0) {
-          selectedColumns = isIncludeMode ? selectedColumns.filter((c) => config2.columns?.[c] === true) : Object.keys(tableConfig.columns).filter((key) => !selectedColumns.includes(key));
-        }
-      } else {
-        selectedColumns = Object.keys(tableConfig.columns);
-      }
-      for (const field of selectedColumns) {
-        const column = tableConfig.columns[field];
-        fieldsSelection.push({ tsKey: field, value: column });
-      }
-      let selectedRelations = [];
-      if (config2.with) {
-        selectedRelations = Object.entries(config2.with).filter((entry) => !!entry[1]).map(([tsKey, queryConfig]) => ({ tsKey, queryConfig, relation: tableConfig.relations[tsKey] }));
-      }
-      let extras;
-      if (config2.extras) {
-        extras = typeof config2.extras === "function" ? config2.extras(aliasedColumns, { sql }) : config2.extras;
-        for (const [tsKey, value] of Object.entries(extras)) {
-          fieldsSelection.push({
-            tsKey,
-            value: mapColumnsInAliasedSQLToAlias(value, tableAlias)
-          });
-        }
-      }
-      for (const { tsKey, value } of fieldsSelection) {
-        selection.push({
-          dbKey: is(value, SQL.Aliased) ? value.fieldAlias : tableConfig.columns[tsKey].name,
-          tsKey,
-          field: is(value, Column) ? aliasedTableColumn(value, tableAlias) : value,
-          relationTableTsKey: void 0,
-          isJson: false,
-          selection: []
-        });
-      }
-      let orderByOrig = typeof config2.orderBy === "function" ? config2.orderBy(aliasedColumns, getOrderByOperators()) : config2.orderBy ?? [];
-      if (!Array.isArray(orderByOrig)) {
-        orderByOrig = [orderByOrig];
-      }
-      orderBy = orderByOrig.map((orderByValue) => {
-        if (is(orderByValue, Column)) {
-          return aliasedTableColumn(orderByValue, tableAlias);
-        }
-        return mapColumnsInSQLToAlias(orderByValue, tableAlias);
-      });
-      limit = config2.limit;
-      offset = config2.offset;
-      for (const {
-        tsKey: selectedRelationTsKey,
-        queryConfig: selectedRelationConfigValue,
-        relation
-      } of selectedRelations) {
-        const normalizedRelation = normalizeRelation(schema, tableNamesMap, relation);
-        const relationTableName = getTableUniqueName(relation.referencedTable);
-        const relationTableTsName = tableNamesMap[relationTableName];
-        const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
-        const joinOn2 = and(
-          ...normalizedRelation.fields.map(
-            (field2, i) => eq(
-              aliasedTableColumn(normalizedRelation.references[i], relationTableAlias),
-              aliasedTableColumn(field2, tableAlias)
-            )
-          )
-        );
-        const builtRelation = this.buildRelationalQuery({
-          fullSchema,
-          schema,
-          tableNamesMap,
-          table: fullSchema[relationTableTsName],
-          tableConfig: schema[relationTableTsName],
-          queryConfig: is(relation, One) ? selectedRelationConfigValue === true ? { limit: 1 } : { ...selectedRelationConfigValue, limit: 1 } : selectedRelationConfigValue,
-          tableAlias: relationTableAlias,
-          joinOn: joinOn2,
-          nestedQueryRelation: relation
-        });
-        const field = sql`${sql.identifier(relationTableAlias)}.${sql.identifier("data")}`.as(selectedRelationTsKey);
-        joins.push({
-          on: sql`true`,
-          table: new Subquery(builtRelation.sql, {}, relationTableAlias),
-          alias: relationTableAlias,
-          joinType: "left",
-          lateral: true
-        });
-        selection.push({
-          dbKey: selectedRelationTsKey,
-          tsKey: selectedRelationTsKey,
-          field,
-          relationTableTsKey: relationTableTsName,
-          isJson: true,
-          selection: builtRelation.selection
-        });
-      }
-    }
-    if (selection.length === 0) {
-      throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}")` });
-    }
-    let result;
-    where = and(joinOn, where);
-    if (nestedQueryRelation) {
-      let field = sql`json_array(${sql.join(
-        selection.map(
-          ({ field: field2, tsKey, isJson }) => isJson ? sql`${sql.identifier(`${tableAlias}_${tsKey}`)}.${sql.identifier("data")}` : is(field2, SQL.Aliased) ? field2.sql : field2
-        ),
-        sql`, `
-      )})`;
-      if (is(nestedQueryRelation, Many)) {
-        field = sql`coalesce(json_arrayagg(${field}), json_array())`;
-      }
-      const nestedSelection = [{
-        dbKey: "data",
-        tsKey: "data",
-        field: field.as("data"),
-        isJson: true,
-        relationTableTsKey: tableConfig.tsName,
-        selection
-      }];
-      const needsSubquery = limit !== void 0 || offset !== void 0 || (orderBy?.length ?? 0) > 0;
-      if (needsSubquery) {
-        result = this.buildSelectQuery({
-          table: aliasedTable(table, tableAlias),
-          fields: {},
-          fieldsFlat: [
-            {
-              path: [],
-              field: sql.raw("*")
-            },
-            ...(orderBy?.length ?? 0) > 0 ? [{
-              path: [],
-              field: sql`row_number() over (order by ${sql.join(orderBy, sql`, `)})`
-            }] : []
-          ],
-          where,
-          limit,
-          offset,
-          setOperators: []
-        });
-        where = void 0;
-        limit = void 0;
-        offset = void 0;
-        orderBy = void 0;
-      } else {
-        result = aliasedTable(table, tableAlias);
-      }
-      result = this.buildSelectQuery({
-        table: is(result, MySqlTable) ? result : new Subquery(result, {}, tableAlias),
-        fields: {},
-        fieldsFlat: nestedSelection.map(({ field: field2 }) => ({
-          path: [],
-          field: is(field2, Column) ? aliasedTableColumn(field2, tableAlias) : field2
-        })),
-        joins,
-        where,
-        limit,
-        offset,
-        orderBy,
-        setOperators: []
-      });
-    } else {
-      result = this.buildSelectQuery({
-        table: aliasedTable(table, tableAlias),
-        fields: {},
-        fieldsFlat: selection.map(({ field }) => ({
-          path: [],
-          field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field
-        })),
-        joins,
-        where,
-        limit,
-        offset,
-        orderBy,
-        setOperators: []
-      });
-    }
-    return {
-      tableTsKey: tableConfig.tsName,
-      sql: result,
-      selection
-    };
-  }
-  buildRelationalQueryWithoutLateralSubqueries({
-    fullSchema,
-    schema,
-    tableNamesMap,
-    table,
-    tableConfig,
-    queryConfig: config2,
-    tableAlias,
-    nestedQueryRelation,
-    joinOn
-  }) {
-    let selection = [];
-    let limit, offset, orderBy = [], where;
-    if (config2 === true) {
-      const selectionEntries = Object.entries(tableConfig.columns);
-      selection = selectionEntries.map(([key, value]) => ({
-        dbKey: value.name,
-        tsKey: key,
-        field: aliasedTableColumn(value, tableAlias),
-        relationTableTsKey: void 0,
-        isJson: false,
-        selection: []
-      }));
-    } else {
-      const aliasedColumns = Object.fromEntries(
-        Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)])
-      );
-      if (config2.where) {
-        const whereSql = typeof config2.where === "function" ? config2.where(aliasedColumns, getOperators()) : config2.where;
-        where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
-      }
-      const fieldsSelection = [];
-      let selectedColumns = [];
-      if (config2.columns) {
-        let isIncludeMode = false;
-        for (const [field, value] of Object.entries(config2.columns)) {
-          if (value === void 0) {
-            continue;
-          }
-          if (field in tableConfig.columns) {
-            if (!isIncludeMode && value === true) {
-              isIncludeMode = true;
-            }
-            selectedColumns.push(field);
-          }
-        }
-        if (selectedColumns.length > 0) {
-          selectedColumns = isIncludeMode ? selectedColumns.filter((c) => config2.columns?.[c] === true) : Object.keys(tableConfig.columns).filter((key) => !selectedColumns.includes(key));
-        }
-      } else {
-        selectedColumns = Object.keys(tableConfig.columns);
-      }
-      for (const field of selectedColumns) {
-        const column = tableConfig.columns[field];
-        fieldsSelection.push({ tsKey: field, value: column });
-      }
-      let selectedRelations = [];
-      if (config2.with) {
-        selectedRelations = Object.entries(config2.with).filter((entry) => !!entry[1]).map(([tsKey, queryConfig]) => ({ tsKey, queryConfig, relation: tableConfig.relations[tsKey] }));
-      }
-      let extras;
-      if (config2.extras) {
-        extras = typeof config2.extras === "function" ? config2.extras(aliasedColumns, { sql }) : config2.extras;
-        for (const [tsKey, value] of Object.entries(extras)) {
-          fieldsSelection.push({
-            tsKey,
-            value: mapColumnsInAliasedSQLToAlias(value, tableAlias)
-          });
-        }
-      }
-      for (const { tsKey, value } of fieldsSelection) {
-        selection.push({
-          dbKey: is(value, SQL.Aliased) ? value.fieldAlias : tableConfig.columns[tsKey].name,
-          tsKey,
-          field: is(value, Column) ? aliasedTableColumn(value, tableAlias) : value,
-          relationTableTsKey: void 0,
-          isJson: false,
-          selection: []
-        });
-      }
-      let orderByOrig = typeof config2.orderBy === "function" ? config2.orderBy(aliasedColumns, getOrderByOperators()) : config2.orderBy ?? [];
-      if (!Array.isArray(orderByOrig)) {
-        orderByOrig = [orderByOrig];
-      }
-      orderBy = orderByOrig.map((orderByValue) => {
-        if (is(orderByValue, Column)) {
-          return aliasedTableColumn(orderByValue, tableAlias);
-        }
-        return mapColumnsInSQLToAlias(orderByValue, tableAlias);
-      });
-      limit = config2.limit;
-      offset = config2.offset;
-      for (const {
-        tsKey: selectedRelationTsKey,
-        queryConfig: selectedRelationConfigValue,
-        relation
-      } of selectedRelations) {
-        const normalizedRelation = normalizeRelation(schema, tableNamesMap, relation);
-        const relationTableName = getTableUniqueName(relation.referencedTable);
-        const relationTableTsName = tableNamesMap[relationTableName];
-        const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
-        const joinOn2 = and(
-          ...normalizedRelation.fields.map(
-            (field2, i) => eq(
-              aliasedTableColumn(normalizedRelation.references[i], relationTableAlias),
-              aliasedTableColumn(field2, tableAlias)
-            )
-          )
-        );
-        const builtRelation = this.buildRelationalQueryWithoutLateralSubqueries({
-          fullSchema,
-          schema,
-          tableNamesMap,
-          table: fullSchema[relationTableTsName],
-          tableConfig: schema[relationTableTsName],
-          queryConfig: is(relation, One) ? selectedRelationConfigValue === true ? { limit: 1 } : { ...selectedRelationConfigValue, limit: 1 } : selectedRelationConfigValue,
-          tableAlias: relationTableAlias,
-          joinOn: joinOn2,
-          nestedQueryRelation: relation
-        });
-        let fieldSql = sql`(${builtRelation.sql})`;
-        if (is(relation, Many)) {
-          fieldSql = sql`coalesce(${fieldSql}, json_array())`;
-        }
-        const field = fieldSql.as(selectedRelationTsKey);
-        selection.push({
-          dbKey: selectedRelationTsKey,
-          tsKey: selectedRelationTsKey,
-          field,
-          relationTableTsKey: relationTableTsName,
-          isJson: true,
-          selection: builtRelation.selection
-        });
-      }
-    }
-    if (selection.length === 0) {
-      throw new DrizzleError({
-        message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}"). You need to have at least one item in "columns", "with" or "extras". If you need to select all columns, omit the "columns" key or set it to undefined.`
-      });
-    }
-    let result;
-    where = and(joinOn, where);
-    if (nestedQueryRelation) {
-      let field = sql`json_array(${sql.join(
-        selection.map(
-          ({ field: field2 }) => is(field2, MySqlColumn) ? sql.identifier(this.casing.getColumnCasing(field2)) : is(field2, SQL.Aliased) ? field2.sql : field2
-        ),
-        sql`, `
-      )})`;
-      if (is(nestedQueryRelation, Many)) {
-        field = sql`json_arrayagg(${field})`;
-      }
-      const nestedSelection = [{
-        dbKey: "data",
-        tsKey: "data",
-        field,
-        isJson: true,
-        relationTableTsKey: tableConfig.tsName,
-        selection
-      }];
-      const needsSubquery = limit !== void 0 || offset !== void 0 || orderBy.length > 0;
-      if (needsSubquery) {
-        result = this.buildSelectQuery({
-          table: aliasedTable(table, tableAlias),
-          fields: {},
-          fieldsFlat: [
-            {
-              path: [],
-              field: sql.raw("*")
-            },
-            ...orderBy.length > 0 ? [{
-              path: [],
-              field: sql`row_number() over (order by ${sql.join(orderBy, sql`, `)})`
-            }] : []
-          ],
-          where,
-          limit,
-          offset,
-          setOperators: []
-        });
-        where = void 0;
-        limit = void 0;
-        offset = void 0;
-        orderBy = void 0;
-      } else {
-        result = aliasedTable(table, tableAlias);
-      }
-      result = this.buildSelectQuery({
-        table: is(result, MySqlTable) ? result : new Subquery(result, {}, tableAlias),
-        fields: {},
-        fieldsFlat: nestedSelection.map(({ field: field2 }) => ({
-          path: [],
-          field: is(field2, Column) ? aliasedTableColumn(field2, tableAlias) : field2
-        })),
-        where,
-        limit,
-        offset,
-        orderBy,
-        setOperators: []
-      });
-    } else {
-      result = this.buildSelectQuery({
-        table: aliasedTable(table, tableAlias),
-        fields: {},
-        fieldsFlat: selection.map(({ field }) => ({
-          path: [],
-          field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field
-        })),
-        where,
-        limit,
-        offset,
-        orderBy,
-        setOperators: []
-      });
-    }
-    return {
-      tableTsKey: tableConfig.tsName,
-      sql: result,
-      selection
-    };
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/query-builder.js
-init_subquery();
-
-// node_modules/drizzle-orm/mysql-core/query-builders/select.js
-init_entity();
-
-// node_modules/drizzle-orm/query-builders/query-builder.js
-init_entity();
-var TypedQueryBuilder = class {
-  static [entityKind] = "TypedQueryBuilder";
-  /** @internal */
-  getSelectedFields() {
-    return this._.selectedFields;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/select.js
-init_query_promise();
-init_sql();
-init_subquery();
-init_table();
-init_utils();
-init_view_common();
-var MySqlSelectBuilder = class {
-  static [entityKind] = "MySqlSelectBuilder";
-  fields;
-  session;
-  dialect;
-  withList = [];
-  distinct;
-  constructor(config2) {
-    this.fields = config2.fields;
-    this.session = config2.session;
-    this.dialect = config2.dialect;
-    if (config2.withList) {
-      this.withList = config2.withList;
-    }
-    this.distinct = config2.distinct;
-  }
-  from(source, onIndex) {
-    const isPartialSelect = !!this.fields;
-    let fields;
-    if (this.fields) {
-      fields = this.fields;
-    } else if (is(source, Subquery)) {
-      fields = Object.fromEntries(
-        Object.keys(source._.selectedFields).map((key) => [key, source[key]])
-      );
-    } else if (is(source, MySqlViewBase)) {
-      fields = source[ViewBaseConfig].selectedFields;
-    } else if (is(source, SQL)) {
-      fields = {};
-    } else {
-      fields = getTableColumns(source);
-    }
-    let useIndex = [];
-    let forceIndex = [];
-    let ignoreIndex = [];
-    if (is(source, MySqlTable) && onIndex && typeof onIndex !== "string") {
-      if (onIndex.useIndex) {
-        useIndex = convertIndexToString(toArray(onIndex.useIndex));
-      }
-      if (onIndex.forceIndex) {
-        forceIndex = convertIndexToString(toArray(onIndex.forceIndex));
-      }
-      if (onIndex.ignoreIndex) {
-        ignoreIndex = convertIndexToString(toArray(onIndex.ignoreIndex));
-      }
-    }
-    return new MySqlSelectBase(
-      {
-        table: source,
-        fields,
-        isPartialSelect,
-        session: this.session,
-        dialect: this.dialect,
-        withList: this.withList,
-        distinct: this.distinct,
-        useIndex,
-        forceIndex,
-        ignoreIndex
-      }
-    );
-  }
-};
-var MySqlSelectQueryBuilderBase = class extends TypedQueryBuilder {
-  static [entityKind] = "MySqlSelectQueryBuilder";
-  _;
-  config;
-  joinsNotNullableMap;
-  tableName;
-  isPartialSelect;
-  /** @internal */
-  session;
-  dialect;
-  cacheConfig = void 0;
-  usedTables = /* @__PURE__ */ new Set();
-  constructor({ table, fields, isPartialSelect, session, dialect, withList, distinct, useIndex, forceIndex, ignoreIndex }) {
-    super();
-    this.config = {
-      withList,
-      table,
-      fields: { ...fields },
-      distinct,
-      setOperators: [],
-      useIndex,
-      forceIndex,
-      ignoreIndex
-    };
-    this.isPartialSelect = isPartialSelect;
-    this.session = session;
-    this.dialect = dialect;
-    this._ = {
-      selectedFields: fields,
-      config: this.config
-    };
-    this.tableName = getTableLikeName(table);
-    this.joinsNotNullableMap = typeof this.tableName === "string" ? { [this.tableName]: true } : {};
-    for (const item of extractUsedTable(table)) this.usedTables.add(item);
-  }
-  /** @internal */
-  getUsedTables() {
-    return [...this.usedTables];
-  }
-  createJoin(joinType, lateral) {
-    return (table, a, b) => {
-      const isCrossJoin = joinType === "cross";
-      let on = isCrossJoin ? void 0 : a;
-      const onIndex = isCrossJoin ? a : b;
-      const baseTableName = this.tableName;
-      const tableName = getTableLikeName(table);
-      for (const item of extractUsedTable(table)) this.usedTables.add(item);
-      if (typeof tableName === "string" && this.config.joins?.some((join) => join.alias === tableName)) {
-        throw new Error(`Alias "${tableName}" is already used in this query`);
-      }
-      if (!this.isPartialSelect) {
-        if (Object.keys(this.joinsNotNullableMap).length === 1 && typeof baseTableName === "string") {
-          this.config.fields = {
-            [baseTableName]: this.config.fields
-          };
-        }
-        if (typeof tableName === "string" && !is(table, SQL)) {
-          const selection = is(table, Subquery) ? table._.selectedFields : is(table, View) ? table[ViewBaseConfig].selectedFields : table[Table.Symbol.Columns];
-          this.config.fields[tableName] = selection;
-        }
-      }
-      if (typeof on === "function") {
-        on = on(
-          new Proxy(
-            this.config.fields,
-            new SelectionProxyHandler({ sqlAliasedBehavior: "sql", sqlBehavior: "sql" })
-          )
-        );
-      }
-      if (!this.config.joins) {
-        this.config.joins = [];
-      }
-      let useIndex = [];
-      let forceIndex = [];
-      let ignoreIndex = [];
-      if (is(table, MySqlTable) && onIndex && typeof onIndex !== "string") {
-        if (onIndex.useIndex) {
-          useIndex = convertIndexToString(toArray(onIndex.useIndex));
-        }
-        if (onIndex.forceIndex) {
-          forceIndex = convertIndexToString(toArray(onIndex.forceIndex));
-        }
-        if (onIndex.ignoreIndex) {
-          ignoreIndex = convertIndexToString(toArray(onIndex.ignoreIndex));
-        }
-      }
-      this.config.joins.push({ on, table, joinType, alias: tableName, useIndex, forceIndex, ignoreIndex, lateral });
-      if (typeof tableName === "string") {
-        switch (joinType) {
-          case "left": {
-            this.joinsNotNullableMap[tableName] = false;
-            break;
-          }
-          case "right": {
-            this.joinsNotNullableMap = Object.fromEntries(
-              Object.entries(this.joinsNotNullableMap).map(([key]) => [key, false])
-            );
-            this.joinsNotNullableMap[tableName] = true;
-            break;
-          }
-          case "cross":
-          case "inner": {
-            this.joinsNotNullableMap[tableName] = true;
-            break;
-          }
-        }
-      }
-      return this;
-    };
-  }
-  /**
-   * Executes a `left join` operation by adding another table to the current query.
-   *
-   * Calling this method associates each row of the table with the corresponding row from the joined table, if a match is found. If no matching row exists, it sets all columns of the joined table to null.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#left-join}
-   *
-   * @param table the table to join.
-   * @param on the `on` clause.
-   * @param onIndex index hint.
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all users and their pets
-   * const usersWithPets: { user: User; pets: Pet | null; }[] = await db.select()
-   *   .from(users)
-   *   .leftJoin(pets, eq(users.id, pets.ownerId))
-   *
-   * // Select userId and petId
-   * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .leftJoin(pets, eq(users.id, pets.ownerId))
-   *
-   * // Select userId and petId with use index hint
-   * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .leftJoin(pets, eq(users.id, pets.ownerId), {
-   *     useIndex: ['pets_owner_id_index']
-   * })
-   * ```
-   */
-  leftJoin = this.createJoin("left", false);
-  /**
-   * Executes a `left join lateral` operation by adding subquery to the current query.
-   *
-   * A `lateral` join allows the right-hand expression to refer to columns from the left-hand side.
-   *
-   * Calling this method associates each row of the table with the corresponding row from the joined table, if a match is found. If no matching row exists, it sets all columns of the joined table to null.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#left-join-lateral}
-   *
-   * @param table the subquery to join.
-   * @param on the `on` clause.
-   */
-  leftJoinLateral = this.createJoin("left", true);
-  /**
-   * Executes a `right join` operation by adding another table to the current query.
-   *
-   * Calling this method associates each row of the joined table with the corresponding row from the main table, if a match is found. If no matching row exists, it sets all columns of the main table to null.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#right-join}
-   *
-   * @param table the table to join.
-   * @param on the `on` clause.
-   * @param onIndex index hint.
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all users and their pets
-   * const usersWithPets: { user: User | null; pets: Pet; }[] = await db.select()
-   *   .from(users)
-   *   .rightJoin(pets, eq(users.id, pets.ownerId))
-   *
-   * // Select userId and petId
-   * const usersIdsAndPetIds: { userId: number | null; petId: number; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .rightJoin(pets, eq(users.id, pets.ownerId))
-   *
-   * // Select userId and petId with use index hint
-   * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .leftJoin(pets, eq(users.id, pets.ownerId), {
-   *     useIndex: ['pets_owner_id_index']
-   * })
-   * ```
-   */
-  rightJoin = this.createJoin("right", false);
-  /**
-   * Executes an `inner join` operation, creating a new table by combining rows from two tables that have matching values.
-   *
-   * Calling this method retrieves rows that have corresponding entries in both joined tables. Rows without matching entries in either table are excluded, resulting in a table that includes only matching pairs.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#inner-join}
-   *
-   * @param table the table to join.
-   * @param on the `on` clause.
-   * @param onIndex index hint.
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all users and their pets
-   * const usersWithPets: { user: User; pets: Pet; }[] = await db.select()
-   *   .from(users)
-   *   .innerJoin(pets, eq(users.id, pets.ownerId))
-   *
-   * // Select userId and petId
-   * const usersIdsAndPetIds: { userId: number; petId: number; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .innerJoin(pets, eq(users.id, pets.ownerId))
-   *
-   * // Select userId and petId with use index hint
-   * const usersIdsAndPetIds: { userId: number; petId: number | null; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .leftJoin(pets, eq(users.id, pets.ownerId), {
-   *     useIndex: ['pets_owner_id_index']
-   * })
-   * ```
-   */
-  innerJoin = this.createJoin("inner", false);
-  /**
-   * Executes an `inner join lateral` operation, creating a new table by combining rows from two queries that have matching values.
-   *
-   * A `lateral` join allows the right-hand expression to refer to columns from the left-hand side.
-   *
-   * Calling this method retrieves rows that have corresponding entries in both joined tables. Rows without matching entries in either table are excluded, resulting in a table that includes only matching pairs.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#inner-join-lateral}
-   *
-   * @param table the subquery to join.
-   * @param on the `on` clause.
-   */
-  innerJoinLateral = this.createJoin("inner", true);
-  /**
-   * Executes a `cross join` operation by combining rows from two tables into a new table.
-   *
-   * Calling this method retrieves all rows from both main and joined tables, merging all rows from each table.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#cross-join}
-   *
-   * @param table the table to join.
-   * @param onIndex index hint.
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all users, each user with every pet
-   * const usersWithPets: { user: User; pets: Pet; }[] = await db.select()
-   *   .from(users)
-   *   .crossJoin(pets)
-   *
-   * // Select userId and petId
-   * const usersIdsAndPetIds: { userId: number; petId: number; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .crossJoin(pets)
-   *
-   * // Select userId and petId with use index hint
-   * const usersIdsAndPetIds: { userId: number; petId: number; }[] = await db.select({
-   *   userId: users.id,
-   *   petId: pets.id,
-   * })
-   *   .from(users)
-   *   .crossJoin(pets, {
-   *     useIndex: ['pets_owner_id_index']
-   * })
-   * ```
-   */
-  crossJoin = this.createJoin("cross", false);
-  /**
-   * Executes a `cross join lateral` operation by combining rows from two queries into a new table.
-   *
-   * A `lateral` join allows the right-hand expression to refer to columns from the left-hand side.
-   *
-   * Calling this method retrieves all rows from both main and joined queries, merging all rows from each query.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/joins#cross-join-lateral}
-   *
-   * @param table the query to join.
-   */
-  crossJoinLateral = this.createJoin("cross", true);
-  createSetOperator(type, isAll) {
-    return (rightSelection) => {
-      const rightSelect = typeof rightSelection === "function" ? rightSelection(getMySqlSetOperators()) : rightSelection;
-      if (!haveSameKeys(this.getSelectedFields(), rightSelect.getSelectedFields())) {
-        throw new Error(
-          "Set operator error (union / intersect / except): selected fields are not the same or are in a different order"
-        );
-      }
-      this.config.setOperators.push({ type, isAll, rightSelect });
-      return this;
-    };
-  }
-  /**
-   * Adds `union` set operator to the query.
-   *
-   * Calling this method will combine the result sets of the `select` statements and remove any duplicate rows that appear across them.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/set-operations#union}
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all unique names from customers and users tables
-   * await db.select({ name: users.name })
-   *   .from(users)
-   *   .union(
-   *     db.select({ name: customers.name }).from(customers)
-   *   );
-   * // or
-   * import { union } from 'drizzle-orm/mysql-core'
-   *
-   * await union(
-   *   db.select({ name: users.name }).from(users),
-   *   db.select({ name: customers.name }).from(customers)
-   * );
-   * ```
-   */
-  union = this.createSetOperator("union", false);
-  /**
-   * Adds `union all` set operator to the query.
-   *
-   * Calling this method will combine the result-set of the `select` statements and keep all duplicate rows that appear across them.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/set-operations#union-all}
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all transaction ids from both online and in-store sales
-   * await db.select({ transaction: onlineSales.transactionId })
-   *   .from(onlineSales)
-   *   .unionAll(
-   *     db.select({ transaction: inStoreSales.transactionId }).from(inStoreSales)
-   *   );
-   * // or
-   * import { unionAll } from 'drizzle-orm/mysql-core'
-   *
-   * await unionAll(
-   *   db.select({ transaction: onlineSales.transactionId }).from(onlineSales),
-   *   db.select({ transaction: inStoreSales.transactionId }).from(inStoreSales)
-   * );
-   * ```
-   */
-  unionAll = this.createSetOperator("union", true);
-  /**
-   * Adds `intersect` set operator to the query.
-   *
-   * Calling this method will retain only the rows that are present in both result sets and eliminate duplicates.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/set-operations#intersect}
-   *
-   * @example
-   *
-   * ```ts
-   * // Select course names that are offered in both departments A and B
-   * await db.select({ courseName: depA.courseName })
-   *   .from(depA)
-   *   .intersect(
-   *     db.select({ courseName: depB.courseName }).from(depB)
-   *   );
-   * // or
-   * import { intersect } from 'drizzle-orm/mysql-core'
-   *
-   * await intersect(
-   *   db.select({ courseName: depA.courseName }).from(depA),
-   *   db.select({ courseName: depB.courseName }).from(depB)
-   * );
-   * ```
-   */
-  intersect = this.createSetOperator("intersect", false);
-  /**
-   * Adds `intersect all` set operator to the query.
-   *
-   * Calling this method will retain only the rows that are present in both result sets including all duplicates.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/set-operations#intersect-all}
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all products and quantities that are ordered by both regular and VIP customers
-   * await db.select({
-   *   productId: regularCustomerOrders.productId,
-   *   quantityOrdered: regularCustomerOrders.quantityOrdered
-   * })
-   * .from(regularCustomerOrders)
-   * .intersectAll(
-   *   db.select({
-   *     productId: vipCustomerOrders.productId,
-   *     quantityOrdered: vipCustomerOrders.quantityOrdered
-   *   })
-   *   .from(vipCustomerOrders)
-   * );
-   * // or
-   * import { intersectAll } from 'drizzle-orm/mysql-core'
-   *
-   * await intersectAll(
-   *   db.select({
-   *     productId: regularCustomerOrders.productId,
-   *     quantityOrdered: regularCustomerOrders.quantityOrdered
-   *   })
-   *   .from(regularCustomerOrders),
-   *   db.select({
-   *     productId: vipCustomerOrders.productId,
-   *     quantityOrdered: vipCustomerOrders.quantityOrdered
-   *   })
-   *   .from(vipCustomerOrders)
-   * );
-   * ```
-   */
-  intersectAll = this.createSetOperator("intersect", true);
-  /**
-   * Adds `except` set operator to the query.
-   *
-   * Calling this method will retrieve all unique rows from the left query, except for the rows that are present in the result set of the right query.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/set-operations#except}
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all courses offered in department A but not in department B
-   * await db.select({ courseName: depA.courseName })
-   *   .from(depA)
-   *   .except(
-   *     db.select({ courseName: depB.courseName }).from(depB)
-   *   );
-   * // or
-   * import { except } from 'drizzle-orm/mysql-core'
-   *
-   * await except(
-   *   db.select({ courseName: depA.courseName }).from(depA),
-   *   db.select({ courseName: depB.courseName }).from(depB)
-   * );
-   * ```
-   */
-  except = this.createSetOperator("except", false);
-  /**
-   * Adds `except all` set operator to the query.
-   *
-   * Calling this method will retrieve all rows from the left query, except for the rows that are present in the result set of the right query.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/set-operations#except-all}
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all products that are ordered by regular customers but not by VIP customers
-   * await db.select({
-   *   productId: regularCustomerOrders.productId,
-   *   quantityOrdered: regularCustomerOrders.quantityOrdered,
-   * })
-   * .from(regularCustomerOrders)
-   * .exceptAll(
-   *   db.select({
-   *     productId: vipCustomerOrders.productId,
-   *     quantityOrdered: vipCustomerOrders.quantityOrdered,
-   *   })
-   *   .from(vipCustomerOrders)
-   * );
-   * // or
-   * import { exceptAll } from 'drizzle-orm/mysql-core'
-   *
-   * await exceptAll(
-   *   db.select({
-   *     productId: regularCustomerOrders.productId,
-   *     quantityOrdered: regularCustomerOrders.quantityOrdered
-   *   })
-   *   .from(regularCustomerOrders),
-   *   db.select({
-   *     productId: vipCustomerOrders.productId,
-   *     quantityOrdered: vipCustomerOrders.quantityOrdered
-   *   })
-   *   .from(vipCustomerOrders)
-   * );
-   * ```
-   */
-  exceptAll = this.createSetOperator("except", true);
-  /** @internal */
-  addSetOperators(setOperators) {
-    this.config.setOperators.push(...setOperators);
-    return this;
-  }
-  /**
-   * Adds a `where` clause to the query.
-   *
-   * Calling this method will select only those rows that fulfill a specified condition.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/select#filtering}
-   *
-   * @param where the `where` clause.
-   *
-   * @example
-   * You can use conditional operators and `sql function` to filter the rows to be selected.
-   *
-   * ```ts
-   * // Select all cars with green color
-   * await db.select().from(cars).where(eq(cars.color, 'green'));
-   * // or
-   * await db.select().from(cars).where(sql`${cars.color} = 'green'`)
-   * ```
-   *
-   * You can logically combine conditional operators with `and()` and `or()` operators:
-   *
-   * ```ts
-   * // Select all BMW cars with a green color
-   * await db.select().from(cars).where(and(eq(cars.color, 'green'), eq(cars.brand, 'BMW')));
-   *
-   * // Select all cars with the green or blue color
-   * await db.select().from(cars).where(or(eq(cars.color, 'green'), eq(cars.color, 'blue')));
-   * ```
-   */
-  where(where) {
-    if (typeof where === "function") {
-      where = where(
-        new Proxy(
-          this.config.fields,
-          new SelectionProxyHandler({ sqlAliasedBehavior: "sql", sqlBehavior: "sql" })
-        )
-      );
-    }
-    this.config.where = where;
-    return this;
-  }
-  /**
-   * Adds a `having` clause to the query.
-   *
-   * Calling this method will select only those rows that fulfill a specified condition. It is typically used with aggregate functions to filter the aggregated data based on a specified condition.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/select#aggregations}
-   *
-   * @param having the `having` clause.
-   *
-   * @example
-   *
-   * ```ts
-   * // Select all brands with more than one car
-   * await db.select({
-   * 	brand: cars.brand,
-   * 	count: sql<number>`cast(count(${cars.id}) as int)`,
-   * })
-   *   .from(cars)
-   *   .groupBy(cars.brand)
-   *   .having(({ count }) => gt(count, 1));
-   * ```
-   */
-  having(having) {
-    if (typeof having === "function") {
-      having = having(
-        new Proxy(
-          this.config.fields,
-          new SelectionProxyHandler({ sqlAliasedBehavior: "sql", sqlBehavior: "sql" })
-        )
-      );
-    }
-    this.config.having = having;
-    return this;
-  }
-  groupBy(...columns) {
-    if (typeof columns[0] === "function") {
-      const groupBy = columns[0](
-        new Proxy(
-          this.config.fields,
-          new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
-        )
-      );
-      this.config.groupBy = Array.isArray(groupBy) ? groupBy : [groupBy];
-    } else {
-      this.config.groupBy = columns;
-    }
-    return this;
-  }
-  orderBy(...columns) {
-    if (typeof columns[0] === "function") {
-      const orderBy = columns[0](
-        new Proxy(
-          this.config.fields,
-          new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
-        )
-      );
-      const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
-      if (this.config.setOperators.length > 0) {
-        this.config.setOperators.at(-1).orderBy = orderByArray;
-      } else {
-        this.config.orderBy = orderByArray;
-      }
-    } else {
-      const orderByArray = columns;
-      if (this.config.setOperators.length > 0) {
-        this.config.setOperators.at(-1).orderBy = orderByArray;
-      } else {
-        this.config.orderBy = orderByArray;
-      }
-    }
-    return this;
-  }
-  /**
-   * Adds a `limit` clause to the query.
-   *
-   * Calling this method will set the maximum number of rows that will be returned by this query.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/select#limit--offset}
-   *
-   * @param limit the `limit` clause.
-   *
-   * @example
-   *
-   * ```ts
-   * // Get the first 10 people from this query.
-   * await db.select().from(people).limit(10);
-   * ```
-   */
-  limit(limit) {
-    if (this.config.setOperators.length > 0) {
-      this.config.setOperators.at(-1).limit = limit;
-    } else {
-      this.config.limit = limit;
-    }
-    return this;
-  }
-  /**
-   * Adds an `offset` clause to the query.
-   *
-   * Calling this method will skip a number of rows when returning results from this query.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/select#limit--offset}
-   *
-   * @param offset the `offset` clause.
-   *
-   * @example
-   *
-   * ```ts
-   * // Get the 10th-20th people from this query.
-   * await db.select().from(people).offset(10).limit(10);
-   * ```
-   */
-  offset(offset) {
-    if (this.config.setOperators.length > 0) {
-      this.config.setOperators.at(-1).offset = offset;
-    } else {
-      this.config.offset = offset;
-    }
-    return this;
-  }
-  /**
-   * Adds a `for` clause to the query.
-   *
-   * Calling this method will specify a lock strength for this query that controls how strictly it acquires exclusive access to the rows being queried.
-   *
-   * See docs: {@link https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html}
-   *
-   * @param strength the lock strength.
-   * @param config the lock configuration.
-   */
-  for(strength, config2 = {}) {
-    this.config.lockingClause = { strength, config: config2 };
-    return this;
-  }
-  /** @internal */
-  getSQL() {
-    return this.dialect.buildSelectQuery(this.config);
-  }
-  toSQL() {
-    const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
-    return rest;
-  }
-  as(alias) {
-    const usedTables = [];
-    usedTables.push(...extractUsedTable(this.config.table));
-    if (this.config.joins) {
-      for (const it of this.config.joins) usedTables.push(...extractUsedTable(it.table));
-    }
-    return new Proxy(
-      new Subquery(this.getSQL(), this.config.fields, alias, false, [...new Set(usedTables)]),
-      new SelectionProxyHandler({ alias, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
-    );
-  }
-  /** @internal */
-  getSelectedFields() {
-    return new Proxy(
-      this.config.fields,
-      new SelectionProxyHandler({ alias: this.tableName, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
-    );
-  }
-  $dynamic() {
-    return this;
-  }
-  $withCache(config2) {
-    this.cacheConfig = config2 === void 0 ? { config: {}, enable: true, autoInvalidate: true } : config2 === false ? { enable: false } : { enable: true, autoInvalidate: true, ...config2 };
-    return this;
-  }
-};
-var MySqlSelectBase = class extends MySqlSelectQueryBuilderBase {
-  static [entityKind] = "MySqlSelect";
-  prepare() {
-    if (!this.session) {
-      throw new Error("Cannot execute a query on a query builder. Please use a database instance instead.");
-    }
-    const fieldsList = orderSelectedFields(this.config.fields);
-    const query = this.session.prepareQuery(this.dialect.sqlToQuery(this.getSQL()), fieldsList, void 0, void 0, void 0, {
-      type: "select",
-      tables: [...this.usedTables]
-    }, this.cacheConfig);
-    query.joinsNotNullableMap = this.joinsNotNullableMap;
-    return query;
-  }
-  execute = (placeholderValues) => {
-    return this.prepare().execute(placeholderValues);
-  };
-  createIterator = () => {
-    const self2 = this;
-    return async function* (placeholderValues) {
-      yield* self2.prepare().iterator(placeholderValues);
-    };
-  };
-  iterator = this.createIterator();
-};
-applyMixins(MySqlSelectBase, [QueryPromise]);
-function createSetOperator(type, isAll) {
-  return (leftSelect, rightSelect, ...restSelects) => {
-    const setOperators = [rightSelect, ...restSelects].map((select) => ({
-      type,
-      isAll,
-      rightSelect: select
-    }));
-    for (const setOperator of setOperators) {
-      if (!haveSameKeys(leftSelect.getSelectedFields(), setOperator.rightSelect.getSelectedFields())) {
-        throw new Error(
-          "Set operator error (union / intersect / except): selected fields are not the same or are in a different order"
-        );
-      }
-    }
-    return leftSelect.addSetOperators(setOperators);
-  };
-}
-var getMySqlSetOperators = () => ({
-  union,
-  unionAll,
-  intersect,
-  intersectAll,
-  except,
-  exceptAll
-});
-var union = createSetOperator("union", false);
-var unionAll = createSetOperator("union", true);
-var intersect = createSetOperator("intersect", false);
-var intersectAll = createSetOperator("intersect", true);
-var except = createSetOperator("except", false);
-var exceptAll = createSetOperator("except", true);
-
-// node_modules/drizzle-orm/mysql-core/query-builders/query-builder.js
-var QueryBuilder = class {
-  static [entityKind] = "MySqlQueryBuilder";
-  dialect;
-  dialectConfig;
-  constructor(dialect) {
-    this.dialect = is(dialect, MySqlDialect) ? dialect : void 0;
-    this.dialectConfig = is(dialect, MySqlDialect) ? void 0 : dialect;
-  }
-  $with = (alias, selection) => {
-    const queryBuilder = this;
-    const as = (qb) => {
-      if (typeof qb === "function") {
-        qb = qb(queryBuilder);
-      }
-      return new Proxy(
-        new WithSubquery(
-          qb.getSQL(),
-          selection ?? ("getSelectedFields" in qb ? qb.getSelectedFields() ?? {} : {}),
-          alias,
-          true
-        ),
-        new SelectionProxyHandler({ alias, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
-      );
-    };
-    return { as };
-  };
-  with(...queries) {
-    const self2 = this;
-    function select(fields) {
-      return new MySqlSelectBuilder({
-        fields: fields ?? void 0,
-        session: void 0,
-        dialect: self2.getDialect(),
-        withList: queries
-      });
-    }
-    function selectDistinct(fields) {
-      return new MySqlSelectBuilder({
-        fields: fields ?? void 0,
-        session: void 0,
-        dialect: self2.getDialect(),
-        withList: queries,
-        distinct: true
-      });
-    }
-    return { select, selectDistinct };
-  }
-  select(fields) {
-    return new MySqlSelectBuilder({ fields: fields ?? void 0, session: void 0, dialect: this.getDialect() });
-  }
-  selectDistinct(fields) {
-    return new MySqlSelectBuilder({
-      fields: fields ?? void 0,
-      session: void 0,
-      dialect: this.getDialect(),
-      distinct: true
-    });
-  }
-  // Lazy load dialect to avoid circular dependency
-  getDialect() {
-    if (!this.dialect) {
-      this.dialect = new MySqlDialect(this.dialectConfig);
-    }
-    return this.dialect;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/insert.js
-var MySqlInsertBuilder = class {
-  constructor(table, session, dialect) {
-    this.table = table;
-    this.session = session;
-    this.dialect = dialect;
-  }
-  static [entityKind] = "MySqlInsertBuilder";
-  shouldIgnore = false;
-  ignore() {
-    this.shouldIgnore = true;
-    return this;
-  }
-  values(values) {
-    values = Array.isArray(values) ? values : [values];
-    if (values.length === 0) {
-      throw new Error("values() must be called with at least one value");
-    }
-    const mappedValues = values.map((entry) => {
-      const result = {};
-      const cols = this.table[Table.Symbol.Columns];
-      for (const colKey of Object.keys(entry)) {
-        const colValue = entry[colKey];
-        result[colKey] = is(colValue, SQL) ? colValue : new Param(colValue, cols[colKey]);
-      }
-      return result;
-    });
-    return new MySqlInsertBase(this.table, mappedValues, this.shouldIgnore, this.session, this.dialect);
-  }
-  select(selectQuery) {
-    const select = typeof selectQuery === "function" ? selectQuery(new QueryBuilder()) : selectQuery;
-    if (!is(select, SQL) && !haveSameKeys(this.table[Columns], select._.selectedFields)) {
-      throw new Error(
-        "Insert select error: selected fields are not the same or are in a different order compared to the table definition"
-      );
-    }
-    return new MySqlInsertBase(this.table, select, this.shouldIgnore, this.session, this.dialect, true);
-  }
-};
-var MySqlInsertBase = class extends QueryPromise {
-  constructor(table, values, ignore, session, dialect, select) {
-    super();
-    this.session = session;
-    this.dialect = dialect;
-    this.config = { table, values, select, ignore };
-  }
-  static [entityKind] = "MySqlInsert";
-  config;
-  cacheConfig;
-  /**
-   * Adds an `on duplicate key update` clause to the query.
-   *
-   * Calling this method will update the row if any unique index conflicts. MySQL will automatically determine the conflict target based on the primary key and unique indexes.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/insert#on-duplicate-key-update}
-   *
-   * @param config The `set` clause
-   *
-   * @example
-   * ```ts
-   * await db.insert(cars)
-   *   .values({ id: 1, brand: 'BMW'})
-   *   .onDuplicateKeyUpdate({ set: { brand: 'Porsche' }});
-   * ```
-   *
-   * While MySQL does not directly support doing nothing on conflict, you can perform a no-op by setting any column's value to itself and achieve the same effect:
-   *
-   * ```ts
-   * import { sql } from 'drizzle-orm';
-   *
-   * await db.insert(cars)
-   *   .values({ id: 1, brand: 'BMW' })
-   *   .onDuplicateKeyUpdate({ set: { id: sql`id` } });
-   * ```
-   */
-  onDuplicateKeyUpdate(config2) {
-    const setSql = this.dialect.buildUpdateSet(this.config.table, mapUpdateSet(this.config.table, config2.set));
-    this.config.onConflict = sql`update ${setSql}`;
-    return this;
-  }
-  $returningId() {
-    const returning = [];
-    for (const [key, value] of Object.entries(this.config.table[Table.Symbol.Columns])) {
-      if (value.primary) {
-        returning.push({ field: value, path: [key] });
-      }
-    }
-    this.config.returning = returning;
-    return this;
-  }
-  /** @internal */
-  getSQL() {
-    return this.dialect.buildInsertQuery(this.config).sql;
-  }
-  toSQL() {
-    const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
-    return rest;
-  }
-  prepare() {
-    const { sql: sql2, generatedIds } = this.dialect.buildInsertQuery(this.config);
-    return this.session.prepareQuery(
-      this.dialect.sqlToQuery(sql2),
-      void 0,
-      void 0,
-      generatedIds,
-      this.config.returning,
-      {
-        type: "insert",
-        tables: extractUsedTable(this.config.table)
-      },
-      this.cacheConfig
-    );
-  }
-  execute = (placeholderValues) => {
-    return this.prepare().execute(placeholderValues);
-  };
-  createIterator = () => {
-    const self2 = this;
-    return async function* (placeholderValues) {
-      yield* self2.prepare().iterator(placeholderValues);
-    };
-  };
-  iterator = this.createIterator();
-  $dynamic() {
-    return this;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/update.js
-init_entity();
-init_query_promise();
-init_table();
-init_utils();
-var MySqlUpdateBuilder = class {
-  constructor(table, session, dialect, withList) {
-    this.table = table;
-    this.session = session;
-    this.dialect = dialect;
-    this.withList = withList;
-  }
-  static [entityKind] = "MySqlUpdateBuilder";
-  set(values) {
-    return new MySqlUpdateBase(this.table, mapUpdateSet(this.table, values), this.session, this.dialect, this.withList);
-  }
-};
-var MySqlUpdateBase = class extends QueryPromise {
-  constructor(table, set2, session, dialect, withList) {
-    super();
-    this.session = session;
-    this.dialect = dialect;
-    this.config = { set: set2, table, withList };
-  }
-  static [entityKind] = "MySqlUpdate";
-  config;
-  cacheConfig;
-  /**
-   * Adds a 'where' clause to the query.
-   *
-   * Calling this method will update only those rows that fulfill a specified condition.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/update}
-   *
-   * @param where the 'where' clause.
-   *
-   * @example
-   * You can use conditional operators and `sql function` to filter the rows to be updated.
-   *
-   * ```ts
-   * // Update all cars with green color
-   * db.update(cars).set({ color: 'red' })
-   *   .where(eq(cars.color, 'green'));
-   * // or
-   * db.update(cars).set({ color: 'red' })
-   *   .where(sql`${cars.color} = 'green'`)
-   * ```
-   *
-   * You can logically combine conditional operators with `and()` and `or()` operators:
-   *
-   * ```ts
-   * // Update all BMW cars with a green color
-   * db.update(cars).set({ color: 'red' })
-   *   .where(and(eq(cars.color, 'green'), eq(cars.brand, 'BMW')));
-   *
-   * // Update all cars with the green or blue color
-   * db.update(cars).set({ color: 'red' })
-   *   .where(or(eq(cars.color, 'green'), eq(cars.color, 'blue')));
-   * ```
-   */
-  where(where) {
-    this.config.where = where;
-    return this;
-  }
-  orderBy(...columns) {
-    if (typeof columns[0] === "function") {
-      const orderBy = columns[0](
-        new Proxy(
-          this.config.table[Table.Symbol.Columns],
-          new SelectionProxyHandler({ sqlAliasedBehavior: "alias", sqlBehavior: "sql" })
-        )
-      );
-      const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
-      this.config.orderBy = orderByArray;
-    } else {
-      const orderByArray = columns;
-      this.config.orderBy = orderByArray;
-    }
-    return this;
-  }
-  limit(limit) {
-    this.config.limit = limit;
-    return this;
-  }
-  /** @internal */
-  getSQL() {
-    return this.dialect.buildUpdateQuery(this.config);
-  }
-  toSQL() {
-    const { typings: _typings, ...rest } = this.dialect.sqlToQuery(this.getSQL());
-    return rest;
-  }
-  prepare() {
-    return this.session.prepareQuery(
-      this.dialect.sqlToQuery(this.getSQL()),
-      void 0,
-      void 0,
-      void 0,
-      this.config.returning,
-      {
-        type: "insert",
-        tables: extractUsedTable(this.config.table)
-      },
-      this.cacheConfig
-    );
-  }
-  execute = (placeholderValues) => {
-    return this.prepare().execute(placeholderValues);
-  };
-  createIterator = () => {
-    const self2 = this;
-    return async function* (placeholderValues) {
-      yield* self2.prepare().iterator(placeholderValues);
-    };
-  };
-  iterator = this.createIterator();
-  $dynamic() {
-    return this;
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/query-builders/query.js
-init_entity();
-init_query_promise();
-init_relations();
-var RelationalQueryBuilder = class {
-  constructor(fullSchema, schema, tableNamesMap, table, tableConfig, dialect, session, mode) {
-    this.fullSchema = fullSchema;
-    this.schema = schema;
-    this.tableNamesMap = tableNamesMap;
-    this.table = table;
-    this.tableConfig = tableConfig;
-    this.dialect = dialect;
-    this.session = session;
-    this.mode = mode;
-  }
-  static [entityKind] = "MySqlRelationalQueryBuilder";
-  findMany(config2) {
-    return new MySqlRelationalQuery(
-      this.fullSchema,
-      this.schema,
-      this.tableNamesMap,
-      this.table,
-      this.tableConfig,
-      this.dialect,
-      this.session,
-      config2 ? config2 : {},
-      "many",
-      this.mode
-    );
-  }
-  findFirst(config2) {
-    return new MySqlRelationalQuery(
-      this.fullSchema,
-      this.schema,
-      this.tableNamesMap,
-      this.table,
-      this.tableConfig,
-      this.dialect,
-      this.session,
-      config2 ? { ...config2, limit: 1 } : { limit: 1 },
-      "first",
-      this.mode
-    );
-  }
-};
-var MySqlRelationalQuery = class extends QueryPromise {
-  constructor(fullSchema, schema, tableNamesMap, table, tableConfig, dialect, session, config2, queryMode, mode) {
-    super();
-    this.fullSchema = fullSchema;
-    this.schema = schema;
-    this.tableNamesMap = tableNamesMap;
-    this.table = table;
-    this.tableConfig = tableConfig;
-    this.dialect = dialect;
-    this.session = session;
-    this.config = config2;
-    this.queryMode = queryMode;
-    this.mode = mode;
-  }
-  static [entityKind] = "MySqlRelationalQuery";
-  prepare() {
-    const { query, builtQuery } = this._toSQL();
-    return this.session.prepareQuery(
-      builtQuery,
-      void 0,
-      (rawRows) => {
-        const rows = rawRows.map((row) => mapRelationalRow(this.schema, this.tableConfig, row, query.selection));
-        if (this.queryMode === "first") {
-          return rows[0];
-        }
-        return rows;
-      }
-    );
-  }
-  _getQuery() {
-    const query = this.mode === "planetscale" ? this.dialect.buildRelationalQueryWithoutLateralSubqueries({
-      fullSchema: this.fullSchema,
-      schema: this.schema,
-      tableNamesMap: this.tableNamesMap,
-      table: this.table,
-      tableConfig: this.tableConfig,
-      queryConfig: this.config,
-      tableAlias: this.tableConfig.tsName
-    }) : this.dialect.buildRelationalQuery({
-      fullSchema: this.fullSchema,
-      schema: this.schema,
-      tableNamesMap: this.tableNamesMap,
-      table: this.table,
-      tableConfig: this.tableConfig,
-      queryConfig: this.config,
-      tableAlias: this.tableConfig.tsName
-    });
-    return query;
-  }
-  _toSQL() {
-    const query = this._getQuery();
-    const builtQuery = this.dialect.sqlToQuery(query.sql);
-    return { builtQuery, query };
-  }
-  /** @internal */
-  getSQL() {
-    return this._getQuery().sql;
-  }
-  toSQL() {
-    return this._toSQL().builtQuery;
-  }
-  execute() {
-    return this.prepare().execute();
-  }
-};
-
-// node_modules/drizzle-orm/mysql-core/db.js
-var MySqlDatabase = class {
-  constructor(dialect, session, schema, mode) {
-    this.dialect = dialect;
-    this.session = session;
-    this.mode = mode;
-    this._ = schema ? {
-      schema: schema.schema,
-      fullSchema: schema.fullSchema,
-      tableNamesMap: schema.tableNamesMap
-    } : {
-      schema: void 0,
-      fullSchema: {},
-      tableNamesMap: {}
-    };
-    this.query = {};
-    if (this._.schema) {
-      for (const [tableName, columns] of Object.entries(this._.schema)) {
-        this.query[tableName] = new RelationalQueryBuilder(
-          schema.fullSchema,
-          this._.schema,
-          this._.tableNamesMap,
-          schema.fullSchema[tableName],
-          columns,
-          dialect,
-          session,
-          this.mode
-        );
-      }
-    }
-    this.$cache = { invalidate: async (_params) => {
-    } };
-  }
-  static [entityKind] = "MySqlDatabase";
-  query;
-  /**
-   * Creates a subquery that defines a temporary named result set as a CTE.
-   *
-   * It is useful for breaking down complex queries into simpler parts and for reusing the result set in subsequent parts of the query.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/select#with-clause}
-   *
-   * @param alias The alias for the subquery.
-   *
-   * Failure to provide an alias will result in a DrizzleTypeError, preventing the subquery from being referenced in other queries.
-   *
-   * @example
-   *
-   * ```ts
-   * // Create a subquery with alias 'sq' and use it in the select query
-   * const sq = db.$with('sq').as(db.select().from(users).where(eq(users.id, 42)));
-   *
-   * const result = await db.with(sq).select().from(sq);
-   * ```
-   *
-   * To select arbitrary SQL values as fields in a CTE and reference them in other CTEs or in the main query, you need to add aliases to them:
-   *
-   * ```ts
-   * // Select an arbitrary SQL value as a field in a CTE and reference it in the main query
-   * const sq = db.$with('sq').as(db.select({
-   *   name: sql<string>`upper(${users.name})`.as('name'),
-   * })
-   * .from(users));
-   *
-   * const result = await db.with(sq).select({ name: sq.name }).from(sq);
-   * ```
-   */
-  $with = (alias, selection) => {
-    const self2 = this;
-    const as = (qb) => {
-      if (typeof qb === "function") {
-        qb = qb(new QueryBuilder(self2.dialect));
-      }
-      return new Proxy(
-        new WithSubquery(
-          qb.getSQL(),
-          selection ?? ("getSelectedFields" in qb ? qb.getSelectedFields() ?? {} : {}),
-          alias,
-          true
-        ),
-        new SelectionProxyHandler({ alias, sqlAliasedBehavior: "alias", sqlBehavior: "error" })
-      );
-    };
-    return { as };
-  };
-  $count(source, filters) {
-    return new MySqlCountBuilder({ source, filters, session: this.session });
-  }
-  $cache;
-  /**
-   * Incorporates a previously defined CTE (using `$with`) into the main query.
-   *
-   * This method allows the main query to reference a temporary named result set.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/select#with-clause}
-   *
-   * @param queries The CTEs to incorporate into the main query.
-   *
-   * @example
-   *
-   * ```ts
-   * // Define a subquery 'sq' as a CTE using $with
-   * const sq = db.$with('sq').as(db.select().from(users).where(eq(users.id, 42)));
-   *
-   * // Incorporate the CTE 'sq' into the main query and select from it
-   * const result = await db.with(sq).select().from(sq);
-   * ```
-   */
-  with(...queries) {
-    const self2 = this;
-    function select(fields) {
-      return new MySqlSelectBuilder({
-        fields: fields ?? void 0,
-        session: self2.session,
-        dialect: self2.dialect,
-        withList: queries
-      });
-    }
-    function selectDistinct(fields) {
-      return new MySqlSelectBuilder({
-        fields: fields ?? void 0,
-        session: self2.session,
-        dialect: self2.dialect,
-        withList: queries,
-        distinct: true
-      });
-    }
-    function update(table) {
-      return new MySqlUpdateBuilder(table, self2.session, self2.dialect, queries);
-    }
-    function delete_(table) {
-      return new MySqlDeleteBase(table, self2.session, self2.dialect, queries);
-    }
-    return { select, selectDistinct, update, delete: delete_ };
-  }
-  select(fields) {
-    return new MySqlSelectBuilder({ fields: fields ?? void 0, session: this.session, dialect: this.dialect });
-  }
-  selectDistinct(fields) {
-    return new MySqlSelectBuilder({
-      fields: fields ?? void 0,
-      session: this.session,
-      dialect: this.dialect,
-      distinct: true
-    });
-  }
-  /**
-   * Creates an update query.
-   *
-   * Calling this method without `.where()` clause will update all rows in a table. The `.where()` clause specifies which rows should be updated.
-   *
-   * Use `.set()` method to specify which values to update.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/update}
-   *
-   * @param table The table to update.
-   *
-   * @example
-   *
-   * ```ts
-   * // Update all rows in the 'cars' table
-   * await db.update(cars).set({ color: 'red' });
-   *
-   * // Update rows with filters and conditions
-   * await db.update(cars).set({ color: 'red' }).where(eq(cars.brand, 'BMW'));
-   * ```
-   */
-  update(table) {
-    return new MySqlUpdateBuilder(table, this.session, this.dialect);
-  }
-  /**
-   * Creates an insert query.
-   *
-   * Calling this method will create new rows in a table. Use `.values()` method to specify which values to insert.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/insert}
-   *
-   * @param table The table to insert into.
-   *
-   * @example
-   *
-   * ```ts
-   * // Insert one row
-   * await db.insert(cars).values({ brand: 'BMW' });
-   *
-   * // Insert multiple rows
-   * await db.insert(cars).values([{ brand: 'BMW' }, { brand: 'Porsche' }]);
-   * ```
-   */
-  insert(table) {
-    return new MySqlInsertBuilder(table, this.session, this.dialect);
-  }
-  /**
-   * Creates a delete query.
-   *
-   * Calling this method without `.where()` clause will delete all rows in a table. The `.where()` clause specifies which rows should be deleted.
-   *
-   * See docs: {@link https://orm.drizzle.team/docs/delete}
-   *
-   * @param table The table to delete from.
-   *
-   * @example
-   *
-   * ```ts
-   * // Delete all rows in the 'cars' table
-   * await db.delete(cars);
-   *
-   * // Delete rows with filters and conditions
-   * await db.delete(cars).where(eq(cars.color, 'green'));
-   * ```
-   */
-  delete(table) {
-    return new MySqlDeleteBase(table, this.session, this.dialect);
-  }
-  execute(query) {
-    return this.session.execute(typeof query === "string" ? sql.raw(query) : query.getSQL());
-  }
-  transaction(transaction, config2) {
-    return this.session.transaction(transaction, config2);
-  }
-};
-
-// node_modules/drizzle-orm/mysql2/driver.js
+init_db();
+init_dialect();
 init_relations();
 init_utils();
 init_errors();
 
 // node_modules/drizzle-orm/mysql2/session.js
 import { once as once2 } from "node:events";
-
-// node_modules/drizzle-orm/cache/core/cache.js
-init_entity();
-var Cache = class {
-  static [entityKind] = "Cache";
-};
-var NoopCache = class extends Cache {
-  strategy() {
-    return "all";
-  }
-  static [entityKind] = "NoopCache";
-  async get(_key) {
-    return void 0;
-  }
-  async put(_hashedQuery, _response, _tables, _config) {
-  }
-  async onMutate(_params) {
-  }
-};
-async function hashQuery(sql2, params) {
-  const dataToHash = `${sql2}-${JSON.stringify(params)}`;
-  const encoder2 = new TextEncoder();
-  const data = encoder2.encode(dataToHash);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = [...new Uint8Array(hashBuffer)];
-  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-  return hashHex;
-}
-
-// node_modules/drizzle-orm/mysql2/session.js
 init_column();
 init_entity();
 init_logger();
-
-// node_modules/drizzle-orm/mysql-core/session.js
-init_entity();
-init_errors();
-init_sql();
-var MySqlPreparedQuery = class {
-  constructor(cache2, queryMetadata, cacheConfig) {
-    this.cache = cache2;
-    this.queryMetadata = queryMetadata;
-    this.cacheConfig = cacheConfig;
-    if (cache2 && cache2.strategy() === "all" && cacheConfig === void 0) {
-      this.cacheConfig = { enable: true, autoInvalidate: true };
-    }
-    if (!this.cacheConfig?.enable) {
-      this.cacheConfig = void 0;
-    }
-  }
-  static [entityKind] = "MySqlPreparedQuery";
-  /** @internal */
-  async queryWithCache(queryString, params, query) {
-    if (this.cache === void 0 || is(this.cache, NoopCache) || this.queryMetadata === void 0) {
-      try {
-        return await query();
-      } catch (e) {
-        throw new DrizzleQueryError(queryString, params, e);
-      }
-    }
-    if (this.cacheConfig && !this.cacheConfig.enable) {
-      try {
-        return await query();
-      } catch (e) {
-        throw new DrizzleQueryError(queryString, params, e);
-      }
-    }
-    if ((this.queryMetadata.type === "insert" || this.queryMetadata.type === "update" || this.queryMetadata.type === "delete") && this.queryMetadata.tables.length > 0) {
-      try {
-        const [res] = await Promise.all([
-          query(),
-          this.cache.onMutate({ tables: this.queryMetadata.tables })
-        ]);
-        return res;
-      } catch (e) {
-        throw new DrizzleQueryError(queryString, params, e);
-      }
-    }
-    if (!this.cacheConfig) {
-      try {
-        return await query();
-      } catch (e) {
-        throw new DrizzleQueryError(queryString, params, e);
-      }
-    }
-    if (this.queryMetadata.type === "select") {
-      const fromCache = await this.cache.get(
-        this.cacheConfig.tag ?? await hashQuery(queryString, params),
-        this.queryMetadata.tables,
-        this.cacheConfig.tag !== void 0,
-        this.cacheConfig.autoInvalidate
-      );
-      if (fromCache === void 0) {
-        let result;
-        try {
-          result = await query();
-        } catch (e) {
-          throw new DrizzleQueryError(queryString, params, e);
-        }
-        await this.cache.put(
-          this.cacheConfig.tag ?? await hashQuery(queryString, params),
-          result,
-          // make sure we send tables that were used in a query only if user wants to invalidate it on each write
-          this.cacheConfig.autoInvalidate ? this.queryMetadata.tables : [],
-          this.cacheConfig.tag !== void 0,
-          this.cacheConfig.config
-        );
-        return result;
-      }
-      return fromCache;
-    }
-    try {
-      return await query();
-    } catch (e) {
-      throw new DrizzleQueryError(queryString, params, e);
-    }
-  }
-  /** @internal */
-  joinsNotNullableMap;
-};
-var MySqlSession = class {
-  constructor(dialect) {
-    this.dialect = dialect;
-  }
-  static [entityKind] = "MySqlSession";
-  execute(query) {
-    return this.prepareQuery(
-      this.dialect.sqlToQuery(query),
-      void 0
-    ).execute();
-  }
-  async count(sql2) {
-    const res = await this.execute(sql2);
-    return Number(
-      res[0][0]["count"]
-    );
-  }
-  getSetTransactionSQL(config2) {
-    const parts = [];
-    if (config2.isolationLevel) {
-      parts.push(`isolation level ${config2.isolationLevel}`);
-    }
-    return parts.length ? sql`set transaction ${sql.raw(parts.join(" "))}` : void 0;
-  }
-  getStartTransactionSQL(config2) {
-    const parts = [];
-    if (config2.withConsistentSnapshot) {
-      parts.push("with consistent snapshot");
-    }
-    if (config2.accessMode) {
-      parts.push(config2.accessMode);
-    }
-    return parts.length ? sql`start transaction ${sql.raw(parts.join(" "))}` : void 0;
-  }
-};
-var MySqlTransaction = class extends MySqlDatabase {
-  constructor(dialect, session, schema, nestedIndex, mode) {
-    super(dialect, session, schema, mode);
-    this.schema = schema;
-    this.nestedIndex = nestedIndex;
-  }
-  static [entityKind] = "MySqlTransaction";
-  rollback() {
-    throw new TransactionRollbackError();
-  }
-};
-
-// node_modules/drizzle-orm/mysql2/session.js
+init_session();
 init_sql();
 init_utils();
 var MySql2PreparedQuery = class extends MySqlPreparedQuery {
@@ -107409,419 +108431,8 @@ function drizzle(...params) {
   drizzle2.mock = mock;
 })(drizzle || (drizzle = {}));
 
-// drizzle/schema.ts
-var users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  passwordHash: varchar("passwordHash", { length: 256 }),
-  // para login local
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
-});
-var reconciliationSessions = mysqlTable("reconciliation_sessions", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  referenceDate: date("referenceDate").notNull(),
-  status: mysqlEnum("status", ["processing", "completed", "error"]).default("processing").notNull(),
-  totalBankCredits: decimal("totalBankCredits", { precision: 18, scale: 2 }).default("0"),
-  totalBankDebits: decimal("totalBankDebits", { precision: 18, scale: 2 }).default("0"),
-  totalApiCredits: decimal("totalApiCredits", { precision: 18, scale: 2 }).default("0"),
-  totalApiDebits: decimal("totalApiDebits", { precision: 18, scale: 2 }).default("0"),
-  matchedCount: int("matchedCount").default(0),
-  divergentCount: int("divergentCount").default(0),
-  pendingCount: int("pendingCount").default(0),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
-var bankTransactions = mysqlTable("bank_transactions", {
-  id: int("id").autoincrement().primaryKey(),
-  sessionId: int("sessionId").notNull(),
-  type: mysqlEnum("type", ["credit", "debit"]).notNull(),
-  transactionDate: date("transactionDate").notNull(),
-  description: text("description"),
-  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
-  channel: varchar("channel", { length: 50 }),
-  // PIX, TED, BOLETO, etc.
-  bankName: varchar("bankName", { length: 100 }),
-  externalId: varchar("externalId", { length: 100 }),
-  matchStatus: mysqlEnum("matchStatus", ["pending", "matched", "divergent", "manual"]).default("pending").notNull(),
-  matchedApiTransactionId: int("matchedApiTransactionId"),
-  matchType: mysqlEnum("matchType", ["exact", "partial", "approximate", "manual", "divergent"]),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => ({
-  sessionIdx: index("bt_session_idx").on(table.sessionId),
-  dateIdx: index("bt_date_idx").on(table.transactionDate),
-  statusIdx: index("bt_status_idx").on(table.matchStatus),
-  sessionTypeIdx: index("bt_session_type_idx").on(table.sessionId, table.type)
-}));
-var apiTransactions = mysqlTable("api_transactions", {
-  id: int("id").autoincrement().primaryKey(),
-  sessionId: int("sessionId").notNull(),
-  type: mysqlEnum("type", ["credit", "debit"]).notNull(),
-  transactionDate: date("transactionDate").notNull(),
-  description: text("description"),
-  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
-  channel: varchar("channel", { length: 50 }),
-  clientId: varchar("clientId", { length: 100 }),
-  clientName: varchar("clientName", { length: 200 }),
-  externalId: varchar("externalId", { length: 100 }),
-  matchStatus: mysqlEnum("matchStatus", ["pending", "matched", "divergent", "manual"]).default("pending").notNull(),
-  matchedBankTransactionId: int("matchedBankTransactionId"),
-  matchType: mysqlEnum("matchType", ["exact", "partial", "approximate", "manual", "divergent"]),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-}, (table) => ({
-  sessionIdx: index("at_session_idx").on(table.sessionId),
-  dateIdx: index("at_date_idx").on(table.transactionDate),
-  statusIdx: index("at_status_idx").on(table.matchStatus),
-  sessionTypeIdx: index("at_session_type_idx").on(table.sessionId, table.type)
-}));
-var divergences = mysqlTable("divergences", {
-  id: int("id").autoincrement().primaryKey(),
-  sessionId: int("sessionId").notNull(),
-  divergenceDate: date("divergenceDate").notNull(),
-  bankName: varchar("bankName", { length: 100 }),
-  clientId: varchar("clientId", { length: 100 }),
-  clientName: varchar("clientName", { length: 200 }),
-  divergenceType: mysqlEnum("divergenceType", ["bank_surplus", "bank_shortage"]).notNull(),
-  // sobra ou falta no banco
-  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
-  origin: varchar("origin", { length: 100 }),
-  category: mysqlEnum("category", [
-    "receita_nao_lancada",
-    "pix_sem_cliente",
-    "receita_financeira",
-    "estorno",
-    "devolucao",
-    "deposito_nao_identificado",
-    "tarifa_nao_apropriada",
-    "ted_orfa",
-    "receita_operacional",
-    "emprestimo_operacional",
-    "uso_saldo_clientes",
-    "despesa_nao_lancada",
-    "tarifa_bancaria",
-    "imposto",
-    "repasse_externo",
-    "ajuste_manual",
-    "saida_operacional",
-    "liquidacao_divergente",
-    "outros"
-  ]).notNull(),
-  subcategory: varchar("subcategory", { length: 100 }),
-  responsible: varchar("responsible", { length: 200 }),
-  status: mysqlEnum("status", [
-    "pendente",
-    "em_analise",
-    "identificado",
-    "regularizado",
-    "reclassificado",
-    "baixado",
-    "em_aberto",
-    "escalado_diretoria"
-  ]).default("pendente").notNull(),
-  slaDeadline: date("slaDeadline"),
-  priority: mysqlEnum("priority", ["low", "medium", "high", "critical"]).default("medium").notNull(),
-  evidence: text("evidence"),
-  observation: text("observation"),
-  actionTaken: text("actionTaken"),
-  // NDI — Não Identificado: entrada no banco sem correspondência na API
-  isNdi: boolean("isNdi").default(false),
-  ndiNote: text("ndiNote"),
-  // Estorno: transação estornada automaticamente detectada
-  isEstorno: boolean("isEstorno").default(false),
-  bankTransactionId: int("bankTransactionId"),
-  apiTransactionId: int("apiTransactionId"),
-  bankDescription: varchar("bankDescription", { length: 500 }),
-  apiDescription: varchar("apiDescription", { length: 500 }),
-  externalId: varchar("externalId", { length: 200 }),
-  bankAmount: decimal("bankAmount", { precision: 18, scale: 2 }),
-  apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }),
-  transactionType: mysqlEnum("transactionType", ["credit", "debit"]),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-}, (table) => ({
-  sessionIdx: index("div_session_idx").on(table.sessionId),
-  statusIdx: index("div_status_idx").on(table.status),
-  priorityIdx: index("div_priority_idx").on(table.priority),
-  dateIdx: index("div_date_idx").on(table.divergenceDate),
-  statusPriorityIdx: index("div_status_priority_idx").on(table.status, table.priority)
-}));
-var managerialBalances = mysqlTable("managerial_balances", {
-  id: int("id").autoincrement().primaryKey(),
-  referenceDate: date("referenceDate").notNull().unique(),
-  bankBalance: decimal("bankBalance", { precision: 18, scale: 2 }).default("0").notNull(),
-  clientBalance: decimal("clientBalance", { precision: 18, scale: 2 }).default("0").notNull(),
-  committedBalance: decimal("committedBalance", { precision: 18, scale: 2 }).default("0").notNull(),
-  divergenceBalance: decimal("divergenceBalance", { precision: 18, scale: 2 }).default("0").notNull(),
-  realCash: decimal("realCash", { precision: 18, scale: 2 }).default("0").notNull(),
-  // bankBalance - clientBalance - committedBalance ± divergenceBalance
-  ownCash: decimal("ownCash", { precision: 18, scale: 2 }).default("0").notNull(),
-  committedCash: decimal("committedCash", { precision: 18, scale: 2 }).default("0").notNull(),
-  freeCash: decimal("freeCash", { precision: 18, scale: 2 }).default("0").notNull(),
-  thirdPartyResources: decimal("thirdPartyResources", { precision: 18, scale: 2 }).default("0"),
-  futureObligations: decimal("futureObligations", { precision: 18, scale: 2 }).default("0"),
-  fundingNeeded: decimal("fundingNeeded", { precision: 18, scale: 2 }).default("0"),
-  openDivergences: int("openDivergences").default(0),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
-var revenues = mysqlTable("revenues", {
-  id: int("id").autoincrement().primaryKey(),
-  referenceDate: date("referenceDate").notNull(),
-  type: mysqlEnum("type", [
-    "pix",
-    "ted",
-    "boleto",
-    "credito",
-    "antecipacao",
-    "pos",
-    "white_label",
-    "receita_financeira",
-    "receita_operacional",
-    "outros"
-  ]).notNull(),
-  description: text("description"),
-  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
-  clientId: varchar("clientId", { length: 100 }),
-  clientName: varchar("clientName", { length: 200 }),
-  status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
-  bankTransactionId: int("bankTransactionId"),
-  costCenterId: int("costCenterId"),
-  createdByName: varchar("createdByName", { length: 200 }),
-  // Rastreamento de origem — adicionado via migração 0005
-  sessionId: int("sessionId"),
-  divergenceId: int("divergenceId"),
-  origin: varchar("origin", { length: 50 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-}, (table) => ({
-  dateIdx: index("rev_date_idx").on(table.referenceDate),
-  statusIdx: index("rev_status_idx").on(table.status),
-  typeIdx: index("rev_type_idx").on(table.type),
-  sessionIdx: index("rev_session_idx").on(table.sessionId)
-}));
-var expenses = mysqlTable("expenses", {
-  id: int("id").autoincrement().primaryKey(),
-  referenceDate: date("referenceDate").notNull(),
-  category: mysqlEnum("category", [
-    "bancaria",
-    "api",
-    "tecnologia",
-    "infra",
-    "operacional",
-    "comercial",
-    "folha",
-    "comissao",
-    "impostos",
-    "reembolso",
-    "chargeback",
-    "estorno",
-    "marketing",
-    "juridico",
-    "administrativo",
-    "outros"
-  ]).notNull(),
-  subcategory: varchar("subcategory", { length: 100 }),
-  description: text("description"),
-  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
-  supplier: varchar("supplier", { length: 200 }),
-  status: mysqlEnum("status", ["previsto", "realizado", "cancelado"]).default("realizado").notNull(),
-  bankTransactionId: int("bankTransactionId"),
-  costCenterId: int("costCenterId"),
-  createdByName: varchar("createdByName", { length: 200 }),
-  // Rastreamento de origem — adicionado via migração 0005
-  sessionId: int("sessionId"),
-  divergenceId: int("divergenceId"),
-  origin: varchar("origin", { length: 50 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
-var manualAdjustments = mysqlTable("manual_adjustments", {
-  id: int("id").autoincrement().primaryKey(),
-  sessionId: int("sessionId"),
-  description: text("description").notNull(),
-  adjustmentType: mysqlEnum("adjustmentType", [
-    "bank_split",
-    // banco divide pagamento em parcelas
-    "api_split",
-    // API divide em múltiplas entradas
-    "rounding",
-    // diferença de centavos
-    "manual"
-    // ajuste genérico
-  ]).notNull().default("manual"),
-  apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }).notNull(),
-  bankAmounts: text("bankAmounts"),
-  // JSON array de valores do banco
-  totalBankAmount: decimal("totalBankAmount", { precision: 18, scale: 2 }),
-  difference: decimal("difference", { precision: 18, scale: 2 }),
-  divergenceIds: text("divergenceIds"),
-  // JSON array de divergência IDs resolvidas
-  status: mysqlEnum("status", ["pendente", "aprovado", "rejeitado"]).default("aprovado").notNull(),
-  createdByName: varchar("createdByName", { length: 200 }),
-  notes: text("notes"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-}, (table) => ({
-  sessionIdx: index("adj_session_idx").on(table.sessionId)
-}));
-var payables = mysqlTable("payables", {
-  id: int("id").autoincrement().primaryKey(),
-  description: text("description").notNull(),
-  supplier: varchar("supplier", { length: 200 }),
-  category: mysqlEnum("category", [
-    "bancaria",
-    "api",
-    "tecnologia",
-    "infra",
-    "operacional",
-    "comercial",
-    "folha",
-    "comissao",
-    "impostos",
-    "reembolso",
-    "marketing",
-    "juridico",
-    "administrativo",
-    "outros"
-  ]).notNull(),
-  amount: decimal("amount", { precision: 18, scale: 2 }).notNull(),
-  dueDate: date("dueDate").notNull(),
-  paidDate: date("paidDate"),
-  status: mysqlEnum("status", ["pendente", "pago", "vencido", "cancelado"]).default("pendente").notNull(),
-  recurrent: boolean("recurrent").default(false),
-  recurrenceDay: int("recurrenceDay"),
-  notes: text("notes"),
-  createdByName: varchar("createdByName", { length: 200 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-}, (table) => ({
-  dueDateIdx: index("pay_due_date_idx").on(table.dueDate),
-  statusIdx: index("pay_status_idx").on(table.status),
-  statusDueDateIdx: index("pay_status_due_idx").on(table.status, table.dueDate)
-}));
-var creditPortfolio = mysqlTable("credit_portfolio", {
-  id: int("id").autoincrement().primaryKey(),
-  clientId: varchar("clientId", { length: 100 }).notNull(),
-  clientName: varchar("clientName", { length: 200 }).notNull(),
-  principal: decimal("principal", { precision: 18, scale: 2 }).notNull(),
-  interestRate: decimal("interestRate", { precision: 8, scale: 4 }).notNull(),
-  // taxa mensal
-  totalInstallments: int("totalInstallments").notNull(),
-  paidInstallments: int("paidInstallments").default(0).notNull(),
-  totalInterestEarned: decimal("totalInterestEarned", { precision: 18, scale: 2 }).default("0"),
-  outstandingBalance: decimal("outstandingBalance", { precision: 18, scale: 2 }).notNull(),
-  status: mysqlEnum("status", ["ativo", "quitado", "inadimplente", "renegociado", "cancelado"]).default("ativo").notNull(),
-  startDate: date("startDate").notNull(),
-  expectedEndDate: date("expectedEndDate").notNull(),
-  lastPaymentDate: date("lastPaymentDate"),
-  fundingSource: mysqlEnum("fundingSource", ["capital_proprio", "uso_custodia", "externo"]).default("capital_proprio"),
-  notes: text("notes"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-}, (table) => ({
-  statusIdx: index("cp_status_idx").on(table.status),
-  clientIdx: index("cp_client_idx").on(table.clientId)
-}));
-var creditInstallments = mysqlTable("credit_installments", {
-  id: int("id").autoincrement().primaryKey(),
-  creditId: int("creditId").notNull(),
-  installmentNumber: int("installmentNumber").notNull(),
-  dueDate: date("dueDate").notNull(),
-  principalAmount: decimal("principalAmount", { precision: 18, scale: 2 }).notNull(),
-  interestAmount: decimal("interestAmount", { precision: 18, scale: 2 }).notNull(),
-  totalAmount: decimal("totalAmount", { precision: 18, scale: 2 }).notNull(),
-  paidAmount: decimal("paidAmount", { precision: 18, scale: 2 }).default("0"),
-  paidDate: date("paidDate"),
-  status: mysqlEnum("status", ["pendente", "pago", "vencido", "parcial"]).default("pendente").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-}, (table) => ({
-  creditIdx: index("ci_credit_idx").on(table.creditId),
-  statusIdx: index("ci_status_idx").on(table.status),
-  dueDateIdx: index("ci_due_date_idx").on(table.dueDate)
-}));
-var costCenters = mysqlTable("cost_centers", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 200 }).notNull(),
-  type: mysqlEnum("type", ["receita", "despesa_fixa", "despesa_variavel", "imposto", "investimento", "credito"]).notNull(),
-  description: text("description"),
-  budget: decimal("budget", { precision: 18, scale: 2 }),
-  active: boolean("active").default(true).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull()
-});
-var dre = mysqlTable("dre", {
-  id: int("id").autoincrement().primaryKey(),
-  referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(),
-  // YYYY-MM
-  grossRevenue: decimal("grossRevenue", { precision: 18, scale: 2 }).default("0"),
-  netRevenue: decimal("netRevenue", { precision: 18, scale: 2 }).default("0"),
-  financialCosts: decimal("financialCosts", { precision: 18, scale: 2 }).default("0"),
-  operationalCosts: decimal("operationalCosts", { precision: 18, scale: 2 }).default("0"),
-  adminExpenses: decimal("adminExpenses", { precision: 18, scale: 2 }).default("0"),
-  commercialExpenses: decimal("commercialExpenses", { precision: 18, scale: 2 }).default("0"),
-  taxes: decimal("taxes", { precision: 18, scale: 2 }).default("0"),
-  operationalResult: decimal("operationalResult", { precision: 18, scale: 2 }).default("0"),
-  financialResult: decimal("financialResult", { precision: 18, scale: 2 }).default("0"),
-  netProfit: decimal("netProfit", { precision: 18, scale: 2 }).default("0"),
-  margin: decimal("margin", { precision: 8, scale: 4 }).default("0"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
-var cashFlow = mysqlTable("cash_flow", {
-  id: int("id").autoincrement().primaryKey(),
-  referenceDate: date("referenceDate").notNull().unique(),
-  openingBalance: decimal("openingBalance", { precision: 18, scale: 2 }).default("0"),
-  projectedInflows: decimal("projectedInflows", { precision: 18, scale: 2 }).default("0"),
-  realizedInflows: decimal("realizedInflows", { precision: 18, scale: 2 }).default("0"),
-  projectedOutflows: decimal("projectedOutflows", { precision: 18, scale: 2 }).default("0"),
-  realizedOutflows: decimal("realizedOutflows", { precision: 18, scale: 2 }).default("0"),
-  closingBalance: decimal("closingBalance", { precision: 18, scale: 2 }).default("0"),
-  freeCash: decimal("freeCash", { precision: 18, scale: 2 }).default("0"),
-  committedCash: decimal("committedCash", { precision: 18, scale: 2 }).default("0"),
-  fundingNeeded: decimal("fundingNeeded", { precision: 18, scale: 2 }).default("0"),
-  // Projeções
-  projectionD7: decimal("projectionD7", { precision: 18, scale: 2 }),
-  projectionD15: decimal("projectionD15", { precision: 18, scale: 2 }),
-  projectionD30: decimal("projectionD30", { precision: 18, scale: 2 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
-var alerts = mysqlTable("alerts", {
-  id: int("id").autoincrement().primaryKey(),
-  type: mysqlEnum("type", [
-    "cash_shortage",
-    "negative_cash",
-    "insufficient_funding",
-    "excessive_client_balance_use",
-    "critical_divergence",
-    "overdue_payable",
-    "credit_default",
-    "concentration_excess"
-  ]).notNull(),
-  title: varchar("title", { length: 300 }).notNull(),
-  message: text("message").notNull(),
-  severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
-  status: mysqlEnum("status", ["active", "acknowledged", "resolved"]).default("active").notNull(),
-  referenceId: int("referenceId"),
-  referenceType: varchar("referenceType", { length: 50 }),
-  acknowledgedBy: int("acknowledgedBy"),
-  acknowledgedAt: timestamp("acknowledgedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
-var systemConfig = mysqlTable("system_config", {
-  id: int("id").autoincrement().primaryKey(),
-  key: varchar("key", { length: 100 }).notNull().unique(),
-  value: text("value").notNull(),
-  description: text("description"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
-});
+// server/db.ts
+init_schema2();
 
 // server/_core/env.ts
 var ENV = {
@@ -108302,7 +108913,65 @@ async function createCreditInstallments(installments) {
 async function getDRE(months = 12) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(dre).orderBy(desc(dre.referenceMonth)).limit(months);
+  const result = await db.execute(sql`
+    SELECT
+      DATE_FORMAT(referenceDate, '%Y-%m') as month,
+      SUM(CAST(amount AS DECIMAL(18,2)))  as totalRevenue,
+      0                                    as totalExpense
+    FROM revenues
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+    GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
+    UNION ALL
+    SELECT
+      DATE_FORMAT(referenceDate, '%Y-%m') as month,
+      0                                    as totalRevenue,
+      SUM(CAST(amount AS DECIMAL(18,2)))  as totalExpense
+    FROM expenses
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+    GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
+    ORDER BY month DESC
+  `);
+  const rows = result[0] ?? [];
+  const byMonth = {};
+  for (const r of rows) {
+    const m = r.month;
+    if (!byMonth[m]) byMonth[m] = { revenue: 0, expense: 0 };
+    byMonth[m].revenue += parseFloat(String(r.totalRevenue ?? 0));
+    byMonth[m].expense += parseFloat(String(r.totalExpense ?? 0));
+  }
+  const manualDRE = await db.select().from(dre).orderBy(desc(dre.referenceMonth)).limit(months);
+  const manualByMonth = {};
+  for (const m of manualDRE) manualByMonth[String(m.referenceMonth)] = m;
+  const months12 = Array.from({ length: months }, (_, i) => {
+    const d = /* @__PURE__ */ new Date();
+    d.setMonth(d.getMonth() - i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  return months12.map((m) => {
+    const manual = manualByMonth[m];
+    if (manual) return { ...manual, source: "manual" };
+    const auto = byMonth[m];
+    if (!auto) return null;
+    const { revenue, expense } = auto;
+    const net2 = revenue - expense;
+    const margin = revenue > 0 ? net2 / revenue : 0;
+    return {
+      id: 0,
+      referenceMonth: m,
+      source: "auto",
+      grossRevenue: revenue.toFixed(2),
+      netRevenue: revenue.toFixed(2),
+      financialCosts: "0",
+      operationalCosts: expense.toFixed(2),
+      adminExpenses: "0",
+      commercialExpenses: "0",
+      taxes: "0",
+      operationalResult: net2.toFixed(2),
+      financialResult: "0",
+      netProfit: net2.toFixed(2),
+      margin: margin.toFixed(4)
+    };
+  }).filter(Boolean);
 }
 async function upsertDRE(data) {
   const db = await getDb();
@@ -108330,7 +108999,67 @@ async function upsertDRE(data) {
 async function getCashFlow(days = 30) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(cashFlow).orderBy(desc(cashFlow.referenceDate)).limit(days);
+  const result = await db.execute(sql`
+    SELECT
+      referenceDate as date,
+      SUM(CAST(amount AS DECIMAL(18,2))) as inflow,
+      0 as outflow
+    FROM revenues
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${days} DAY)
+    GROUP BY referenceDate
+    UNION ALL
+    SELECT
+      referenceDate as date,
+      0 as inflow,
+      SUM(CAST(amount AS DECIMAL(18,2))) as outflow
+    FROM expenses
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${days} DAY)
+    GROUP BY referenceDate
+    ORDER BY date ASC
+  `);
+  const rows = result[0] ?? [];
+  const byDate = {};
+  for (const r of rows) {
+    const d = String(r.date).slice(0, 10);
+    if (!byDate[d]) byDate[d] = { inflow: 0, outflow: 0 };
+    byDate[d].inflow += parseFloat(String(r.inflow ?? 0));
+    byDate[d].outflow += parseFloat(String(r.outflow ?? 0));
+  }
+  const manualCF = await db.select().from(cashFlow).orderBy(desc(cashFlow.referenceDate)).limit(days);
+  const manualByDate = {};
+  for (const c of manualCF) manualByDate[String(c.referenceDate).slice(0, 10)] = c;
+  let runningBalance = 0;
+  const entries2 = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b));
+  const autoRows = entries2.map(([date6, { inflow, outflow }]) => {
+    const manual = manualByDate[date6];
+    if (manual) {
+      runningBalance = parseFloat(String(manual.closingBalance ?? 0));
+      return { ...manual, source: "manual" };
+    }
+    const opening = runningBalance;
+    const closing = opening + inflow - outflow;
+    runningBalance = closing;
+    return {
+      id: 0,
+      referenceDate: date6,
+      source: "auto",
+      openingBalance: opening.toFixed(2),
+      realizedInflows: inflow.toFixed(2),
+      realizedOutflows: outflow.toFixed(2),
+      closingBalance: closing.toFixed(2),
+      projectedInflows: null,
+      projectedOutflows: null,
+      freeCash: closing.toFixed(2),
+      committedCash: "0",
+      fundingNeeded: closing < 0 ? Math.abs(closing).toFixed(2) : "0",
+      projectionD7: null,
+      projectionD15: null,
+      projectionD30: null
+    };
+  });
+  return [...autoRows, ...manualCF.filter((c) => !byDate[String(c.referenceDate).slice(0, 10)])].sort(
+    (a, b) => String(b.referenceDate ?? b.date ?? "").localeCompare(String(a.referenceDate ?? a.date ?? ""))
+  ).slice(0, days);
 }
 async function upsertCashFlow(data) {
   const db = await getDb();
@@ -131125,7 +131854,7 @@ var reconciliationRouter = router({
       totalApiDebits: result.summary.totalApiDebits.toFixed(2),
       matchedCount: result.summary.matchedCount,
       divergentCount: result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
-      pendingCount: 0
+      pendingCount: result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount
     });
     return {
       sessionId,
@@ -131648,8 +132377,29 @@ var controllershipRouter = router({
     await updatePayable(input.id, input);
     return { success: true };
   }),
-  markPayablePaid: protectedProcedure.input(external_exports.object({ id: external_exports.number(), paidDate: external_exports.string().optional() })).mutation(async ({ input }) => {
-    await updatePayableStatus(input.id, "pago", input.paidDate ?? (/* @__PURE__ */ new Date()).toISOString().split("T")[0]);
+  markPayablePaid: protectedProcedure.input(external_exports.object({ id: external_exports.number(), paidDate: external_exports.string().optional() })).mutation(async ({ input, ctx }) => {
+    const paidDate = input.paidDate ?? (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    await updatePayableStatus(input.id, "pago", paidDate);
+    const dbConn = await getDb();
+    if (dbConn) {
+      const { payables: payables2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
+      const { eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+      const payableData = await dbConn.select().from(payables2).where(eqOp(payables2.id, input.id)).limit(1);
+      const p = payableData[0];
+      if (p && parseFloat(String(p.amount ?? 0)) > 0) {
+        await createExpense({
+          referenceDate: paidDate,
+          category: "operacional",
+          subcategory: "conta_a_pagar",
+          description: String(p.description ?? "Conta a pagar"),
+          amount: String(p.amount),
+          supplier: String(p.supplier ?? ""),
+          status: "realizado",
+          createdByName: ctx.user?.name ?? "Sistema",
+          origin: "manual"
+        });
+      }
+    }
     return { success: true };
   }),
   updateLoan: protectedProcedure.input(external_exports.object({
@@ -131709,6 +132459,52 @@ var controllershipRouter = router({
     return { creditId };
   }),
   getCreditPortfolio: protectedProcedure.input(external_exports.object({ status: external_exports.string().optional() })).query(async ({ input }) => getCreditPortfolio(input)),
+  // Registrar pagamento de parcela da carteira de crédito
+  recordInstallmentPayment: protectedProcedure.input(external_exports.object({
+    installmentId: external_exports.number(),
+    creditId: external_exports.number(),
+    paidAmount: external_exports.string(),
+    paidDate: external_exports.string(),
+    notes: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const dbConn = await getDb();
+    if (!dbConn) throw new Error("DB unavailable");
+    const { sql: sqlTag, eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const { creditInstallments: creditInstallments2, creditPortfolio: creditPortfolio2, revenues: revenues2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
+    await dbConn.update(creditInstallments2).set({ status: "pago", paidDate: input.paidDate, paidAmount: input.paidAmount }).where(eqOp(creditInstallments2.id, input.installmentId));
+    const installments = await dbConn.select().from(creditInstallments2).where(eqOp(creditInstallments2.id, input.installmentId)).limit(1);
+    const inst = installments[0];
+    if (inst && parseFloat(String(inst.interestAmount ?? 0)) > 0) {
+      await dbConn.insert(revenues2).values({
+        referenceDate: input.paidDate,
+        type: "receita_financeira",
+        description: String(`Juros carteira cr\xE9dito - parcela #${inst.installmentNumber}`).slice(0),
+        amount: String(inst.interestAmount),
+        clientId: String(input.creditId),
+        status: "realizado",
+        createdByName: ctx.user?.name ?? "Sistema",
+        origin: "manual"
+      });
+    }
+    if (inst && parseFloat(String(inst.principalAmount ?? 0)) > 0) {
+      await dbConn.insert(revenues2).values({
+        referenceDate: input.paidDate,
+        type: "receita_financeira",
+        description: `Amortiza\xE7\xE3o carteira cr\xE9dito - parcela #${inst.installmentNumber}`,
+        amount: String(inst.principalAmount),
+        clientId: String(input.creditId),
+        status: "realizado",
+        createdByName: ctx.user?.name ?? "Sistema",
+        origin: "manual"
+      });
+    }
+    const allInstallments = await dbConn.select().from(creditInstallments2).where(eqOp(creditInstallments2.creditId, input.creditId));
+    const allPaid = allInstallments.every((i) => i.status === "pago" || i.id === input.installmentId);
+    if (allPaid) {
+      await dbConn.update(creditPortfolio2).set({ status: "quitado" }).where(eqOp(creditPortfolio2.id, input.creditId));
+    }
+    return { success: true };
+  }),
   getCreditInstallments: protectedProcedure.input(external_exports.object({ creditId: external_exports.number() })).query(async ({ input }) => getCreditInstallments(input.creditId)),
   getControllershipDashboard: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => getControllershipDashboard(input.dateFrom, input.dateTo)),
   getRevenueSummary: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => {
@@ -132137,6 +132933,7 @@ function serveStatic(app) {
 
 // server/_core/index.ts
 init_localAuth();
+init_schema2();
 init_drizzle_orm();
 function isPortAvailable(port) {
   return new Promise((resolve) => {

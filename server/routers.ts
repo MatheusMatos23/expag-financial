@@ -300,7 +300,7 @@ const reconciliationRouter = router({
         totalApiDebits:   result.summary.totalApiDebits.toFixed(2),
         matchedCount:     result.summary.matchedCount,
         divergentCount:   result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
-        pendingCount:     0,
+        pendingCount:     result.summary.divergentCount + result.summary.unmatchedBankCount + result.summary.unmatchedApiCount,
       });
 
       return {
@@ -880,8 +880,31 @@ const controllershipRouter = router({
 
   markPayablePaid: protectedProcedure
     .input(z.object({ id: z.number(), paidDate: z.string().optional() }))
-    .mutation(async ({ input }) => {
-      await db.updatePayableStatus(input.id, 'pago', input.paidDate ?? new Date().toISOString().split('T')[0]);
+    .mutation(async ({ input, ctx }) => {
+      const paidDate = input.paidDate ?? new Date().toISOString().split('T')[0];
+      await db.updatePayableStatus(input.id, 'pago', paidDate);
+
+      // Gera despesa automaticamente ao marcar como pago
+      const dbConn = await db.getDb();
+      if (dbConn) {
+        const { payables } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const payableData = await dbConn.select().from(payables).where(eqOp(payables.id, input.id)).limit(1);
+        const p = payableData[0];
+        if (p && parseFloat(String(p.amount ?? 0)) > 0) {
+          await db.createExpense({
+            referenceDate: paidDate,
+            category: 'operacional',
+            subcategory: 'conta_a_pagar',
+            description: String(p.description ?? 'Conta a pagar'),
+            amount: String(p.amount),
+            supplier: String(p.supplier ?? ''),
+            status: 'realizado',
+            createdByName: ctx.user?.name ?? 'Sistema',
+            origin: 'manual',
+          });
+        }
+      }
       return { success: true };
     }),
   updateLoan: protectedProcedure
@@ -941,6 +964,72 @@ const controllershipRouter = router({
   getCreditPortfolio: protectedProcedure
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => db.getCreditPortfolio(input)),
+
+  // Registrar pagamento de parcela da carteira de crédito
+  recordInstallmentPayment: protectedProcedure
+    .input(z.object({
+      installmentId: z.number(),
+      creditId: z.number(),
+      paidAmount: z.string(),
+      paidDate: z.string(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) throw new Error("DB unavailable");
+      const { sql: sqlTag, eq: eqOp } = await import("drizzle-orm");
+      const { creditInstallments, creditPortfolio, revenues } = await import("../drizzle/schema");
+
+      // Marca parcela como paga
+      await dbConn.update(creditInstallments)
+        .set({ status: 'pago', paidDate: input.paidDate as unknown as Date, paidAmount: input.paidAmount })
+        .where(eqOp(creditInstallments.id, input.installmentId));
+
+      // Busca a parcela para pegar juros e principal
+      const installments = await dbConn.select().from(creditInstallments)
+        .where(eqOp(creditInstallments.id, input.installmentId)).limit(1);
+      const inst = installments[0];
+
+      // Cria receita: juros recebidos
+      if (inst && parseFloat(String(inst.interestAmount ?? 0)) > 0) {
+        await dbConn.insert(revenues).values({
+          referenceDate: input.paidDate as unknown as Date,
+          type: 'receita_financeira' as any,
+          description: String(`Juros carteira crédito - parcela #${inst.installmentNumber}`).slice(0),
+          amount: String(inst.interestAmount),
+          clientId: String(input.creditId),
+          status: 'realizado' as any,
+          createdByName: ctx.user?.name ?? 'Sistema',
+          origin: 'manual',
+        });
+      }
+
+      // Cria receita: amortização recebida
+      if (inst && parseFloat(String(inst.principalAmount ?? 0)) > 0) {
+        await dbConn.insert(revenues).values({
+          referenceDate: input.paidDate as unknown as Date,
+          type: 'receita_financeira' as any,
+          description: `Amortização carteira crédito - parcela #${inst.installmentNumber}`,
+          amount: String(inst.principalAmount),
+          clientId: String(input.creditId),
+          status: 'realizado' as any,
+          createdByName: ctx.user?.name ?? 'Sistema',
+          origin: 'manual',
+        });
+      }
+
+      // Verifica se todas as parcelas foram pagas → atualiza status do crédito
+      const allInstallments = await dbConn.select().from(creditInstallments)
+        .where(eqOp(creditInstallments.creditId, input.creditId));
+      const allPaid = allInstallments.every(i => i.status === 'pago' || i.id === input.installmentId);
+      if (allPaid) {
+        await dbConn.update(creditPortfolio)
+          .set({ status: 'quitado' })
+          .where(eqOp(creditPortfolio.id, input.creditId));
+      }
+
+      return { success: true };
+    }),
 
   getCreditInstallments: protectedProcedure
     .input(z.object({ creditId: z.number() }))

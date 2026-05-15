@@ -629,7 +629,65 @@ export async function createCreditInstallments(installments: Array<{
 export async function getDRE(months = 12) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(dre).orderBy(desc(dre.referenceMonth)).limit(months);
+  // Tenta obter DRE automático a partir de revenues e expenses
+  // Agrupa por mês e calcula resultado
+  const result = await db.execute(sql`
+    SELECT
+      DATE_FORMAT(referenceDate, '%Y-%m') as month,
+      SUM(CAST(amount AS DECIMAL(18,2)))  as totalRevenue,
+      0                                    as totalExpense
+    FROM revenues
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+    GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
+    UNION ALL
+    SELECT
+      DATE_FORMAT(referenceDate, '%Y-%m') as month,
+      0                                    as totalRevenue,
+      SUM(CAST(amount AS DECIMAL(18,2)))  as totalExpense
+    FROM expenses
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+    GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
+    ORDER BY month DESC
+  `);
+  
+  const rows = (result as any)[0] ?? [];
+  const byMonth: Record<string, { revenue: number; expense: number }> = {};
+  for (const r of rows) {
+    const m = r.month;
+    if (!byMonth[m]) byMonth[m] = { revenue: 0, expense: 0 };
+    byMonth[m].revenue += parseFloat(String(r.totalRevenue ?? 0));
+    byMonth[m].expense += parseFloat(String(r.totalExpense ?? 0));
+  }
+
+  // Mescla com DRE manual (override se existir)
+  const manualDRE = await db.select().from(dre).orderBy(desc(dre.referenceMonth)).limit(months);
+  const manualByMonth: Record<string, any> = {};
+  for (const m of manualDRE) manualByMonth[String(m.referenceMonth)] = m;
+
+  const months12 = Array.from({ length: months }, (_, i) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  return months12.map(m => {
+    const manual = manualByMonth[m];
+    if (manual) return { ...manual, source: 'manual' };
+    const auto = byMonth[m];
+    if (!auto) return null;
+    const { revenue, expense } = auto;
+    const net = revenue - expense;
+    const margin = revenue > 0 ? net / revenue : 0;
+    return {
+      id: 0, referenceMonth: m, source: 'auto',
+      grossRevenue: revenue.toFixed(2),
+      netRevenue: revenue.toFixed(2),
+      financialCosts: '0', operationalCosts: expense.toFixed(2),
+      adminExpenses: '0', commercialExpenses: '0', taxes: '0',
+      operationalResult: net.toFixed(2), financialResult: '0',
+      netProfit: net.toFixed(2), margin: margin.toFixed(4),
+    };
+  }).filter(Boolean);
 }
 
 export async function upsertDRE(data: {
@@ -664,7 +722,65 @@ export async function upsertDRE(data: {
 export async function getCashFlow(days = 30) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(cashFlow).orderBy(desc(cashFlow.referenceDate)).limit(days);
+
+  // Calcula fluxo de caixa automático a partir de revenues e expenses por dia
+  const result = await db.execute(sql`
+    SELECT
+      referenceDate as date,
+      SUM(CAST(amount AS DECIMAL(18,2))) as inflow,
+      0 as outflow
+    FROM revenues
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${days} DAY)
+    GROUP BY referenceDate
+    UNION ALL
+    SELECT
+      referenceDate as date,
+      0 as inflow,
+      SUM(CAST(amount AS DECIMAL(18,2))) as outflow
+    FROM expenses
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${days} DAY)
+    GROUP BY referenceDate
+    ORDER BY date ASC
+  `);
+
+  const rows = (result as any)[0] ?? [];
+  const byDate: Record<string, { inflow: number; outflow: number }> = {};
+  for (const r of rows) {
+    const d = String(r.date).slice(0, 10);
+    if (!byDate[d]) byDate[d] = { inflow: 0, outflow: 0 };
+    byDate[d].inflow  += parseFloat(String(r.inflow ?? 0));
+    byDate[d].outflow += parseFloat(String(r.outflow ?? 0));
+  }
+
+  // Mescla com cashFlow manual (override se existir)
+  const manualCF = await db.select().from(cashFlow).orderBy(desc(cashFlow.referenceDate)).limit(days);
+  const manualByDate: Record<string, any> = {};
+  for (const c of manualCF) manualByDate[String(c.referenceDate).slice(0, 10)] = c;
+
+  let runningBalance = 0;
+  const entries = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b));
+  const autoRows = entries.map(([date, { inflow, outflow }]) => {
+    const manual = manualByDate[date];
+    if (manual) { runningBalance = parseFloat(String(manual.closingBalance ?? 0)); return { ...manual, source: 'manual' }; }
+    const opening = runningBalance;
+    const closing = opening + inflow - outflow;
+    runningBalance = closing;
+    return {
+      id: 0, referenceDate: date, source: 'auto',
+      openingBalance: opening.toFixed(2),
+      realizedInflows: inflow.toFixed(2),
+      realizedOutflows: outflow.toFixed(2),
+      closingBalance: closing.toFixed(2),
+      projectedInflows: null, projectedOutflows: null,
+      freeCash: closing.toFixed(2), committedCash: '0',
+      fundingNeeded: closing < 0 ? Math.abs(closing).toFixed(2) : '0',
+      projectionD7: null, projectionD15: null, projectionD30: null,
+    };
+  });
+
+  return [...autoRows, ...manualCF.filter(c => !byDate[String(c.referenceDate).slice(0, 10)])].sort(
+    (a, b) => String(b.referenceDate ?? b.date ?? '').localeCompare(String(a.referenceDate ?? a.date ?? ''))
+  ).slice(0, days);
 }
 
 export async function upsertCashFlow(data: {
