@@ -1,7 +1,8 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@/lib/utils";
 import { useState } from "react";
-import { BarChart3, TrendingUp, TrendingDown, DollarSign, Percent, Info } from "lucide-react";
+import { BarChart3, TrendingUp, TrendingDown, DollarSign, Percent, Info, Trash2, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -16,7 +17,11 @@ function fmtS(v: number) {
 
 export default function DRE() {
   const [months, setMonths] = useState(6);
-  const { data: dreList, isLoading } = trpc.accounting.getDRE.useQuery({ months });
+  const { data: dreList, isLoading, refetch } = trpc.accounting.getDRE.useQuery({ months });
+  const deleteMutation = trpc.accounting.deleteDRE.useMutation({
+    onSuccess: () => { toast.success("Entrada removida."); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
   const list = ((dreList ?? []) as any[]).filter(Boolean);
 
   const chartData = list.slice(0, 12).reverse().map((d: any) => ({
@@ -122,9 +127,19 @@ export default function DRE() {
                       <td className={cn("px-4 py-3 font-mono font-bold", net >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(net)}</td>
                       <td className={cn("px-4 py-3 font-mono", margin >= 30 ? "text-emerald-400" : margin >= 0 ? "text-yellow-400" : "text-red-400")}>{margin.toFixed(1)}%</td>
                       <td className="px-4 py-3">
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-semibold", d.source === 'auto' ? "text-blue-400 bg-blue-500/10 border-blue-500/30" : "text-purple-400 bg-purple-500/10 border-purple-500/30")}>
-                          {d.source === 'auto' ? 'Auto' : 'Manual'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-semibold", d.source === 'auto' ? "text-blue-400 bg-blue-500/10 border-blue-500/30" : "text-purple-400 bg-purple-500/10 border-purple-500/30")}>
+                            {d.source === 'auto' ? 'Auto' : 'Manual'}
+                          </span>
+                          {d.source === 'manual' && d.id > 0 && (
+                            <button
+                              onClick={() => { if (confirm(`Remover DRE de ${d.referenceMonth}?`)) deleteMutation.mutate({ id: d.id }); }}
+                              className="text-red-400 hover:text-red-300 transition-colors opacity-60 hover:opacity-100"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

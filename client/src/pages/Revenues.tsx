@@ -142,16 +142,16 @@ export default function Revenues() {
       cell: (r) => <span className={getStatusBadge(r.status)}>{getStatusLabel(r.status)}</span>,
     },
     {
-      key: "id", header: "", width: "80px", align: "right" as const, searchable: false,
+      key: "id", header: "Ações", width: "100px", align: "right" as const, searchable: false,
       cell: (r) => (
         <div className="flex items-center justify-end gap-1">
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-muted-foreground hover:text-primary gap-1"
             onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
-            <Edit2 className="w-3 h-3" />
+            <Edit2 className="w-3 h-3" /> Editar
           </Button>
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-muted-foreground hover:text-red-400 gap-1"
             onClick={(e) => { e.stopPropagation(); if(confirm("Remover esta receita?")) deleteMutation.mutate({ id: r.id }); }}>
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-3 h-3" /> Excluir
           </Button>
         </div>
       ),

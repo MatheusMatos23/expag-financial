@@ -145,13 +145,13 @@ export default function Expenses() {
       key: "id", header: "", align: "right" as const, width: "70px", searchable: false,
       cell: (r) => (
         <div className="flex items-center justify-end gap-1">
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-muted-foreground hover:text-primary gap-1"
             onClick={(e) => { e.stopPropagation(); handleEdit(r); }}>
-            <Edit2 className="w-3 h-3" />
+            <Edit2 className="w-3 h-3" /> Editar
           </Button>
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-muted-foreground hover:text-red-400 gap-1"
             onClick={(e) => { e.stopPropagation(); if(confirm("Remover esta despesa?")) deleteMutation.mutate({ id: r.id }); }}>
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-3 h-3" /> Excluir
           </Button>
         </div>
       ),

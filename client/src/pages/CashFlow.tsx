@@ -1,8 +1,9 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useState } from "react";
+import { toast } from "sonner";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Info, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Info, ArrowUpRight, ArrowDownRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +17,10 @@ function fmtS(v: number) {
 
 export default function CashFlow() {
   const [days, setDays] = useState(30);
-  const { data: cfData, isLoading } = trpc.accounting.getCashFlow.useQuery({ days });
+  const { data: cfData, isLoading, refetch } = trpc.accounting.getCashFlow.useQuery({ days });
+  const deleteMutation = trpc.accounting.deleteCashFlow?.useMutation?.({
+    onSuccess: () => { toast.success("Entrada removida."); refetch(); },
+  });
   const rows = ((cfData ?? []) as any[]).filter(Boolean).slice(0, days).reverse();
 
   const totalIn  = rows.reduce((s, r) => s + parseFloat(String(r.realizedInflows ?? 0)), 0);
@@ -139,6 +143,14 @@ export default function CashFlow() {
                       <td className="px-4 py-2.5 font-mono text-muted-foreground">{formatCurrency(opening)}</td>
                       <td className={cn("px-4 py-2.5 font-mono font-bold", closing >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(closing)}</td>
                       <td className={cn("px-4 py-2.5 font-mono font-semibold", net >= 0 ? "text-emerald-400" : "text-red-400")}>{net >= 0 ? `+${formatCurrency(net)}` : formatCurrency(net)}</td>
+                      <td className="px-4 py-2.5">
+                        {r.source === 'manual' && r.id > 0 && deleteMutation && (
+                          <button className="text-red-400 hover:text-red-300 opacity-50 hover:opacity-100 transition-all"
+                            onClick={() => { if (confirm("Remover este lançamento?")) deleteMutation.mutate({ referenceDate: String(r.referenceDate ?? r.date ?? '') }); }}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
