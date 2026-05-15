@@ -107984,17 +107984,19 @@ async function getApiTransactionsBySession(sessionId, type) {
 async function createBankTransaction(data) {
   const db = await getDb();
   if (!db) return;
+  const ms = data.matchStatus ?? "divergent";
   await db.execute(sql`
-    INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId)
-    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null})
+    INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId, matchStatus)
+    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null}, ${ms})
   `);
 }
 async function createApiTransaction(data) {
   const db = await getDb();
   if (!db) return;
+  const ms = data.matchStatus ?? "divergent";
   await db.execute(sql`
-    INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId)
-    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.clientName || null}, ${data.externalId || null})
+    INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus)
+    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.clientName || null}, ${data.externalId || null}, ${ms})
   `);
 }
 async function updateBankTransactionMatch(id, data) {
@@ -108601,20 +108603,32 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   }).where(inArray(divergences.id, ids));
   const bankTxIds = divs.map((d) => d.bankTransactionId).filter((id) => id != null && id > 0);
   if (bankTxIds.length > 0) {
-    await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual', matchType = 'manual'
-      WHERE id IN (${sql.raw(bankTxIds.join(","))})
-    `);
+    await db.execute(sql`UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual' WHERE id IN (${sql.raw(bankTxIds.join(","))})`);
   }
-  const externalIds = divs.map((d) => d.externalId).filter((id) => id != null && id.length > 0);
+  const externalIds = divs.map((d) => d.externalId).filter((id) => id != null && id.length > 3);
   if (externalIds.length > 0 && sessionId) {
     await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual', matchType = 'manual'
+      UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
       WHERE sessionId = ${sessionId}
       AND externalId IN (${sql.raw(externalIds.map((e) => `'${e.replace(/'/g, "''")}'`).join(","))})
     `);
+  }
+  const divsWithoutLink = divs.filter((d) => !d.bankTransactionId && (!d.externalId || d.externalId.length <= 3));
+  for (const div of divsWithoutLink) {
+    const amt = parseFloat(String(div.bankAmount ?? div.amount ?? 0));
+    if (amt > 0) {
+      const dateStr = String(div.divergenceDate).slice(0, 10);
+      const txType = div.transactionType ?? (div.divergenceType === "bank_surplus" ? "credit" : "debit");
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE sessionId = ${sessionId}
+        AND transactionDate = ${dateStr}
+        AND type = ${txType}
+        AND ABS(CAST(amount AS DECIMAL(18,2)) - ${amt}) < 0.02
+        AND matchStatus != 'matched'
+        LIMIT 1
+      `);
+    }
   }
   const pending = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM divergences
@@ -108622,12 +108636,14 @@ async function manualReconcileDivergences(ids, note, createdByName) {
     AND status NOT IN ('regularizado','reclassificado','baixado')
   `);
   const pendingCount = pending[0]?.[0]?.cnt ?? 0;
-  const matchedTxs = await db.execute(sql`
+  const matchedBankTxs = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM bank_transactions
-    WHERE sessionId = ${sessionId}
-    AND matchStatus IN ('matched','manual')
+    WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
   `);
-  const newMatchedCount = parseInt(String(matchedTxs[0]?.[0]?.cnt ?? 0));
+  const matchedTxCount = parseInt(String(matchedBankTxs[0]?.[0]?.cnt ?? 0));
+  const sessionData = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, sessionId)).limit(1);
+  const sessionMatchedBase = sessionData[0]?.matchedCount ?? 0;
+  const newMatchedCount = matchedTxCount > sessionMatchedBase ? matchedTxCount : sessionMatchedBase + ids.length;
   await db.update(reconciliationSessions).set({ matchedCount: newMatchedCount, pendingCount }).where(eq(reconciliationSessions.id, sessionId));
   return { success: true, count: ids.length, netAmount };
 }
@@ -130951,8 +130967,18 @@ var reconciliationRouter = router({
       userId: ctx.user.id,
       referenceDate: input.referenceDate
     });
+    const matchedExternalIds = /* @__PURE__ */ new Set();
+    for (const match of result.matches) {
+      if (match.status === "matched" && match.bankTx.externalId) {
+        matchedExternalIds.add(match.bankTx.externalId);
+      }
+    }
     for (const bank of parsedBanks) {
       for (const tx of bank.txs) {
+        const isMatched = tx.externalId ? matchedExternalIds.has(tx.externalId) : false;
+        const matchByDateAmount = !tx.externalId && result.matches.some(
+          (m) => m.status === "matched" && m.bankTx.date === tx.date && Math.abs(m.bankTx.amount - tx.amount) < 0.01 && m.bankTx.type === tx.type && (m.bankName ?? "") === bank.name
+        );
         await createBankTransaction({
           sessionId,
           type: tx.type,
@@ -130961,11 +130987,19 @@ var reconciliationRouter = router({
           amount: tx.amount.toFixed(2),
           channel: tx.channel,
           bankName: bank.name,
-          externalId: tx.externalId
+          externalId: tx.externalId,
+          matchStatus: isMatched || matchByDateAmount ? "matched" : "divergent"
         });
       }
     }
+    const matchedApiExternalIds = /* @__PURE__ */ new Set();
+    for (const match of result.matches) {
+      if (match.status === "matched" && match.apiTx?.externalId) {
+        matchedApiExternalIds.add(match.apiTx.externalId);
+      }
+    }
     for (const tx of apiTxs) {
+      const isMatched = tx.externalId ? matchedApiExternalIds.has(tx.externalId) : false;
       await createApiTransaction({
         sessionId,
         type: tx.type,
@@ -130974,7 +131008,8 @@ var reconciliationRouter = router({
         amount: tx.amount.toFixed(2),
         channel: tx.channel,
         clientName: tx.clientName,
-        externalId: tx.externalId
+        externalId: tx.externalId,
+        matchStatus: isMatched ? "matched" : "divergent"
       });
     }
     const BANK_LABELS = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
@@ -131347,23 +131382,32 @@ var reconciliationRouter = router({
     await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
     return { success: true };
   }),
-  // ── Stats em tempo real da sessão (para atualizar taxa de matching pós-ações) ─
+  // ── Stats em tempo real da sessão ────────────────────────────────────────────
   getSessionStats: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
     const dbConn = await getDb();
     if (!dbConn) return null;
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
-    const [total, manual, matched, pending] = await Promise.all([
+    const [totalRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
-      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'manual'`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
-      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`)
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
+      dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`)
     ]);
-    const totalCount = parseInt(String(total[0]?.[0]?.cnt ?? 0));
-    const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
-    const manualCount = parseInt(String(manual[0]?.[0]?.cnt ?? 0));
-    const pendingCount = parseInt(String(pending[0]?.[0]?.cnt ?? 0));
-    const matchRate = totalCount > 0 ? Math.round(matchedCount / totalCount * 100) : 0;
-    return { totalCount, matchedCount, manualCount, pendingCount, matchRate };
+    const totalBankTxs = parseInt(String(totalRes[0]?.[0]?.cnt ?? 0));
+    const matchedBankTxs = parseInt(String(matchedRes[0]?.[0]?.cnt ?? 0));
+    const pendingDivs = parseInt(String(pendingRes[0]?.[0]?.cnt ?? 0));
+    const sessionRow = sessionRes[0]?.[0];
+    const sessionMatched = parseInt(String(sessionRow?.matchedCount ?? 0));
+    const sessionDivergent = parseInt(String(sessionRow?.divergentCount ?? 0));
+    const effectiveMatched = matchedBankTxs > 0 ? matchedBankTxs : sessionMatched;
+    const effectiveTotal = totalBankTxs > 0 ? totalBankTxs : sessionMatched + sessionDivergent;
+    const matchRate = effectiveTotal > 0 ? Math.round(effectiveMatched / effectiveTotal * 100) : 0;
+    return {
+      totalCount: effectiveTotal,
+      matchedCount: effectiveMatched,
+      pendingCount: pendingDivs,
+      matchRate
+    };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────
   manualReconcile: protectedProcedure.input(external_exports.object({

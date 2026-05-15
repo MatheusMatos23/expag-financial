@@ -127,25 +127,52 @@ const reconciliationRouter = router({
         referenceDate: input.referenceDate,
       });
 
-      // Persistir transações de cada banco
+      // Persistir transações de cada banco com matchStatus do engine
+      // Monta mapa de externalId → matchStatus para atualização em lote
+      const matchedExternalIds = new Set<string>();
+      for (const match of result.matches) {
+        if (match.status === "matched" && match.bankTx.externalId) {
+          matchedExternalIds.add(match.bankTx.externalId);
+        }
+      }
+
       for (const bank of parsedBanks) {
         for (const tx of bank.txs) {
+          const isMatched = tx.externalId ? matchedExternalIds.has(tx.externalId) : false;
+          // Fallback: checar por date+amount+type se não tem externalId
+          const matchByDateAmount = !tx.externalId && result.matches.some(
+            m => m.status === "matched" &&
+            m.bankTx.date === tx.date &&
+            Math.abs(m.bankTx.amount - tx.amount) < 0.01 &&
+            m.bankTx.type === tx.type &&
+            (m.bankName ?? "") === bank.name
+          );
           await db.createBankTransaction({
             sessionId, type: tx.type,
             transactionDate: tx.date, description: tx.description,
             amount: tx.amount.toFixed(2), channel: tx.channel,
             bankName: bank.name, externalId: tx.externalId,
+            matchStatus: (isMatched || matchByDateAmount) ? "matched" : "divergent",
           });
         }
       }
 
-      // Persistir transações da API
+      // Persistir transações da API com matchStatus
+      const matchedApiExternalIds = new Set<string>();
+      for (const match of result.matches) {
+        if (match.status === "matched" && match.apiTx?.externalId) {
+          matchedApiExternalIds.add(match.apiTx.externalId);
+        }
+      }
+
       for (const tx of apiTxs) {
+        const isMatched = tx.externalId ? matchedApiExternalIds.has(tx.externalId) : false;
         await db.createApiTransaction({
           sessionId, type: tx.type,
           transactionDate: tx.date, description: tx.description,
           amount: tx.amount.toFixed(2), channel: tx.channel,
           clientName: tx.clientName, externalId: tx.externalId,
+          matchStatus: isMatched ? "matched" : "divergent",
         });
       }
 
@@ -548,7 +575,7 @@ const reconciliationRouter = router({
       return { success: true };
     }),
 
-  // ── Stats em tempo real da sessão (para atualizar taxa de matching pós-ações) ─
+  // ── Stats em tempo real da sessão ────────────────────────────────────────────
   getSessionStats: protectedProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
@@ -556,20 +583,32 @@ const reconciliationRouter = router({
       if (!dbConn) return null;
       const { sql: sqlTag } = await import("drizzle-orm");
 
-      const [total, manual, matched, pending] = await Promise.all([
+      const [totalRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
-        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'manual'`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
+        dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`),
       ]);
 
-      const totalCount   = parseInt(String((total   as any)[0]?.[0]?.cnt ?? 0));
-      const matchedCount = parseInt(String((matched as any)[0]?.[0]?.cnt ?? 0));
-      const manualCount  = parseInt(String((manual  as any)[0]?.[0]?.cnt ?? 0));
-      const pendingCount = parseInt(String((pending as any)[0]?.[0]?.cnt ?? 0));
-      const matchRate    = totalCount > 0 ? Math.round((matchedCount / totalCount) * 100) : 0;
+      const totalBankTxs    = parseInt(String((totalRes   as any)[0]?.[0]?.cnt ?? 0));
+      const matchedBankTxs  = parseInt(String((matchedRes as any)[0]?.[0]?.cnt ?? 0));
+      const pendingDivs     = parseInt(String((pendingRes as any)[0]?.[0]?.cnt ?? 0));
+      const sessionRow      = (sessionRes as any)[0]?.[0];
+      const sessionMatched  = parseInt(String(sessionRow?.matchedCount ?? 0));
+      const sessionDivergent= parseInt(String(sessionRow?.divergentCount ?? 0));
 
-      return { totalCount, matchedCount, manualCount, pendingCount, matchRate };
+      // matchedCount: usa bank_transactions quando > 0 (conciliação nova),
+      // caso contrário usa session.matchedCount (conciliação antiga sem matchStatus)
+      const effectiveMatched = matchedBankTxs > 0 ? matchedBankTxs : sessionMatched;
+      const effectiveTotal   = totalBankTxs   > 0 ? totalBankTxs   : (sessionMatched + sessionDivergent);
+      const matchRate = effectiveTotal > 0 ? Math.round((effectiveMatched / effectiveTotal) * 100) : 0;
+
+      return {
+        totalCount: effectiveTotal,
+        matchedCount: effectiveMatched,
+        pendingCount: pendingDivs,
+        matchRate,
+      };
     }),
 
   // ── Conciliação Manual ────────────────────────────────────────────────────

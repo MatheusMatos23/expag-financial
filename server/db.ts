@@ -168,24 +168,28 @@ export async function getApiTransactionsBySession(sessionId: number, type?: 'cre
 export async function createBankTransaction(data: {
   sessionId: number; type: 'credit' | 'debit'; transactionDate: string;
   description: string; amount: string; channel?: string; bankName?: string; externalId?: string;
+  matchStatus?: 'matched' | 'divergent' | 'manual';
 }) {
   const db = await getDb();
   if (!db) return;
+  const ms = data.matchStatus ?? 'divergent';
   await db.execute(sql`
-    INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId)
-    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null})
+    INSERT INTO bank_transactions (sessionId, type, transactionDate, description, amount, channel, bankName, externalId, matchStatus)
+    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.bankName || null}, ${data.externalId || null}, ${ms})
   `);
 }
 
 export async function createApiTransaction(data: {
   sessionId: number; type: 'credit' | 'debit'; transactionDate: string;
   description: string; amount: string; channel?: string; clientName?: string; externalId?: string;
+  matchStatus?: 'matched' | 'divergent' | 'manual';
 }) {
   const db = await getDb();
   if (!db) return;
+  const ms = data.matchStatus ?? 'divergent';
   await db.execute(sql`
-    INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId)
-    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.clientName || null}, ${data.externalId || null})
+    INSERT INTO api_transactions (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus)
+    VALUES (${data.sessionId}, ${data.type}, ${data.transactionDate}, ${data.description || null}, ${data.amount}, ${data.channel || null}, ${data.clientName || null}, ${data.externalId || null}, ${ms})
   `);
 }
 
@@ -1030,31 +1034,38 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
     .where(inArray(divergences.id, ids));
 
   // Atualiza matchStatus nas bank_transactions vinculadas
-  // (isso atualiza o matchRate calculado na página de sessão)
-  const bankTxIds = divs
-    .map(d => d.bankTransactionId)
-    .filter((id): id is number => id != null && id > 0);
-
+  // Tenta por bankTransactionId, depois por externalId, depois por date+amount+type
+  const bankTxIds = divs.map(d => d.bankTransactionId).filter((id): id is number => id != null && id > 0);
   if (bankTxIds.length > 0) {
-    await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual', matchType = 'manual'
-      WHERE id IN (${sql.raw(bankTxIds.join(','))})
-    `);
+    await db.execute(sql`UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual' WHERE id IN (${sql.raw(bankTxIds.join(','))})`);
   }
 
-  // Também atualiza via externalId quando bankTransactionId não está salvo
-  const externalIds = divs
-    .map(d => d.externalId)
-    .filter((id): id is string => id != null && id.length > 0);
-
+  const externalIds = divs.map(d => d.externalId).filter((id): id is string => id != null && id.length > 3);
   if (externalIds.length > 0 && sessionId) {
     await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual', matchType = 'manual'
+      UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
       WHERE sessionId = ${sessionId}
       AND externalId IN (${sql.raw(externalIds.map(e => `'${e.replace(/'/g, "''")}'`).join(','))})
     `);
+  }
+
+  // Fallback: match por bankAmount + date + type quando não tem externalId ou bankTransactionId
+  const divsWithoutLink = divs.filter(d => !d.bankTransactionId && (!d.externalId || d.externalId.length <= 3));
+  for (const div of divsWithoutLink) {
+    const amt = parseFloat(String(div.bankAmount ?? div.amount ?? 0));
+    if (amt > 0) {
+      const dateStr = String(div.divergenceDate).slice(0, 10);
+      const txType  = div.transactionType ?? (div.divergenceType === 'bank_surplus' ? 'credit' : 'debit');
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE sessionId = ${sessionId}
+        AND transactionDate = ${dateStr}
+        AND type = ${txType}
+        AND ABS(CAST(amount AS DECIMAL(18,2)) - ${amt}) < 0.02
+        AND matchStatus != 'matched'
+        LIMIT 1
+      `);
+    }
   }
 
   // Recalcula contadores reais da sessão
@@ -1065,13 +1076,18 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
   `);
   const pendingCount = (pending as any)[0]?.[0]?.cnt ?? 0;
 
-  // matchedCount = bank_transactions com matchStatus = 'matched' ou 'manual'
-  const matchedTxs = await db.execute(sql`
+  // matchedCount: soma bank_transactions matched/manual + session.matchedCount original
+  // (para sessions antigas sem matchStatus nas bank_transactions)
+  const matchedBankTxs = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM bank_transactions
-    WHERE sessionId = ${sessionId}
-    AND matchStatus IN ('matched','manual')
+    WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
   `);
-  const newMatchedCount = parseInt(String((matchedTxs as any)[0]?.[0]?.cnt ?? 0));
+  const matchedTxCount = parseInt(String((matchedBankTxs as any)[0]?.[0]?.cnt ?? 0));
+
+  const sessionData = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, sessionId)).limit(1);
+  const sessionMatchedBase = sessionData[0]?.matchedCount ?? 0;
+  // Se bank_transactions têm matchStatus, usa esse valor; senão usa session + ids.length
+  const newMatchedCount = matchedTxCount > sessionMatchedBase ? matchedTxCount : sessionMatchedBase + ids.length;
 
   await db.update(reconciliationSessions)
     .set({ matchedCount: newMatchedCount, pendingCount })
