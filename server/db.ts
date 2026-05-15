@@ -361,8 +361,8 @@ export async function getRevenues(filters?: {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
-  if (filters?.dateFrom) conditions.push(sql`${revenues.referenceDate} >= ${filters.dateFrom}`);
-  if (filters?.dateTo) conditions.push(sql`${revenues.referenceDate} <= ${filters.dateTo}`);
+  if (filters?.dateFrom) conditions.push(sql`referenceDate >= ${filters.dateFrom}`);
+  if (filters?.dateTo) conditions.push(sql`referenceDate <= ${filters.dateTo}`);
   if (filters?.type) conditions.push(eq(revenues.type, filters.type as any));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status as any));
   if (filters?.origin) conditions.push(sql`revenues.origin = ${filters.origin}`);
@@ -494,8 +494,8 @@ export async function getExpenses(filters?: {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
-  if (filters?.dateFrom) conditions.push(sql`${expenses.referenceDate} >= ${filters.dateFrom}`);
-  if (filters?.dateTo) conditions.push(sql`${expenses.referenceDate} <= ${filters.dateTo}`);
+  if (filters?.dateFrom) conditions.push(sql`referenceDate >= ${filters.dateFrom}`);
+  if (filters?.dateTo) conditions.push(sql`referenceDate <= ${filters.dateTo}`);
   if (filters?.category) conditions.push(eq(expenses.category, filters.category as any));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status as any));
   if (filters?.origin) conditions.push(sql`expenses.origin = ${filters.origin}`);
@@ -800,6 +800,68 @@ export async function setSystemConfig(key: string, value: string, description?: 
 }
 
 // ─── DASHBOARD SUMMARY ────────────────────────────────────────────────────────
+export async function getControllershipDashboard(dateFrom: string, dateTo: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [revRows, expRows, divRows] = await Promise.all([
+    getRevenues({ dateFrom, dateTo }),
+    getExpenses({ dateFrom, dateTo }),
+    getDivergences({ status: 'pendente' }),
+  ]);
+
+  // Totais
+  const totalRevenue   = revRows.reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
+  const totalExpenses  = expRows.reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
+  const netResult      = totalRevenue - totalExpenses;
+  const margin         = totalRevenue > 0 ? (netResult / totalRevenue) * 100 : 0;
+  const divValue       = divRows.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+
+  // Receitas por tipo
+  const revenueByType: Record<string, number> = {};
+  for (const r of revRows) {
+    const k = String(r.type ?? 'outros');
+    revenueByType[k] = (revenueByType[k] ?? 0) + parseFloat(String(r.amount ?? 0));
+  }
+
+  // Despesas por categoria
+  const expenseByCategory: Record<string, number> = {};
+  for (const e of expRows) {
+    const k = String(e.category ?? 'outros');
+    expenseByCategory[k] = (expenseByCategory[k] ?? 0) + parseFloat(String(e.amount ?? 0));
+  }
+
+  // Origem: auto (conciliação) vs manual
+  const autoRevenue  = revRows.filter(r => (r as any).origin === 'auto_tariff').reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
+  const autoExpense  = expRows.filter(e => (e as any).origin === 'auto_tariff').reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
+  const movedRevenue = revRows.filter(r => (r as any).origin === 'manual_move').reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
+  const movedExpense = expRows.filter(e => (e as any).origin === 'manual_move').reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
+
+  // Evolução diária (últimos lançamentos agrupados por data)
+  const dailyMap: Record<string, { date: string; receitas: number; despesas: number }> = {};
+  for (const r of revRows) {
+    const d = String(r.referenceDate).slice(0, 10);
+    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
+    dailyMap[d].receitas += parseFloat(String(r.amount ?? 0));
+  }
+  for (const e of expRows) {
+    const d = String(e.referenceDate).slice(0, 10);
+    if (!dailyMap[d]) dailyMap[d] = { date: d, receitas: 0, despesas: 0 };
+    dailyMap[d].despesas += parseFloat(String(e.amount ?? 0));
+  }
+  const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    totalRevenue, totalExpenses, netResult, margin,
+    divValue, divCount: divRows.length,
+    revenueByType, expenseByCategory,
+    autoRevenue, autoExpense, movedRevenue, movedExpense,
+    dailyEvolution,
+    recentRevenues: revRows.slice(0, 10),
+    recentExpenses: expRows.slice(0, 10),
+  };
+}
+
 export async function getDashboardSummary(dateFrom: string, dateTo: string) {
   const db = await getDb();
   if (!db) return null;

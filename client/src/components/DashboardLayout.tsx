@@ -308,6 +308,7 @@ const menuGroups = [
   {
     label: "Camada 2 · Controladoria",
     items: [
+      { icon: LayoutDashboard, label: "Dashboard Controladoria", path: "/controladoria" },
       { icon: TrendingUp, label: "Receitas", path: "/receitas" },
       { icon: Receipt, label: "Despesas", path: "/despesas" },
       { icon: BadgeDollarSign, label: "Contas a Pagar", path: "/contas-a-pagar" },

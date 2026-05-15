@@ -788,7 +788,11 @@ const controllershipRouter = router({
     .input(z.object({ creditId: z.number() }))
     .query(async ({ input }) => db.getCreditInstallments(input.creditId)),
 
-   getRevenueSummary: protectedProcedure
+   getControllershipDashboard: protectedProcedure
+    .input(z.object({ dateFrom: z.string(), dateTo: z.string() }))
+    .query(async ({ input }) => db.getControllershipDashboard(input.dateFrom, input.dateTo)),
+
+  getRevenueSummary: protectedProcedure
     .input(z.object({ dateFrom: z.string(), dateTo: z.string() }))
     .query(async ({ input }) => {
       const rawData = await db.getRevenueSummary(input.dateFrom, input.dateTo);
