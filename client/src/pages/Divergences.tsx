@@ -545,7 +545,12 @@ export default function Divergences() {
   };
 
   const selectedRows = rows.filter((d: any) => selectedIds.has(d.id));
+  // Total bruto (para mostrar no contexto)
   const selectedTotal = selectedRows.reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? "0")), 0);
+  // Valor líquido: créditos do banco - débitos do banco (pode zerar quando se cancelam)
+  const selectedNetCredit = selectedRows.filter((d: any) => d.transactionType === "credit").reduce((s: number, d: any) => s + parseFloat(String(d.bankAmount ?? d.amount ?? "0")), 0);
+  const selectedNetDebit  = selectedRows.filter((d: any) => d.transactionType === "debit").reduce((s: number, d: any) => s + parseFloat(String(d.bankAmount ?? d.amount ?? "0")), 0);
+  const selectedNet = selectedNetCredit - selectedNetDebit; // 0 quando cancela
 
   return (
     <div className="space-y-6">
@@ -798,9 +803,18 @@ export default function Divergences() {
               </div>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setReconcileOpen(false)}><X className="w-4 h-4" /></Button>
             </div>
-            <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4 text-center">
+            <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4 text-center space-y-1">
               <p className="text-xs text-muted-foreground">{selectedIds.size} divergência{selectedIds.size > 1 ? "s" : ""} selecionada{selectedIds.size > 1 ? "s" : ""}</p>
-              <p className="text-2xl font-bold font-mono text-violet-400 mt-1">{formatCurrency(selectedTotal)}</p>
+              <p className="text-2xl font-bold font-mono text-violet-400">{formatCurrency(selectedTotal)}</p>
+              {Math.abs(selectedNet) < selectedTotal * 0.01 && selectedTotal > 0 && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-1.5">
+                  <p className="text-xs text-emerald-400 font-semibold">✓ Crédito + Débito se cancelam → Líquido: {formatCurrency(Math.abs(selectedNet))}</p>
+                  <p className="text-[10px] text-muted-foreground">Esta conciliação zerará o saldo pendente</p>
+                </div>
+              )}
+              {Math.abs(selectedNet) >= selectedTotal * 0.01 && (
+                <p className="text-xs text-muted-foreground">Líquido: {selectedNet >= 0 ? "+" : ""}{formatCurrency(selectedNet)}</p>
+              )}
             </div>
             <div className="bg-accent/20 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
               <p>✓ As divergências serão marcadas como <strong className="text-foreground">regularizado</strong></p>

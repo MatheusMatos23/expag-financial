@@ -28,6 +28,19 @@ function cacheInvalidate(pattern: string) {
   }
 }
 
+/** Converte Date do MySQL (ou string) para ISO YYYY-MM-DD de forma segura */
+function toISODate(val: Date | string | null | undefined): string {
+  if (!val) return '';
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  const s = String(val);
+  // Já está em formato ISO
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // Tenta parsear formato livre (ex: "Fri Apr 17 2026...")
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return s.slice(0, 10);
+}
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -1248,11 +1261,16 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
 
   // Calcula valor líquido real: créditos somam, débitos subtraem
   // (quando concilia um crédito do banco + falta na API, eles se compensam)
-  const credits = divs.filter(d => d.transactionType === "credit" || d.divergenceType === "bank_surplus");
-  const debits  = divs.filter(d => d.transactionType === "debit"  || d.divergenceType === "bank_shortage");
-  const totalCredits = credits.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
-  const totalDebits  = debits.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
-  const netAmount    = totalCredits - totalDebits; // valor líquido (pode ser 0 quando cancela)
+  // Valor líquido: crédito no banco (+) vs débito no banco (-)
+  // Dois bank_surplus podem cancelar se um é credit e outro é debit
+  const totalCredits = divs
+    .filter(d => d.transactionType === "credit")
+    .reduce((s, d) => s + parseFloat(String(d.bankAmount ?? d.amount ?? 0)), 0);
+  const totalDebits = divs
+    .filter(d => d.transactionType === "debit")
+    .reduce((s, d) => s + parseFloat(String(d.bankAmount ?? d.amount ?? 0)), 0);
+  const totalAmount = divs.reduce((s, d) => s + parseFloat(String(d.bankAmount ?? d.amount ?? 0)), 0);
+  const netAmount = totalCredits - totalDebits; // 0 quando crédito e débito se cancelam
 
   // Marca divergências como regularizado
   await db.update(divergences)
@@ -1284,12 +1302,12 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
   for (const div of divsWithoutLink) {
     const amt = parseFloat(String(div.bankAmount ?? div.amount ?? 0));
     if (amt > 0) {
-      const dateStr = String(div.divergenceDate).slice(0, 10);
+      const dateStr = toISODate(div.divergenceDate as any);
       const txType  = div.transactionType ?? (div.divergenceType === 'bank_surplus' ? 'credit' : 'debit');
       await db.execute(sql`
         UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
         WHERE sessionId = ${sessionId}
-        AND transactionDate = ${dateStr}
+        AND DATE(transactionDate) = ${dateStr}
         AND type = ${txType}
         AND ABS(CAST(amount AS DECIMAL(18,2)) - ${amt}) < 0.02
         AND matchStatus != 'matched'
@@ -1475,22 +1493,27 @@ export async function getControllershipDashboard(dateFrom: string, dateTo: strin
   const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
   // Recent entries (lightweight — only last 10)
-  const [recentRevs, recentExps] = await Promise.all([
+  const [recentRevs, recentExps, originRevs, originExps] = await Promise.all([
     getRevenues({ dateFrom, dateTo }),
     getExpenses({ dateFrom, dateTo }),
+    db.execute(sql`SELECT origin, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} AND origin IS NOT NULL GROUP BY origin`),
+    db.execute(sql`SELECT origin, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} AND origin IS NOT NULL GROUP BY origin`),
   ]);
-  const revRows = recentRevs; const expRows = recentExps; const divRows: any[] = [];
+  const revRows = recentRevs; const expRows = recentExps;
 
-  const autoRevenue  = revRows.filter(r => (r as any).origin === 'auto_tariff').reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
-  const autoExpense  = expRows.filter(e => (e as any).origin === 'auto_tariff').reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
-  const movedRevenue = revRows.filter(r => (r as any).origin === 'manual_move').reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
-  const movedExpense = expRows.filter(e => (e as any).origin === 'manual_move').reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
+  const revOriginMap: Record<string, number> = {};
+  for (const r of (originRevs as any)[0] ?? []) revOriginMap[String(r.origin)] = parseFloat(String(r.total ?? 0));
+  const expOriginMap: Record<string, number> = {};
+  for (const e of (originExps as any)[0] ?? []) expOriginMap[String(e.origin)] = parseFloat(String(e.total ?? 0));
 
-  // Evolução diária (últimos lançamentos agrupados por data)
+  const autoRevenue  = revOriginMap['auto_tariff']  ?? 0;
+  const autoExpense  = expOriginMap['auto_tariff']  ?? 0;
+  const movedRevenue = revOriginMap['manual_move']  ?? 0;
+  const movedExpense = expOriginMap['manual_move']  ?? 0;
 
   return {
     totalRevenue, totalExpenses, netResult, margin,
-    divValue, divCount: divRows.length,
+    divValue, divCount,
     revenueByType, expenseByCategory,
     autoRevenue, autoExpense, movedRevenue, movedExpense,
     dailyEvolution,

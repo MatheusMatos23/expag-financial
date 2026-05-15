@@ -108460,6 +108460,15 @@ function cacheGet(key) {
 function cacheSet(key, data, ttlMs = 3e4) {
   _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
+function toISODate(val) {
+  if (!val) return "";
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  const s = String(val);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return s.slice(0, 10);
+}
 async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -109382,10 +109391,9 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   const divs = await db.select().from(divergences).where(inArray(divergences.id, ids));
   if (divs.length === 0) return { success: false, count: 0 };
   const sessionId = divs[0].sessionId;
-  const credits = divs.filter((d) => d.transactionType === "credit" || d.divergenceType === "bank_surplus");
-  const debits = divs.filter((d) => d.transactionType === "debit" || d.divergenceType === "bank_shortage");
-  const totalCredits = credits.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
-  const totalDebits = debits.reduce((s, d) => s + parseFloat(String(d.amount ?? 0)), 0);
+  const totalCredits = divs.filter((d) => d.transactionType === "credit").reduce((s, d) => s + parseFloat(String(d.bankAmount ?? d.amount ?? 0)), 0);
+  const totalDebits = divs.filter((d) => d.transactionType === "debit").reduce((s, d) => s + parseFloat(String(d.bankAmount ?? d.amount ?? 0)), 0);
+  const totalAmount = divs.reduce((s, d) => s + parseFloat(String(d.bankAmount ?? d.amount ?? 0)), 0);
   const netAmount = totalCredits - totalDebits;
   await db.update(divergences).set({
     status: "regularizado",
@@ -109408,12 +109416,12 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   for (const div of divsWithoutLink) {
     const amt = parseFloat(String(div.bankAmount ?? div.amount ?? 0));
     if (amt > 0) {
-      const dateStr = String(div.divergenceDate).slice(0, 10);
+      const dateStr = toISODate(div.divergenceDate);
       const txType = div.transactionType ?? (div.divergenceType === "bank_surplus" ? "credit" : "debit");
       await db.execute(sql`
         UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
         WHERE sessionId = ${sessionId}
-        AND transactionDate = ${dateStr}
+        AND DATE(transactionDate) = ${dateStr}
         AND type = ${txType}
         AND ABS(CAST(amount AS DECIMAL(18,2)) - ${amt}) < 0.02
         AND matchStatus != 'matched'
@@ -109558,24 +109566,29 @@ async function getControllershipDashboard(dateFrom, dateTo) {
     dailyMap[d].despesas += parseFloat(String(e.despesas ?? 0));
   }
   const dailyEvolution = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-  const [recentRevs, recentExps] = await Promise.all([
+  const [recentRevs, recentExps, originRevs, originExps] = await Promise.all([
     getRevenues({ dateFrom, dateTo }),
-    getExpenses({ dateFrom, dateTo })
+    getExpenses({ dateFrom, dateTo }),
+    db.execute(sql`SELECT origin, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM revenues WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} AND origin IS NOT NULL GROUP BY origin`),
+    db.execute(sql`SELECT origin, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total FROM expenses WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo} AND origin IS NOT NULL GROUP BY origin`)
   ]);
   const revRows = recentRevs;
   const expRows = recentExps;
-  const divRows = [];
-  const autoRevenue = revRows.filter((r) => r.origin === "auto_tariff").reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
-  const autoExpense = expRows.filter((e) => e.origin === "auto_tariff").reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
-  const movedRevenue = revRows.filter((r) => r.origin === "manual_move").reduce((s, r) => s + parseFloat(String(r.amount ?? 0)), 0);
-  const movedExpense = expRows.filter((e) => e.origin === "manual_move").reduce((s, e) => s + parseFloat(String(e.amount ?? 0)), 0);
+  const revOriginMap = {};
+  for (const r of originRevs[0] ?? []) revOriginMap[String(r.origin)] = parseFloat(String(r.total ?? 0));
+  const expOriginMap = {};
+  for (const e of originExps[0] ?? []) expOriginMap[String(e.origin)] = parseFloat(String(e.total ?? 0));
+  const autoRevenue = revOriginMap["auto_tariff"] ?? 0;
+  const autoExpense = expOriginMap["auto_tariff"] ?? 0;
+  const movedRevenue = revOriginMap["manual_move"] ?? 0;
+  const movedExpense = expOriginMap["manual_move"] ?? 0;
   return {
     totalRevenue,
     totalExpenses,
     netResult,
     margin,
     divValue,
-    divCount: divRows.length,
+    divCount,
     revenueByType,
     expenseByCategory,
     autoRevenue,

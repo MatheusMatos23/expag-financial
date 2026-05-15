@@ -213,6 +213,10 @@ export default function ReconciliationSession() {
     { id },
     { refetchInterval: 5000 } // auto-refresh every 5s
   );
+  const { data: sessionDivs } = trpc.reconciliation.getDivergences.useQuery(
+    { sessionId: id },
+    { refetchInterval: 8000 }
+  );
 
   // ── Todos os hooks DEVEM ficar antes de qualquer return condicional ──
   const { session, bankCredits = [], bankDebits = [], apiCredits = [], apiDebits = [] } =
@@ -282,9 +286,12 @@ export default function ReconciliationSession() {
   const totalApiCred  = (apiCredits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
   const totalApiDeb   = (apiDebits as any[]).reduce((s, t) => s + safeNumber(t.amount), 0);
   // Use live stats from DB (updated after manual reconciliations) when available
-  const matchRate = liveStats?.matchRate ?? (allBank.length > 0 ? Math.round((matchedBank.length / allBank.length) * 100) : 0);
-  const liveMatchedCount = liveStats?.matchedCount ?? matchedBank.length;
-  const livePendingCount = liveStats?.pendingCount ?? 0;
+  // Live stats from DB (updates every 5s after manual reconciliations)
+  const matchRate        = liveStats?.matchRate     ?? (allBank.length > 0 ? Math.round((matchedBank.length / allBank.length) * 100) : 0);
+  const liveMatchedCount = liveStats?.matchedCount  ?? matchedBank.length;
+  const livePendingCount = liveStats?.pendingCount  ?? session?.pendingCount ?? 0;
+  const liveDivergentCount = (liveStats?.totalCount ?? allBank.length) - liveMatchedCount;
+  const liveTotal        = liveStats?.totalCount    ?? allBank.length;
   const totalDiff     = (totalBankCred + totalBankDeb) - (totalApiCred + totalApiDeb);
 
   // ── Table columns ──
@@ -389,9 +396,13 @@ export default function ReconciliationSession() {
         <KPI label="Total Banco"   value={formatCurrency(totalBankCred + totalBankDeb)} sub="créditos + débitos" />
         <KPI label="Total API"     value={formatCurrency(totalApiCred + totalApiDeb)}   sub="créditos + débitos" />
         <KPI label="Diferença"
-          value={formatCurrency(Math.abs(totalDiff))}
-          color={Math.abs(totalDiff) < 0.01 ? "text-emerald-400" : "text-red-400"}
-          sub={Math.abs(totalDiff) < 0.01 ? "✓ Zerado" : totalDiff > 0 ? "sobra no banco" : "falta no banco"} />
+          value={(() => {
+            const pendingDivs = ((sessionDivs ?? []) as any[]).filter(d => !["regularizado","reclassificado","baixado"].includes(d.status));
+            const pendingVal = pendingDivs.reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? 0)), 0);
+            return formatCurrency(pendingVal);
+          })()}
+          color={livePendingCount === 0 ? "text-emerald-400" : "text-red-400"}
+          sub={livePendingCount === 0 ? "✓ Zerado" : `${livePendingCount} pendentes`} />
       </div>
 
       {/* ── Match Quality Bar ── */}
