@@ -107529,6 +107529,11 @@ var divergences = mysqlTable("divergences", {
   evidence: text("evidence"),
   observation: text("observation"),
   actionTaken: text("actionTaken"),
+  // NDI — Não Identificado: entrada no banco sem correspondência na API
+  isNdi: boolean("isNdi").default(false),
+  ndiNote: text("ndiNote"),
+  // Estorno: transação estornada automaticamente detectada
+  isEstorno: boolean("isEstorno").default(false),
   bankTransactionId: int("bankTransactionId"),
   apiTransactionId: int("apiTransactionId"),
   bankDescription: varchar("bankDescription", { length: 500 }),
@@ -107636,6 +107641,35 @@ var expenses = mysqlTable("expenses", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
 });
+var manualAdjustments = mysqlTable("manual_adjustments", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId"),
+  description: text("description").notNull(),
+  adjustmentType: mysqlEnum("adjustmentType", [
+    "bank_split",
+    // banco divide pagamento em parcelas
+    "api_split",
+    // API divide em múltiplas entradas
+    "rounding",
+    // diferença de centavos
+    "manual"
+    // ajuste genérico
+  ]).notNull().default("manual"),
+  apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }).notNull(),
+  bankAmounts: text("bankAmounts"),
+  // JSON array de valores do banco
+  totalBankAmount: decimal("totalBankAmount", { precision: 18, scale: 2 }),
+  difference: decimal("difference", { precision: 18, scale: 2 }),
+  divergenceIds: text("divergenceIds"),
+  // JSON array de divergência IDs resolvidas
+  status: mysqlEnum("status", ["pendente", "aprovado", "rejeitado"]).default("aprovado").notNull(),
+  createdByName: varchar("createdByName", { length: 200 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+}, (table) => ({
+  sessionIdx: index("adj_session_idx").on(table.sessionId)
+}));
 var payables = mysqlTable("payables", {
   id: int("id").autoincrement().primaryKey(),
   description: text("description").notNull(),
@@ -108409,6 +108443,64 @@ async function setSystemConfig(key, value, description) {
   const db = await getDb();
   if (!db) return;
   await db.insert(systemConfig).values({ key, value, description }).onDuplicateKeyUpdate({ set: { value } });
+}
+async function markDivergencesAsNdi(ids, ndiNote) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`
+    UPDATE divergences SET isNdi = 1, ndiNote = ${ndiNote || null},
+    status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NDI: aguardando identificação')
+    WHERE id IN (${sql.raw(ids.join(","))})
+  `);
+}
+async function unmarkNdi(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE divergences SET isNdi = 0, ndiNote = NULL WHERE id = ${id}`);
+}
+async function getNdiDivergences() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.execute(sql`
+    SELECT * FROM divergences WHERE isNdi = 1 ORDER BY divergenceDate DESC, amount DESC
+  `).then((r) => r[0] ?? []);
+}
+async function createManualAdjustment(data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const totalBank = data.bankAmounts.reduce((s, v) => s + v, 0);
+  const apiAmt = parseFloat(data.apiAmount);
+  const diff = Math.abs(totalBank - apiAmt);
+  const result = await db.insert(manualAdjustments).values({
+    sessionId: data.sessionId ?? null,
+    description: data.description,
+    adjustmentType: data.adjustmentType ?? "manual",
+    apiAmount: data.apiAmount,
+    bankAmounts: JSON.stringify(data.bankAmounts),
+    totalBankAmount: totalBank.toFixed(2),
+    difference: diff.toFixed(2),
+    divergenceIds: data.divergenceIds ? JSON.stringify(data.divergenceIds) : null,
+    createdByName: data.createdByName ?? null,
+    notes: data.notes ?? null,
+    status: "aprovado"
+  });
+  if (data.divergenceIds && data.divergenceIds.length > 0) {
+    const dbConn = db;
+    await dbConn.execute(sql`
+      UPDATE divergences SET status = 'reclassificado',
+      actionTaken = CONCAT('Ajuste manual: ', ${data.description})
+      WHERE id IN (${sql.raw(data.divergenceIds.join(","))})
+    `);
+  }
+  return result[0]?.insertId ?? 0;
+}
+async function getManualAdjustments(sessionId) {
+  const db = await getDb();
+  if (!db) return [];
+  if (sessionId) {
+    return db.execute(sql`SELECT * FROM manual_adjustments WHERE sessionId = ${sessionId} ORDER BY createdAt DESC`).then((r) => r[0] ?? []);
+  }
+  return db.execute(sql`SELECT * FROM manual_adjustments ORDER BY createdAt DESC LIMIT 50`).then((r) => r[0] ?? []);
 }
 async function getControllershipDashboard(dateFrom, dateTo) {
   const db = await getDb();
@@ -130521,29 +130613,53 @@ function parseAPI(buffer) {
     const row = rows[i];
     const valRaw = parseFloat(String(row[8] ?? "0").replace(",", "."));
     if (isNaN(valRaw) || valRaw === 0) continue;
-    const dateStr = parseBRDate(String(row[7] ?? "").split(" ")[0]);
+    const dateTimeStr = String(row[7] ?? "").trim();
+    const [datePart, timePart] = dateTimeStr.split(" ");
+    const dateStr = parseBRDate(datePart ?? "");
     if (!dateStr || dateStr < "2020-01-01") continue;
     const op = String(row[12] ?? "").trim();
     const auth = String(row[13] ?? "").trim();
     const descRaw = String(row[10] ?? "").trim();
     const clientName = String(row[2] ?? "").trim() || void 0;
+    const apiStatus = String(row[16] ?? "").trim().toUpperCase();
+    const isRejected = apiStatus === "REJEITADO" || apiStatus === "CANCELADO";
+    const isEstorno = apiStatus === "ESTORNADO";
+    if (isRejected) continue;
     const isTariff = TARIFF_OPERATIONS.has(op);
     const isInternal = INTERNAL_OPERATIONS.has(op);
     const isE2E = /^E[A-Z0-9]{28,}$/i.test(auth);
-    const externalId = isE2E ? auth : void 0;
+    const authNorm = auth.startsWith("D_") ? auth.slice(2) : auth;
+    const externalId = isE2E ? auth : isEstorno && authNorm ? authNorm : void 0;
     results.push({
       date: dateStr,
+      timeStr: timePart ?? void 0,
       amount: Math.abs(valRaw),
       type: valRaw > 0 ? "credit" : "debit",
       description: descRaw || op,
-      externalId,
+      externalId: isE2E ? auth : void 0,
       channel: isTariff ? "TARIFA" : detectChannel(op),
       clientName,
       isTariff,
-      isInternal
+      isInternal,
+      isEstorno,
+      apiStatus
     });
   }
-  return results;
+  const estornos = results.filter((t2) => t2.isEstorno);
+  const nonEstornos = results.filter((t2) => !t2.isEstorno);
+  const estornoPairs = /* @__PURE__ */ new Map();
+  for (const t2 of estornos) {
+    const key = `${t2.date}|${t2.amount.toFixed(2)}|${t2.timeStr ?? ""}`;
+    if (!estornoPairs.has(key)) estornoPairs.set(key, []);
+    estornoPairs.get(key).push(t2);
+  }
+  const unparedEstornos = [];
+  for (const [, pair] of Array.from(estornoPairs)) {
+    if (pair.length === 1) {
+      unparedEstornos.push(pair[0]);
+    }
+  }
+  return [...nonEstornos, ...unparedEstornos];
 }
 function parseStatement(buffer, bank) {
   switch (bank) {
@@ -131043,6 +131159,36 @@ var reconciliationRouter = router({
     await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
     return { success: true };
   }),
+  // ── NDI — Não Identificados ───────────────────────────────────────────────
+  markAsNdi: protectedProcedure.input(external_exports.object({
+    ids: external_exports.array(external_exports.number()).min(1),
+    ndiNote: external_exports.string().optional()
+  })).mutation(async ({ input }) => {
+    await markDivergencesAsNdi(input.ids, input.ndiNote);
+    return { success: true };
+  }),
+  unmarkNdi: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await unmarkNdi(input.id);
+    return { success: true };
+  }),
+  getNdiDivergences: protectedProcedure.query(async () => getNdiDivergences()),
+  // ── Ajuste Manual de Saldo ────────────────────────────────────────────────
+  createManualAdjustment: protectedProcedure.input(external_exports.object({
+    sessionId: external_exports.number().optional(),
+    description: external_exports.string(),
+    adjustmentType: external_exports.enum(["bank_split", "api_split", "rounding", "manual"]).optional(),
+    apiAmount: external_exports.string(),
+    bankAmounts: external_exports.array(external_exports.number()).min(1),
+    divergenceIds: external_exports.array(external_exports.number()).optional(),
+    notes: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const id = await createManualAdjustment({
+      ...input,
+      createdByName: ctx.user?.name ?? ctx.user?.email ?? "Sistema"
+    });
+    return { success: true, id };
+  }),
+  getManualAdjustments: protectedProcedure.input(external_exports.object({ sessionId: external_exports.number().optional() })).query(async ({ input }) => getManualAdjustments(input.sessionId)),
   // ── Mover divergências para Receitas (bulk) ──────────────────────────────
   moveDivergencesToRevenue: protectedProcedure.input(external_exports.object({
     ids: external_exports.array(external_exports.number()).min(1),

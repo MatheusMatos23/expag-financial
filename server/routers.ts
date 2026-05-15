@@ -534,6 +534,50 @@ const reconciliationRouter = router({
       return { success: true };
     }),
 
+  // ── NDI — Não Identificados ───────────────────────────────────────────────
+  markAsNdi: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()).min(1),
+      ndiNote: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      await db.markDivergencesAsNdi(input.ids, input.ndiNote);
+      return { success: true };
+    }),
+
+  unmarkNdi: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      await db.unmarkNdi(input.id);
+      return { success: true };
+    }),
+
+  getNdiDivergences: protectedProcedure
+    .query(async () => db.getNdiDivergences()),
+
+  // ── Ajuste Manual de Saldo ────────────────────────────────────────────────
+  createManualAdjustment: protectedProcedure
+    .input(z.object({
+      sessionId: z.number().optional(),
+      description: z.string(),
+      adjustmentType: z.enum(['bank_split','api_split','rounding','manual']).optional(),
+      apiAmount: z.string(),
+      bankAmounts: z.array(z.number()).min(1),
+      divergenceIds: z.array(z.number()).optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const id = await db.createManualAdjustment({
+        ...input,
+        createdByName: ctx.user?.name ?? ctx.user?.email ?? 'Sistema',
+      });
+      return { success: true, id };
+    }),
+
+  getManualAdjustments: protectedProcedure
+    .input(z.object({ sessionId: z.number().optional() }))
+    .query(async ({ input }) => db.getManualAdjustments(input.sessionId)),
+
   // ── Mover divergências para Receitas (bulk) ──────────────────────────────
   moveDivergencesToRevenue: protectedProcedure
     .input(z.object({

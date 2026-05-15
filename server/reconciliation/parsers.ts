@@ -12,6 +12,14 @@ export interface ParsedTransaction {
   isTariff?: boolean;
   /** true → transferência entre contas internas */
   isInternal?: boolean;
+  /** true → transação rejeitada/cancelada; ignorar totalmente */
+  isRejected?: boolean;
+  /** true → transação estornada; deve ser pareada com seu par */
+  isEstorno?: boolean;
+  /** Status original da API: PAGO, ESTORNADO, REJEITADO, etc. */
+  apiStatus?: string;
+  /** Hora/minuto da transação para matching de estornos */
+  timeStr?: string;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -373,36 +381,78 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
     const valRaw = parseFloat(String(row[8] ?? "0").replace(",", "."));
     if (isNaN(valRaw) || valRaw === 0) continue;
 
-    const dateStr = parseBRDate(String(row[7] ?? "").split(" ")[0]);
+    const dateTimeStr = String(row[7] ?? "").trim();
+    const [datePart, timePart] = dateTimeStr.split(" ");
+    const dateStr = parseBRDate(datePart ?? "");
     if (!dateStr || dateStr < "2020-01-01") continue;
 
-    const op          = String(row[12] ?? "").trim();
-    const auth        = String(row[13] ?? "").trim();
-    const descRaw     = String(row[10] ?? "").trim();
-    const clientName  = String(row[2]  ?? "").trim() || undefined;
+    const op         = String(row[12] ?? "").trim();
+    const auth       = String(row[13] ?? "").trim();
+    const descRaw    = String(row[10] ?? "").trim();
+    const clientName = String(row[2]  ?? "").trim() || undefined;
+    const apiStatus  = String(row[16] ?? "").trim().toUpperCase();
+
+    // STATUS: filtros
+    const isRejected = apiStatus === "REJEITADO" || apiStatus === "CANCELADO";
+    const isEstorno  = apiStatus === "ESTORNADO";
+
+    // Transações rejeitadas: ignorar completamente
+    if (isRejected) continue;
 
     const isTariff   = TARIFF_OPERATIONS.has(op);
     const isInternal = INTERNAL_OPERATIONS.has(op);
 
-    // END2END IDs start with 'E' + 28+ alphanumeric chars (no hyphens)
-    // UUIDs (tariffs) have hyphens and won't match JD E2E format
+    // END2END: apenas IDs que começam com E + 28+ chars (sem hífens)
     const isE2E = /^E[A-Z0-9]{28,}$/i.test(auth);
-    const externalId = isE2E ? auth : undefined;
+    // Para estornos, o auth pode ter prefixo "D_" — normaliza para matching
+    const authNorm = auth.startsWith("D_") ? auth.slice(2) : auth;
+    const externalId = isE2E ? auth : (isEstorno && authNorm ? authNorm : undefined);
 
     results.push({
       date: dateStr,
+      timeStr: timePart ?? undefined,
       amount: Math.abs(valRaw),
       type: valRaw > 0 ? "credit" : "debit",
       description: descRaw || op,
-      externalId,
+      externalId: isE2E ? auth : undefined,
       channel: isTariff ? "TARIFA" : detectChannel(op),
       clientName,
       isTariff,
       isInternal,
+      isEstorno,
+      apiStatus,
     });
   }
 
-  return results;
+  // ── Pré-processamento de estornos ───────────────────────────────────────────
+  // Estornos vêm em pares: um com auth "D_xxx" e outro com "xxx" (mesmo base)
+  // Ambos têm status ESTORNADO. Quando existem os dois lados, se cancelam.
+  // Mantemos apenas os estornos sem par (incompletos).
+
+  const estornos = results.filter(t => t.isEstorno);
+  const nonEstornos = results.filter(t => !t.isEstorno);
+
+  // Agrupa estornos pelo base auth (sem prefixo D_)
+  const estornoPairs = new Map<string, ParsedTransaction[]>();
+  for (const t of estornos) {
+    // Tenta obter chave por amount + date + type (quando não tem auth)
+    const key = `${t.date}|${t.amount.toFixed(2)}|${t.timeStr ?? ""}`;
+    if (!estornoPairs.has(key)) estornoPairs.set(key, []);
+    estornoPairs.get(key)!.push(t);
+  }
+
+  // Estornos sem par (apenas 1 lado): mantém como divergência
+  const unparedEstornos: ParsedTransaction[] = [];
+  for (const [, pair] of Array.from(estornoPairs)) {
+    if (pair.length === 1) {
+      // Sem par — mantém como divergência de estorno
+      unparedEstornos.push(pair[0]);
+    }
+    // Par completo (2+): se cancelam, não geram divergência
+  }
+
+  // Retorna: transações normais + estornos sem par (marcados)
+  return [...nonEstornos, ...unparedEstornos];
 }
 
 export function parseStatement(

@@ -5,6 +5,7 @@ import {
   reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances,
   revenues, expenses, payables, creditPortfolio, creditInstallments,
   costCenters, dre, cashFlow, alerts, systemConfig,
+  manualAdjustments,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -800,6 +801,87 @@ export async function setSystemConfig(key: string, value: string, description?: 
 }
 
 // ─── DASHBOARD SUMMARY ────────────────────────────────────────────────────────
+// ─── NDI — NÃO IDENTIFICADOS ──────────────────────────────────────────────────
+
+export async function markDivergencesAsNdi(ids: number[], ndiNote?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`
+    UPDATE divergences SET isNdi = 1, ndiNote = ${ndiNote || null},
+    status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NDI: aguardando identificação')
+    WHERE id IN (${sql.raw(ids.join(','))})
+  `);
+}
+
+export async function unmarkNdi(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE divergences SET isNdi = 0, ndiNote = NULL WHERE id = ${id}`);
+}
+
+export async function getNdiDivergences() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.execute(sql`
+    SELECT * FROM divergences WHERE isNdi = 1 ORDER BY divergenceDate DESC, amount DESC
+  `).then((r: any) => r[0] ?? []);
+}
+
+// ─── AJUSTES MANUAIS DE SALDO ──────────────────────────────────────────────
+
+export async function createManualAdjustment(data: {
+  sessionId?: number;
+  description: string;
+  adjustmentType?: string;
+  apiAmount: string;
+  bankAmounts: number[];
+  divergenceIds?: number[];
+  createdByName?: string;
+  notes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  const totalBank = data.bankAmounts.reduce((s, v) => s + v, 0);
+  const apiAmt = parseFloat(data.apiAmount);
+  const diff = Math.abs(totalBank - apiAmt);
+
+  const result = await db.insert(manualAdjustments).values({
+    sessionId: data.sessionId ?? null,
+    description: data.description,
+    adjustmentType: (data.adjustmentType ?? 'manual') as any,
+    apiAmount: data.apiAmount,
+    bankAmounts: JSON.stringify(data.bankAmounts),
+    totalBankAmount: totalBank.toFixed(2),
+    difference: diff.toFixed(2),
+    divergenceIds: data.divergenceIds ? JSON.stringify(data.divergenceIds) : null,
+    createdByName: data.createdByName ?? null,
+    notes: data.notes ?? null,
+    status: 'aprovado',
+  });
+
+  // Marca divergências relacionadas como reclassificado
+  if (data.divergenceIds && data.divergenceIds.length > 0) {
+    const dbConn = db;
+    await dbConn.execute(sql`
+      UPDATE divergences SET status = 'reclassificado',
+      actionTaken = CONCAT('Ajuste manual: ', ${data.description})
+      WHERE id IN (${sql.raw(data.divergenceIds.join(','))})
+    `);
+  }
+
+  return (result as any)[0]?.insertId ?? 0;
+}
+
+export async function getManualAdjustments(sessionId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (sessionId) {
+    return db.execute(sql`SELECT * FROM manual_adjustments WHERE sessionId = ${sessionId} ORDER BY createdAt DESC`).then((r: any) => r[0] ?? []);
+  }
+  return db.execute(sql`SELECT * FROM manual_adjustments ORDER BY createdAt DESC LIMIT 50`).then((r: any) => r[0] ?? []);
+}
+
 export async function getControllershipDashboard(dateFrom: string, dateTo: string) {
   const db = await getDb();
   if (!db) return null;

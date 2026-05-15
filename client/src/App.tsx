@@ -13,6 +13,7 @@ const Reconciliation   = lazy(() => import("@/pages/Reconciliation"));
 const ReconciliationSession = lazy(() => import("@/pages/ReconciliationSession"));
 const Divergences      = lazy(() => import("@/pages/Divergences"));
 const ManagerialBalance = lazy(() => import("@/pages/ManagerialBalance"));
+const NDI              = lazy(() => import("@/pages/NDI"));
 const Controladoria    = lazy(() => import("@/pages/Controladoria"));
 const Revenues         = lazy(() => import("@/pages/Revenues"));
 const Expenses         = lazy(() => import("@/pages/Expenses"));
@@ -47,6 +48,7 @@ function Router() {
           <Route path="/conciliacao"        component={Reconciliation} />
           <Route path="/conciliacao/:id"    component={ReconciliationSession} />
           <Route path="/divergencias"       component={Divergences} />
+          <Route path="/ndi"                 component={NDI} />
           <Route path="/saldo-gerencial"    component={ManagerialBalance} />
           <Route path="/controladoria"      component={Controladoria} />
           <Route path="/receitas"           component={Revenues} />

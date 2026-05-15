@@ -141,6 +141,11 @@ export const divergences = mysqlTable("divergences", {
   evidence: text("evidence"),
   observation: text("observation"),
   actionTaken: text("actionTaken"),
+  // NDI — Não Identificado: entrada no banco sem correspondência na API
+  isNdi: boolean("isNdi").default(false),
+  ndiNote: text("ndiNote"),
+  // Estorno: transação estornada automaticamente detectada
+  isEstorno: boolean("isEstorno").default(false),
   bankTransactionId: int("bankTransactionId"),
   apiTransactionId: int("apiTransactionId"),
   bankDescription: varchar("bankDescription", { length: 500 }),
@@ -253,6 +258,33 @@ export const expenses = mysqlTable("expenses", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+// Ajustes Manuais de Saldo — para casos de splitting bancário e outras regularizações
+export const manualAdjustments = mysqlTable("manual_adjustments", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId"),
+  description: text("description").notNull(),
+  adjustmentType: mysqlEnum("adjustmentType", [
+    "bank_split",        // banco divide pagamento em parcelas
+    "api_split",         // API divide em múltiplas entradas
+    "rounding",          // diferença de centavos
+    "manual",            // ajuste genérico
+  ]).notNull().default("manual"),
+  apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }).notNull(),
+  bankAmounts: text("bankAmounts"),  // JSON array de valores do banco
+  totalBankAmount: decimal("totalBankAmount", { precision: 18, scale: 2 }),
+  difference: decimal("difference", { precision: 18, scale: 2 }),
+  divergenceIds: text("divergenceIds"),  // JSON array de divergência IDs resolvidas
+  status: mysqlEnum("status", ["pendente", "aprovado", "rejeitado"]).default("aprovado").notNull(),
+  createdByName: varchar("createdByName", { length: 200 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  sessionIdx: index("adj_session_idx").on(table.sessionId),
+}));
+
+export type ManualAdjustment = typeof manualAdjustments.$inferSelect;
 
 // Contas a Pagar
 export const payables = mysqlTable("payables", {

@@ -302,6 +302,7 @@ const menuGroups = [
     items: [
       { icon: ArrowLeftRight, label: "Conciliações", path: "/conciliacao" },
       { icon: FileText, label: "Divergências", path: "/divergencias" },
+      { icon: AlertTriangle, label: "Não Identificados (NDI)", path: "/ndi" },
       { icon: Wallet, label: "Saldo Gerencial", path: "/saldo-gerencial" },
     ],
   },

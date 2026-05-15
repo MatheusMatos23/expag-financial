@@ -4,7 +4,8 @@ import { useState } from "react";
 import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
-  Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare
+  Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare,
+  Tag, Wrench, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -452,6 +453,29 @@ export default function Divergences() {
     onError: (e) => toast.error(e.message),
   });
 
+  const [ndiNote, setNdiNote] = useState("");
+  const [ndiOpen, setNdiOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustApiAmount, setAdjustApiAmount] = useState("");
+  const [adjustDesc, setAdjustDesc] = useState("");
+  const [adjustType, setAdjustType] = useState("bank_split");
+
+  const markNdiMutation = trpc.reconciliation.markAsNdi.useMutation({
+    onSuccess: () => {
+      toast.success(`${selectedIds.size} item${selectedIds.size > 1 ? "s" : ""} marcado${selectedIds.size > 1 ? "s" : ""} como NDI!`);
+      setSelectedIds(new Set()); setNdiOpen(false); setNdiNote(""); refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const adjustMutation = trpc.reconciliation.createManualAdjustment.useMutation({
+    onSuccess: () => {
+      toast.success("Ajuste manual criado — divergências reclassificadas!");
+      setSelectedIds(new Set()); setAdjustOpen(false); setAdjustApiAmount(""); setAdjustDesc(""); refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const rows = ((divergences ?? []) as any[]).filter(d => {
     if (typeFilter !== "all" && d.divergenceType !== typeFilter) return false;
     if (bankFilter !== "all" && d.bankName !== bankFilter) return false;
@@ -577,22 +601,18 @@ export default function Divergences() {
               {selectedIds.size} selecionada{selectedIds.size > 1 ? "s" : ""} · <span className="font-mono text-yellow-400">{formatCurrency(selectedTotal)}</span>
             </span>
           </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-              onClick={() => setMoveToRevenueOpen(true)}
-            >
-              <TrendingUp className="w-3.5 h-3.5" />
-              Mover para Receitas
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700" onClick={() => setMoveToRevenueOpen(true)}>
+              <TrendingUp className="w-3.5 h-3.5" /> Receitas
             </Button>
-            <Button
-              size="sm"
-              className="text-xs gap-1.5 bg-red-600 hover:bg-red-700"
-              onClick={() => setMoveToExpenseOpen(true)}
-            >
-              <TrendingDown className="w-3.5 h-3.5" />
-              Mover para Despesas
+            <Button size="sm" className="text-xs gap-1.5 bg-red-600 hover:bg-red-700" onClick={() => setMoveToExpenseOpen(true)}>
+              <TrendingDown className="w-3.5 h-3.5" /> Despesas
+            </Button>
+            <Button size="sm" className="text-xs gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => setNdiOpen(true)}>
+              <Tag className="w-3.5 h-3.5" /> Marcar NDI
+            </Button>
+            <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10" onClick={() => setAdjustOpen(true)}>
+              <Wrench className="w-3.5 h-3.5" /> Ajuste Manual
             </Button>
           </div>
         </div>
@@ -737,6 +757,94 @@ export default function Divergences() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Modal NDI */}
+      {ndiOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tag className="w-5 h-5 text-orange-400" />
+                <h3 className="font-bold text-foreground">Marcar como NDI</h3>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setNdiOpen(false)}><X className="w-4 h-4" /></Button>
+            </div>
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center">
+              <p className="text-xs text-muted-foreground">{selectedIds.size} divergência{selectedIds.size > 1 ? "s" : ""} · Entradas não identificadas</p>
+              <p className="text-2xl font-bold font-mono text-orange-400 mt-1">{formatCurrency(selectedTotal)}</p>
+            </div>
+            <div>
+              <Label className="text-xs">Anotação (opcional)</Label>
+              <Textarea className="mt-1.5 text-xs resize-none h-20" placeholder="Ex: Aguardando confirmação do cliente, possível devolução..." value={ndiNote} onChange={e => setNdiNote(e.target.value)} />
+            </div>
+            <p className="text-[10px] text-muted-foreground">NDIs ficam visíveis na aba "Não Identificados" e continuam no saldo divergente até serem identificados.</p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 text-xs" onClick={() => setNdiOpen(false)}>Cancelar</Button>
+              <Button className="flex-1 text-xs bg-orange-600 hover:bg-orange-700 gap-1.5" disabled={markNdiMutation.isPending}
+                onClick={() => markNdiMutation.mutate({ ids: Array.from(selectedIds), ndiNote: ndiNote || undefined })}>
+                <Tag className="w-3.5 h-3.5" /> {markNdiMutation.isPending ? "Marcando..." : "Confirmar NDI"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ajuste Manual */}
+      {adjustOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-blue-400" />
+                <h3 className="font-bold text-foreground">Ajuste Manual de Saldo</h3>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setAdjustOpen(false)}><X className="w-4 h-4" /></Button>
+            </div>
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+              <p className="text-xs text-muted-foreground mb-1">{selectedIds.size} divergência{selectedIds.size > 1 ? "s" : ""} selecionada{selectedIds.size > 1 ? "s" : ""}</p>
+              <p className="text-sm font-mono font-bold text-blue-400">Total banco: {formatCurrency(selectedTotal)}</p>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Tipo de ajuste</Label>
+                <select className="mt-1.5 w-full text-xs rounded-md border border-border bg-background px-3 py-2" value={adjustType} onChange={e => setAdjustType(e.target.value)}>
+                  <option value="bank_split">Splitting bancário (banco divide em parcelas)</option>
+                  <option value="api_split">API divide em múltiplas entradas</option>
+                  <option value="rounding">Diferença de centavos / arredondamento</option>
+                  <option value="manual">Ajuste genérico</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Valor correspondente na API (R$)</Label>
+                <Input className="mt-1.5 text-xs h-8 font-mono" placeholder="Ex: 30000.00" value={adjustApiAmount} onChange={e => setAdjustApiAmount(e.target.value)} />
+                {adjustApiAmount && (
+                  <p className={cn("text-[10px] mt-1", Math.abs(parseFloat(adjustApiAmount || "0") - selectedTotal) <= 1 ? "text-emerald-400" : "text-yellow-400")}>
+                    Diferença: {formatCurrency(Math.abs(parseFloat(adjustApiAmount || "0") - selectedTotal))}
+                    {Math.abs(parseFloat(adjustApiAmount || "0") - selectedTotal) <= 1 ? " ✓ dentro da tolerância" : ""}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label className="text-xs">Descrição do ajuste</Label>
+                <Input className="mt-1.5 text-xs h-8" placeholder="Ex: Banco divide PIX acima de 15k em parcelas" value={adjustDesc} onChange={e => setAdjustDesc(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 text-xs" onClick={() => setAdjustOpen(false)}>Cancelar</Button>
+              <Button className="flex-1 text-xs gap-1.5" disabled={!adjustApiAmount || !adjustDesc || adjustMutation.isPending}
+                onClick={() => adjustMutation.mutate({
+                  description: adjustDesc,
+                  adjustmentType: adjustType as any,
+                  apiAmount: adjustApiAmount,
+                  bankAmounts: [selectedTotal],
+                  divergenceIds: Array.from(selectedIds),
+                })}>
+                <Wrench className="w-3.5 h-3.5" /> {adjustMutation.isPending ? "Criando..." : "Criar Ajuste"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
