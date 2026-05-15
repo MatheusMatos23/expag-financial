@@ -51112,7 +51112,11 @@ var init_schema2 = __esm({
         "critical_divergence",
         "overdue_payable",
         "credit_default",
-        "concentration_excess"
+        "concentration_excess",
+        "credit_delinquency",
+        "ndi_aging",
+        "stale_divergence",
+        "upcoming_payable"
       ]).notNull(),
       title: varchar("title", { length: 300 }).notNull(),
       message: text("message").notNull(),

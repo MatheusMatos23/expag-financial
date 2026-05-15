@@ -143,14 +143,10 @@ export default function Alerts() {
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground text-sm">Carregando alertas...</div>
       ) : alerts.length === 0 ? (
-        <div className="bg-card border border-border rounded-2xl p-12 text-center space-y-3">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto">
-            <CheckCircle className="w-8 h-8 text-emerald-400" />
-          </div>
-          <p className="text-sm font-semibold text-foreground">Nenhum alerta ativo</p>
-          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-            O sistema está operando normalmente. Clique em "Verificar agora" para checar contas vencidas, inadimplência e divergências críticas.
-          </p>
+        <div className="flex items-center gap-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-5 py-4">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          <p className="text-sm text-emerald-400 font-medium">Tudo certo — nenhum alerta ativo no momento</p>
+          <p className="text-xs text-muted-foreground ml-1">Clique em "Verificar agora" para checar o sistema</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -214,28 +210,11 @@ export default function Alerts() {
       )}
 
       {/* Info box */}
-      <div className="bg-card border border-border rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Activity className="w-4 h-4 text-muted-foreground" />
-          <p className="text-xs font-semibold text-foreground">Como os alertas são gerados automaticamente</p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px] text-muted-foreground">
-          {[
-            "🔴 Contas a Pagar vencidas — gera alerta crítico ao vencer",
-            "🔴 Inadimplência na Carteira de Crédito — parcelas vencidas atualizam status para 'atrasado'",
-            "🔴 Divergências críticas sem tratativa há +7 dias",
-            "🟡 Contas a vencer nos próximos 3 dias",
-            "🟡 NDI com mais de 30 dias sem identificação",
-            "🔴 Caixa Real abaixo do limite mínimo configurado",
-            "🔴 Divergências críticas detectadas ao finalizar conciliação",
-            "✅ Alertas são re-verificados a cada 30s nesta página",
-          ].map(item => (
-            <div key={item} className="flex items-start gap-1.5">
-              <span className="mt-0.5">{item.slice(0, 2)}</span>
-              <span>{item.slice(3)}</span>
-            </div>
-          ))}
-        </div>
+      <div className="flex items-start gap-3 bg-accent/10 border border-border rounded-xl px-4 py-3">
+        <Activity className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          Alertas gerados automaticamente para: contas vencidas · inadimplência na carteira · NDI com +30 dias · divergências críticas sem tratativa há +7 dias · vencimentos nos próximos 3 dias · caixa abaixo do mínimo · conciliação com divergências críticas
+        </p>
       </div>
     </div>
   );
