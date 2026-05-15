@@ -109159,6 +109159,108 @@ async function upsertCashFlow(data) {
       projectionD7 = VALUES(projectionD7), projectionD15 = VALUES(projectionD15), projectionD30 = VALUES(projectionD30)
   `);
 }
+async function generateSystemAlerts() {
+  const db = await getDb();
+  if (!db) return { generated: 0 };
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const generated = [];
+  const upsertAlert = async (type, title, message2, severity, refId) => {
+    const existing = await db.execute(sql`
+      SELECT id FROM alerts
+      WHERE type = ${type}
+      AND status = 'active'
+      AND createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      ${refId ? sql.raw(`AND referenceId = ${refId}`) : sql.raw("")}
+      LIMIT 1
+    `);
+    if (existing[0]?.length > 0) return;
+    await createAlert({ type, title, message: message2, severity, referenceId: refId });
+    generated.push(type);
+  };
+  const overduePayables = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM payables
+    WHERE status = 'pendente' AND dueDate < ${today}
+  `);
+  const ovPay = overduePayables[0]?.[0];
+  if (parseInt(String(ovPay?.cnt ?? 0)) > 0) {
+    await upsertAlert(
+      "overdue_payable",
+      "Contas a Pagar Vencidas",
+      `${ovPay.cnt} conta(s) vencida(s) \u2014 R$ ${parseFloat(String(ovPay.total)).toFixed(2)} em atraso`,
+      "critical"
+    );
+  }
+  const overdueLoans = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(totalAmount AS DECIMAL(18,2))),0) as total
+    FROM credit_installments
+    WHERE status = 'pendente' AND dueDate < ${today}
+  `);
+  const ovLoan = overdueLoans[0]?.[0];
+  if (parseInt(String(ovLoan?.cnt ?? 0)) > 0) {
+    await upsertAlert(
+      "credit_delinquency",
+      "Inadimpl\xEAncia na Carteira de Cr\xE9dito",
+      `${ovLoan.cnt} parcela(s) vencida(s) \u2014 R$ ${parseFloat(String(ovLoan.total)).toFixed(2)} em atraso`,
+      "critical"
+    );
+    await db.execute(sql`
+      UPDATE credit_portfolio SET status = 'atrasado'
+      WHERE id IN (
+        SELECT DISTINCT creditId FROM credit_installments
+        WHERE status = 'pendente' AND dueDate < ${today}
+      ) AND status = 'ativo'
+    `);
+  }
+  const oldNdi = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM divergences
+    WHERE isNdi = 1
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+    AND divergenceDate < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  `);
+  const ndiData = oldNdi[0]?.[0];
+  if (parseInt(String(ndiData?.cnt ?? 0)) > 0) {
+    await upsertAlert(
+      "ndi_aging",
+      "NDI com mais de 30 dias sem identifica\xE7\xE3o",
+      `${ndiData.cnt} entrada(s) n\xE3o identificada(s) com mais de 30 dias \u2014 R$ ${parseFloat(String(ndiData.total)).toFixed(2)}`,
+      "warning"
+    );
+  }
+  const staleDivergences = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM divergences
+    WHERE priority IN ('critical','high')
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+    AND divergenceDate < DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+  `);
+  const staleDiv = staleDivergences[0]?.[0];
+  if (parseInt(String(staleDiv?.cnt ?? 0)) > 0) {
+    await upsertAlert(
+      "stale_divergence",
+      "Diverg\xEAncias Cr\xEDticas Pendentes h\xE1 +7 dias",
+      `${staleDiv.cnt} diverg\xEAncia(s) cr\xEDtica(s) sem tratativa h\xE1 mais de 7 dias \u2014 R$ ${parseFloat(String(staleDiv.total)).toFixed(2)}`,
+      "critical"
+    );
+  }
+  const soonPayables = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM payables
+    WHERE status = 'pendente'
+    AND dueDate BETWEEN ${today} AND DATE_ADD(${today}, INTERVAL 3 DAY)
+  `);
+  const spData = soonPayables[0]?.[0];
+  if (parseInt(String(spData?.cnt ?? 0)) > 0) {
+    await upsertAlert(
+      "upcoming_payable",
+      "Contas a Pagar Vencem em Breve",
+      `${spData.cnt} conta(s) vence(m) nos pr\xF3ximos 3 dias \u2014 R$ ${parseFloat(String(spData.total)).toFixed(2)}`,
+      "warning"
+    );
+  }
+  return { generated: generated.length, types: generated };
+}
 async function createAlert(data) {
   const db = await getDb();
   if (!db) return;
@@ -132019,6 +132121,8 @@ var reconciliationRouter = router({
       // igual ao criado inicialmente
     });
     invalidateReconciliationCache();
+    generateSystemAlerts().catch(() => {
+    });
     return {
       sessionId,
       result,
@@ -132828,8 +132932,20 @@ var accountingRouter = router({
 var dashboardRouter = router({
   getSummary: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => getDashboardSummary(input.dateFrom, input.dateTo)),
   getAlerts: protectedProcedure.input(external_exports.object({ status: external_exports.string().optional() })).query(async ({ input }) => getAlerts(input.status)),
+  // Gera alertas automáticos verificando estado geral do sistema
+  generateAlerts: protectedProcedure.mutation(async () => {
+    const result = await generateSystemAlerts();
+    return result;
+  }),
   acknowledgeAlert: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
     await acknowledgeAlert(input.id, ctx.user.id);
+    return { success: true };
+  }),
+  dismissAlert: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    const dbConn = await getDb();
+    if (!dbConn) throw new Error("DB unavailable");
+    const { sql: s } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    await dbConn.execute(s`UPDATE alerts SET status = 'dismissed' WHERE id = ${input.id}`);
     return { success: true };
   }),
   getSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string() })).query(async ({ input }) => getSystemConfig(input.key)),

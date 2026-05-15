@@ -1,189 +1,240 @@
 import { trpc } from "@/lib/trpc";
 import { formatDateTime } from "@/lib/utils";
 import { useState } from "react";
-import { AlertTriangle, CheckCircle, Info, ShieldAlert, Clock, Eye, Filter, Activity } from "lucide-react";
+import {
+  AlertTriangle, CheckCircle, Info, ShieldAlert, Clock,
+  Eye, RefreshCw, Bell, XCircle, Activity,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type SeverityKey = "critical" | "warning" | "info";
-
-const SEVERITY_CONFIG: Record<SeverityKey, { icon: any; label: string; color: string; bg: string; badge: string; dot: string }> = {
-  critical: { icon: ShieldAlert, label: "Crítico",     color: "text-red-400",   bg: "bg-red-500/8 border-red-500/25",   badge: "bg-red-500/15 text-red-400 border-red-500/30",   dot: "bg-red-400 animate-pulse" },
-  warning:  { icon: AlertTriangle, label: "Atenção",   color: "text-amber-400", bg: "bg-amber-500/8 border-amber-500/25", badge: "bg-amber-500/15 text-amber-400 border-amber-500/30", dot: "bg-amber-400" },
-  info:     { icon: Info,       label: "Informação",   color: "text-sky-400",   bg: "bg-sky-500/8 border-sky-500/25",   badge: "bg-sky-500/15 text-sky-400 border-sky-500/30",   dot: "bg-sky-400" },
+const SEVERITY_CONFIG = {
+  critical: { color: "text-red-400", bg: "bg-red-500/10 border-red-500/20", icon: ShieldAlert, label: "Crítico" },
+  warning:  { color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20", icon: AlertTriangle, label: "Atenção" },
+  info:     { color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20", icon: Info, label: "Informativo" },
 };
+
+const STATUS_TABS = [
+  { key: "active",       label: "Ativos" },
+  { key: "acknowledged", label: "Reconhecidos" },
+  { key: "resolved",     label: "Resolvidos" },
+  { key: undefined,      label: "Todos" },
+];
 
 const TYPE_LABELS: Record<string, string> = {
-  cash_shortage: "Caixa Insuficiente", negative_cash: "Caixa Negativo",
-  insufficient_funding: "Funding Insuficiente", excessive_client_balance_use: "Uso Excessivo de Custódia",
-  critical_divergence: "Divergência Crítica", overdue_payable: "Conta Vencida",
-  credit_default: "Inadimplência", concentration_excess: "Concentração Excessiva",
+  critical_divergence: "Divergências Críticas",
+  cash_shortage:       "Caixa Insuficiente",
+  overdue_payable:     "Conta Vencida",
+  credit_delinquency:  "Inadimplência",
+  ndi_aging:           "NDI Antigo",
+  stale_divergence:    "Divergência Sem Tratativa",
+  upcoming_payable:    "Vencimento Próximo",
 };
 
-function AlertCard({ alert, onAction, isPending }: { alert: any; onAction: (id: number) => void; isPending: boolean }) {
-  const sev = (alert.severity as SeverityKey) in SEVERITY_CONFIG ? alert.severity as SeverityKey : "info";
-  const cfg = SEVERITY_CONFIG[sev];
-  const Icon = cfg.icon;
-  const isAcknowledged = alert.status === "acknowledged";
-  const isResolved     = alert.status === "resolved";
-
-  return (
-    <div className={cn("border rounded-xl p-4 flex items-start gap-4 transition-all duration-200", isResolved ? "opacity-50 bg-card border-border" : cfg.bg)}>
-      <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border", isResolved ? "bg-muted/30 border-border" : cfg.badge)}>
-        <Icon className={cn("w-4 h-4", isResolved ? "text-muted-foreground" : cfg.color)} />
-      </div>
-      <div className="flex-1 min-w-0 space-y-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", isResolved ? "bg-muted/20 text-muted-foreground border-border" : cfg.badge)}>{cfg.label}</span>
-          <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">{TYPE_LABELS[alert.type] ?? alert.type}</span>
-          {isAcknowledged && <span className="text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-1"><Eye className="w-2.5 h-2.5" />Reconhecido</span>}
-          {isResolved && <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full flex items-center gap-1"><CheckCircle className="w-2.5 h-2.5" />Resolvido</span>}
-        </div>
-        <p className={cn("text-sm font-semibold", isResolved ? "text-muted-foreground" : cfg.color)}>{alert.title}</p>
-        <p className="text-xs text-muted-foreground leading-relaxed">{alert.message}</p>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
-          <Clock className="w-3 h-3" />{formatDateTime(alert.createdAt)}
-        </div>
-      </div>
-      {!isResolved && (
-        <div className="flex flex-col gap-1.5 shrink-0">
-          {!isAcknowledged && (
-            <Button variant="ghost" size="sm" className="h-7 text-[10px] text-muted-foreground hover:text-foreground px-2" onClick={() => onAction(alert.id)} disabled={isPending}>
-              <Eye className="w-3 h-3 mr-1" />Reconhecer
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" className="h-7 text-[10px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-2" onClick={() => onAction(alert.id)} disabled={isPending}>
-            <CheckCircle className="w-3 h-3 mr-1" />Resolver
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function Alerts() {
-  const [statusFilter, setStatusFilter] = useState("active");
+  const [statusFilter, setStatusFilter] = useState<string | undefined>("active");
   const [severityFilter, setSeverityFilter] = useState("all");
 
-  const { data: alerts, refetch } = trpc.dashboard.getAlerts.useQuery({
-    status: statusFilter !== "all" ? statusFilter : undefined,
-  });
-  const acknowledgeMutation = trpc.dashboard.acknowledgeAlert.useMutation({
-    onSuccess: () => { toast.success("Alerta atualizado!"); refetch(); },
-    onError: (e) => toast.error(e.message),
+  const { data: rawAlerts, isLoading, refetch } = trpc.dashboard.getAlerts.useQuery(
+    { status: statusFilter },
+    { refetchInterval: 30000 } // auto-refresh 30s
+  );
+
+  const generateMutation = trpc.dashboard.generateAlerts.useMutation({
+    onSuccess: (r: any) => {
+      if (r.generated > 0) {
+        toast.success(`${r.generated} novo(s) alerta(s) gerado(s)!`);
+      } else {
+        toast.info("Nenhum novo alerta — sistema operando normalmente.");
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const rows = ((alerts ?? []) as any[]).filter((a: any) => severityFilter === "all" ? true : a.severity === severityFilter);
-  const allAlerts = (alerts ?? []) as any[];
-  const critical = allAlerts.filter((a: any) => a.severity === "critical" && a.status === "active").length;
-  const warning  = allAlerts.filter((a: any) => a.severity === "warning"  && a.status === "active").length;
-  const info     = allAlerts.filter((a: any) => a.severity === "info"     && a.status === "active").length;
-  const resolved = allAlerts.filter((a: any) => a.status === "resolved").length;
+  const ackMutation = trpc.dashboard.acknowledgeAlert.useMutation({
+    onSuccess: () => { toast.success("Alerta reconhecido."); refetch(); },
+  });
 
-  const TABS = [
-    { key: "active", label: "Ativos" }, { key: "acknowledged", label: "Reconhecidos" },
-    { key: "resolved", label: "Resolvidos" }, { key: "all", label: "Todos" },
-  ];
+  const dismissMutation = trpc.dashboard.dismissAlert.useMutation({
+    onSuccess: () => { toast.success("Alerta dispensado."); refetch(); },
+  });
+
+  const alerts = ((rawAlerts ?? []) as any[]).filter(a =>
+    severityFilter === "all" || a.severity === severityFilter
+  );
+
+  const counts = {
+    critical: ((rawAlerts ?? []) as any[]).filter(a => a.severity === "critical" && a.status === "active").length,
+    warning:  ((rawAlerts ?? []) as any[]).filter(a => a.severity === "warning"  && a.status === "active").length,
+    info:     ((rawAlerts ?? []) as any[]).filter(a => a.severity === "info"     && a.status === "active").length,
+    resolved: ((rawAlerts ?? []) as any[]).filter(a => a.status !== "active").length,
+  };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Alertas</h1>
-        <p className="text-sm text-muted-foreground mt-1">Monitoramento operacional · Eventos críticos e notificações automáticas</p>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Alertas</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitoramento operacional · Eventos críticos e notificações automáticas
+          </p>
+        </div>
+        <Button
+          size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+          disabled={generateMutation.isPending}
+          onClick={() => generateMutation.mutate()}
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", generateMutation.isPending && "animate-spin")} />
+          {generateMutation.isPending ? "Verificando..." : "Verificar agora"}
+        </Button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Críticos Ativos",    value: critical, color: "text-red-400",     bg: critical > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card border-border", Icon: ShieldAlert },
-          { label: "Atenção Ativos",     value: warning,  color: "text-amber-400",   bg: "bg-card border-border", Icon: AlertTriangle },
-          { label: "Informativos",       value: info,     color: "text-sky-400",     bg: "bg-card border-border", Icon: Info },
-          { label: "Resolvidos (total)", value: resolved, color: "text-emerald-400", bg: "bg-card border-border", Icon: CheckCircle },
-        ].map(({ label, value, color, bg, Icon }) => (
-          <div key={label} className={cn("border rounded-xl p-4", bg)}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</span>
-              <Icon className={cn("w-3.5 h-3.5", color)} />
+          { label: "Críticos Ativos",    value: counts.critical, color: "text-red-400",    bg: "bg-red-500/5 border-red-500/20",    icon: ShieldAlert },
+          { label: "Atenção Ativos",     value: counts.warning,  color: "text-yellow-400", bg: "bg-yellow-500/5 border-yellow-500/20", icon: AlertTriangle },
+          { label: "Informativos",       value: counts.info,     color: "text-blue-400",   bg: "bg-blue-500/5 border-blue-500/20",  icon: Info },
+          { label: "Resolvidos (total)", value: counts.resolved, color: "text-emerald-400",bg: "bg-emerald-500/5 border-emerald-500/20", icon: CheckCircle },
+        ].map(({ label, value, color, bg, icon: Icon }) => (
+          <div key={label} className={cn("border rounded-2xl p-5", bg)}>
+            <div className="flex items-center justify-between mb-3">
+              <Icon className={cn("w-5 h-5", color)} />
             </div>
-            <p className={cn("text-3xl font-bold font-mono", color)}>{value}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{label}</p>
+            <p className={cn("text-3xl font-bold font-mono mt-1", color)}>{value}</p>
           </div>
         ))}
       </div>
 
+      {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center p-0.5 bg-muted/30 rounded-lg">
-          {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setStatusFilter(tab.key)}
-              className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
-                statusFilter === tab.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+        <div className="flex bg-card border border-border rounded-lg p-0.5 gap-0.5">
+          {STATUS_TABS.map(tab => (
+            <button key={String(tab.key)} onClick={() => setStatusFilter(tab.key)}
+              className={cn("px-3 py-1.5 text-xs rounded-md transition-all font-medium",
+                statusFilter === tab.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              )}>
               {tab.label}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1">
-          <Filter className="w-3.5 h-3.5 text-muted-foreground" />
-          <Select value={severityFilter} onValueChange={setSeverityFilter}>
-            <SelectTrigger className="h-7 text-xs w-32 border-border"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">Todas</SelectItem>
-              <SelectItem value="critical" className="text-xs">Crítico</SelectItem>
-              <SelectItem value="warning" className="text-xs">Atenção</SelectItem>
-              <SelectItem value="info" className="text-xs">Informativo</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex bg-card border border-border rounded-lg p-0.5 gap-0.5">
+          {[
+            { key: "all",      label: "Todas" },
+            { key: "critical", label: "Crítico" },
+            { key: "warning",  label: "Atenção" },
+            { key: "info",     label: "Info" },
+          ].map(s => (
+            <button key={s.key} onClick={() => setSeverityFilter(s.key)}
+              className={cn("px-3 py-1.5 text-xs rounded-md transition-all",
+                severityFilter === s.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              )}>
+              {s.label}
+            </button>
+          ))}
         </div>
-        <span className="text-xs text-muted-foreground ml-auto">{rows.length} alertas</span>
       </div>
 
-      <div className="space-y-2.5">
-        {rows.length === 0 ? (
-          <div className="bg-card border border-border rounded-xl p-16 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-6 h-6 text-emerald-400" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">
-              {statusFilter === "active" ? "Nenhum alerta ativo" : "Nenhum alerta encontrado"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-              {statusFilter === "active"
-                ? "O sistema está operando normalmente. Alertas são gerados automaticamente pelo motor de monitoramento."
-                : "Nenhum alerta corresponde ao filtro selecionado."}
-            </p>
+      {/* Alert list */}
+      {isLoading ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">Carregando alertas...</div>
+      ) : alerts.length === 0 ? (
+        <div className="bg-card border border-border rounded-2xl p-12 text-center space-y-3">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto">
+            <CheckCircle className="w-8 h-8 text-emerald-400" />
           </div>
-        ) : (
-          (["critical", "warning", "info"] as SeverityKey[]).map(sev => {
-            const group = rows.filter((a: any) => a.severity === sev);
-            if (group.length === 0) return null;
-            const cfg = SEVERITY_CONFIG[sev];
+          <p className="text-sm font-semibold text-foreground">Nenhum alerta ativo</p>
+          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+            O sistema está operando normalmente. Clique em "Verificar agora" para checar contas vencidas, inadimplência e divergências críticas.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {alerts.map((alert: any) => {
+            const cfg = SEVERITY_CONFIG[alert.severity as keyof typeof SEVERITY_CONFIG] ?? SEVERITY_CONFIG.info;
+            const Icon = cfg.icon;
             return (
-              <div key={sev} className="space-y-2">
-                {severityFilter === "all" && (
-                  <div className="flex items-center gap-2 px-1 pt-2">
-                    <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", cfg.dot)} />
-                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                      {cfg.label} ({group.length})
-                    </span>
+              <div key={alert.id} className={cn("border rounded-2xl p-5", cfg.bg)}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5",
+                      alert.severity === "critical" ? "bg-red-500/20" :
+                      alert.severity === "warning"  ? "bg-yellow-500/20" : "bg-blue-500/20"
+                    )}>
+                      <Icon className={cn("w-4.5 h-4.5", cfg.color)} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold text-foreground">{alert.title}</p>
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-semibold", cfg.color,
+                          alert.severity === "critical" ? "border-red-500/30 bg-red-500/10" :
+                          alert.severity === "warning" ? "border-yellow-500/30 bg-yellow-500/10" : "border-blue-500/30 bg-blue-500/10"
+                        )}>
+                          {cfg.label}
+                        </span>
+                        {TYPE_LABELS[alert.type] && (
+                          <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded border border-border">
+                            {TYPE_LABELS[alert.type]}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{alert.message}</p>
+                      <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {formatDateTime(alert.createdAt)}
+                        {alert.acknowledgedAt && (
+                          <span className="ml-2 text-emerald-400">
+                            · Reconhecido em {formatDateTime(alert.acknowledgedAt)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                )}
-                {group.map((alert: any) => (
-                  <AlertCard key={alert.id} alert={alert}
-                    onAction={(id) => acknowledgeMutation.mutate({ id })}
-                    isPending={acknowledgeMutation.isPending} />
-                ))}
+                  {alert.status === "active" && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1"
+                        onClick={() => ackMutation.mutate({ id: alert.id })}>
+                        <Eye className="w-3 h-3" /> Reconhecer
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground"
+                        onClick={() => dismissMutation.mutate({ id: alert.id })}>
+                        <XCircle className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
-      <div className="bg-sky-500/5 border border-sky-500/15 rounded-xl p-4 flex gap-3">
-        <Activity className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="text-xs font-semibold text-sky-400">Como os alertas são gerados automaticamente</p>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Caixa negativo ao registrar fluxo · Funding insuficiente em projeções · Contas vencidas · Inadimplência na carteira de crédito · Divergências críticas na conciliação
-          </p>
+      {/* Info box */}
+      <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-4 h-4 text-muted-foreground" />
+          <p className="text-xs font-semibold text-foreground">Como os alertas são gerados automaticamente</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+          {[
+            "🔴 Contas a Pagar vencidas — gera alerta crítico ao vencer",
+            "🔴 Inadimplência na Carteira de Crédito — parcelas vencidas atualizam status para 'atrasado'",
+            "🔴 Divergências críticas sem tratativa há +7 dias",
+            "🟡 Contas a vencer nos próximos 3 dias",
+            "🟡 NDI com mais de 30 dias sem identificação",
+            "🔴 Caixa Real abaixo do limite mínimo configurado",
+            "🔴 Divergências críticas detectadas ao finalizar conciliação",
+            "✅ Alertas são re-verificados a cada 30s nesta página",
+          ].map(item => (
+            <div key={item} className="flex items-start gap-1.5">
+              <span className="mt-0.5">{item.slice(0, 2)}</span>
+              <span>{item.slice(3)}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

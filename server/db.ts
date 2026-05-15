@@ -939,6 +939,110 @@ export async function upsertCashFlow(data: {
 }
 
 // ─── ALERTAS ──────────────────────────────────────────────────────────────────
+/** Gera alertas automáticos verificando todo o estado do sistema */
+export async function generateSystemAlerts() {
+  const db = await getDb();
+  if (!db) return { generated: 0 };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const generated: string[] = [];
+
+  // Helper: cria alerta apenas se não existir um igual nos últimos 7 dias
+  const upsertAlert = async (type: string, title: string, message: string, severity: string, refId?: number) => {
+    const existing = await db.execute(sql`
+      SELECT id FROM alerts
+      WHERE type = ${type}
+      AND status = 'active'
+      AND createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      ${refId ? sql.raw(`AND referenceId = ${refId}`) : sql.raw('')}
+      LIMIT 1
+    `);
+    if ((existing as any)[0]?.length > 0) return; // já existe
+    await createAlert({ type, title, message, severity: severity as any, referenceId: refId });
+    generated.push(type);
+  };
+
+  // 1. Contas a pagar vencidas
+  const overduePayables = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM payables
+    WHERE status = 'pendente' AND dueDate < ${today}
+  `);
+  const ovPay = (overduePayables as any)[0]?.[0];
+  if (parseInt(String(ovPay?.cnt ?? 0)) > 0) {
+    await upsertAlert('overdue_payable', 'Contas a Pagar Vencidas',
+      `${ovPay.cnt} conta(s) vencida(s) — R$ ${parseFloat(String(ovPay.total)).toFixed(2)} em atraso`,
+      'critical');
+  }
+
+  // 2. Parcelas de crédito vencidas (inadimplência)
+  const overdueLoans = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(totalAmount AS DECIMAL(18,2))),0) as total
+    FROM credit_installments
+    WHERE status = 'pendente' AND dueDate < ${today}
+  `);
+  const ovLoan = (overdueLoans as any)[0]?.[0];
+  if (parseInt(String(ovLoan?.cnt ?? 0)) > 0) {
+    await upsertAlert('credit_delinquency', 'Inadimplência na Carteira de Crédito',
+      `${ovLoan.cnt} parcela(s) vencida(s) — R$ ${parseFloat(String(ovLoan.total)).toFixed(2)} em atraso`,
+      'critical');
+    // Atualiza status do crédito para 'atrasado'
+    await db.execute(sql`
+      UPDATE credit_portfolio SET status = 'atrasado'
+      WHERE id IN (
+        SELECT DISTINCT creditId FROM credit_installments
+        WHERE status = 'pendente' AND dueDate < ${today}
+      ) AND status = 'ativo'
+    `);
+  }
+
+  // 3. NDI acima de 30 dias sem identificação
+  const oldNdi = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM divergences
+    WHERE isNdi = 1
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+    AND divergenceDate < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  `);
+  const ndiData = (oldNdi as any)[0]?.[0];
+  if (parseInt(String(ndiData?.cnt ?? 0)) > 0) {
+    await upsertAlert('ndi_aging', 'NDI com mais de 30 dias sem identificação',
+      `${ndiData.cnt} entrada(s) não identificada(s) com mais de 30 dias — R$ ${parseFloat(String(ndiData.total)).toFixed(2)}`,
+      'warning');
+  }
+
+  // 4. Divergências críticas pendentes há mais de 7 dias
+  const staleDivergences = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM divergences
+    WHERE priority IN ('critical','high')
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+    AND divergenceDate < DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+  `);
+  const staleDiv = (staleDivergences as any)[0]?.[0];
+  if (parseInt(String(staleDiv?.cnt ?? 0)) > 0) {
+    await upsertAlert('stale_divergence', 'Divergências Críticas Pendentes há +7 dias',
+      `${staleDiv.cnt} divergência(s) crítica(s) sem tratativa há mais de 7 dias — R$ ${parseFloat(String(staleDiv.total)).toFixed(2)}`,
+      'critical');
+  }
+
+  // 5. Contas a pagar com vencimento nos próximos 3 dias
+  const soonPayables = await db.execute(sql`
+    SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
+    FROM payables
+    WHERE status = 'pendente'
+    AND dueDate BETWEEN ${today} AND DATE_ADD(${today}, INTERVAL 3 DAY)
+  `);
+  const spData = (soonPayables as any)[0]?.[0];
+  if (parseInt(String(spData?.cnt ?? 0)) > 0) {
+    await upsertAlert('upcoming_payable', 'Contas a Pagar Vencem em Breve',
+      `${spData.cnt} conta(s) vence(m) nos próximos 3 dias — R$ ${parseFloat(String(spData.total)).toFixed(2)}`,
+      'warning');
+  }
+
+  return { generated: generated.length, types: generated };
+}
+
 export async function createAlert(data: {
   type: string; title: string; message: string;
   severity?: 'info' | 'warning' | 'critical';

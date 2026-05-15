@@ -321,6 +321,7 @@ const reconciliationRouter = router({
       });
 
       db.invalidateReconciliationCache(); // atualiza cache após nova conciliação
+      db.generateSystemAlerts().catch(() => {}); // gera alertas em background
       return {
         sessionId, result,
         bankDates: Array.from(bankDates).sort(),
@@ -1255,12 +1256,31 @@ const dashboardRouter = router({
     .input(z.object({ status: z.string().optional() }))
     .query(async ({ input }) => db.getAlerts(input.status)),
 
+  // Gera alertas automáticos verificando estado geral do sistema
+  generateAlerts: protectedProcedure
+    .mutation(async () => {
+      const result = await db.generateSystemAlerts();
+      return result;
+    }),
+
   acknowledgeAlert: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await db.acknowledgeAlert(input.id, ctx.user.id);
       return { success: true };
     }),
+
+  dismissAlert: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) throw new Error("DB unavailable");
+      const { sql: s } = await import("drizzle-orm");
+      await dbConn.execute(s`UPDATE alerts SET status = 'dismissed' WHERE id = ${input.id}`);
+      return { success: true };
+    }),
+
+
 
   getSystemConfig: protectedProcedure
     .input(z.object({ key: z.string() }))
