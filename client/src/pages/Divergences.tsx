@@ -818,13 +818,20 @@ export default function Divergences() {
               </div>
               <div>
                 <Label className="text-xs">Valor correspondente na API (R$)</Label>
-                <Input className="mt-1.5 text-xs h-8 font-mono" placeholder="Ex: 30000.00" value={adjustApiAmount} onChange={e => setAdjustApiAmount(e.target.value)} />
-                {adjustApiAmount && (
-                  <p className={cn("text-[10px] mt-1", Math.abs(parseFloat(adjustApiAmount || "0") - selectedTotal) <= 1 ? "text-emerald-400" : "text-yellow-400")}>
-                    Diferença: {formatCurrency(Math.abs(parseFloat(adjustApiAmount || "0") - selectedTotal))}
-                    {Math.abs(parseFloat(adjustApiAmount || "0") - selectedTotal) <= 1 ? " ✓ dentro da tolerância" : ""}
-                  </p>
-                )}
+                <Input className="mt-1.5 text-xs h-8 font-mono" placeholder="Ex: 30000.00 ou 30.000,00" value={adjustApiAmount} onChange={e => setAdjustApiAmount(e.target.value)} />
+                {adjustApiAmount && (() => {
+                  const raw = adjustApiAmount.trim().replace(/\./g, "").replace(",", ".");
+                  const parsed = parseFloat(raw) || 0;
+                  const diff = Math.abs(parsed - selectedTotal);
+                  return (
+                    <div className="mt-1">
+                      <p className={cn("text-[10px]", diff <= 1 ? "text-emerald-400" : diff < selectedTotal * 0.02 ? "text-yellow-400" : "text-red-400")}>
+                        Valor API: {formatCurrency(parsed)} · Diferença: {formatCurrency(diff)}
+                        {diff <= 1 ? " ✓ dentro da tolerância" : diff < selectedTotal * 0.02 ? " ⚠ diferença pequena" : " ✗ diferença significativa"}
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
               <div>
                 <Label className="text-xs">Descrição do ajuste</Label>
@@ -834,13 +841,16 @@ export default function Divergences() {
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1 text-xs" onClick={() => setAdjustOpen(false)}>Cancelar</Button>
               <Button className="flex-1 text-xs gap-1.5" disabled={!adjustApiAmount || !adjustDesc || adjustMutation.isPending}
-                onClick={() => adjustMutation.mutate({
-                  description: adjustDesc,
-                  adjustmentType: adjustType as any,
-                  apiAmount: adjustApiAmount,
-                  bankAmounts: [selectedTotal],
-                  divergenceIds: Array.from(selectedIds),
-                })}>
+                onClick={() => {
+                  const raw = adjustApiAmount.trim().replace(/\./g, '').replace(',', '.');
+                  adjustMutation.mutate({
+                    description: adjustDesc,
+                    adjustmentType: adjustType as any,
+                    apiAmount: raw,
+                    bankAmounts: [selectedTotal],
+                    divergenceIds: Array.from(selectedIds),
+                  });
+                }}>
                 <Wrench className="w-3.5 h-3.5" /> {adjustMutation.isPending ? "Criando..." : "Criar Ajuste"}
               </Button>
             </div>

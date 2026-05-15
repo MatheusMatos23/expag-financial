@@ -84,13 +84,42 @@ const reconciliationRouter = router({
         bankDates.add(dp1.toISOString().slice(0, 10));
       }
 
-      // Filtrar API para datas dos extratos (inclusive D±1), excluindo APENAS transferências entre contas
-      // Tarifas são MANTIDAS para registro, mas classificadas separadamente
+      // ── Palavras-chave de tarifa bancária ────────────────────────────────────
+      // Tarifas do banco NUNCA devem ser matcheadas com a API — vão direto para Despesas
+      const BANK_TARIFF_KEYWORDS = [
+        "tarifa", "taxa", "manutenção", "manutencao", "anuidade",
+        "iof", "cpmf", "comissão bancária", "comissao bancaria",
+        "encargo", "serviço bancário", "servico bancario",
+        "débito serviço cobrança", "debito servico cobranca",
+        "tar doc/ted", "tar doc ted", "ted eletronico", "ted eletrônico",
+        "cobrança bancária", "cobranca bancaria",
+        "tarifa guia", "cod barra", "cód barra", "guia cobrança",
+        "tarifa boleto", "emissão boleto", "emissao boleto",
+        "tarifa pix", "tarifa ted", "tarifa manut",
+      ];
+      const isBankTariff = (desc: string) =>
+        BANK_TARIFF_KEYWORDS.some(k => desc.toLowerCase().includes(k));
+
+      // ── Pre-filtro: separa tarifas bancárias ANTES do engine ──────────────
+      // Tarifas identificadas aqui nunca entram no engine → nunca são matcheadas com API
+      const bankTariffTxs: Array<{ bankName: string; tx: any }> = [];
+      const parsedBanksClean = parsedBanks.map(bank => ({
+        ...bank,
+        txs: bank.txs.filter(tx => {
+          if (isBankTariff(tx.description)) {
+            bankTariffTxs.push({ bankName: bank.name, tx });
+            return false; // remove do engine
+          }
+          return true;
+        }),
+      }));
+
+      // Filtrar API: remove internos e filtra datas
       const apiTxs = allApiTxs.filter(t => bankDates.has(t.date) && !t.isInternal);
 
-      // Rodar conciliação multi-banco
+      // Rodar conciliação multi-banco (SEM as tarifas bancárias)
       const { reconcileMultiBank } = await import("./reconciliation/engine");
-      const result = reconcileMultiBank(parsedBanks, apiTxs);
+      const result = reconcileMultiBank(parsedBanksClean, apiTxs);
 
       // Salvar sessão
       const sessionId = await db.createReconciliationSession({
@@ -143,18 +172,6 @@ const reconciliationRouter = router({
         }
       }
 
-      // ── Palavras-chave para detectar tarifas bancárias no extrato do banco ──
-      const BANK_TARIFF_KEYWORDS = [
-        "tarifa", "taxa", "manutenção", "manutencao", "anuidade",
-        "iof", "cpmf", "comissão bancária", "comissao bancaria",
-        "encargo", "serviço bancário", "servico bancario",
-        "débito serviço cobrança", "debito servico cobranca",
-        "tar doc/ted", "tar doc ted", "ted eletronico", "ted eletrônico",
-        "cobrança bancária", "cobranca bancaria",
-      ];
-      const isBankTariff = (desc: string) =>
-        BANK_TARIFF_KEYWORDS.some(k => desc.toLowerCase().includes(k));
-
       // ── Dedup: limpa auto-tarifas anteriores desta sessão antes de recriar ──
       const dbConn = await db.getDb();
       if (dbConn) {
@@ -162,22 +179,19 @@ const reconciliationRouter = router({
         try { await dbConn.execute(sql`DELETE FROM revenues WHERE sessionId = ${sessionId} AND origin = 'auto_tariff'`); } catch {}
       }
 
-      // ── Tarifas no banco (unmatched_bank com descrição de tarifa) ─────────
-      // → Lança automaticamente como DESPESA e não cria divergência
+      // ── Tarifas bancárias (pré-filtradas antes do engine) ─────────────────
+      // → Lança automaticamente como DESPESA sem criar divergência
       let autoDespesaCount = 0;
       let autoReceitaCount = 0;
 
-      for (const match of result.matches) {
-        if (match.status !== "unmatched_bank") continue;
-        if (!isBankTariff(match.bankTx.description)) continue;
-
+      for (const { bankName, tx } of bankTariffTxs) {
         await db.createExpense({
-          referenceDate: match.bankTx.date,
+          referenceDate: tx.date,
           category: "bancaria",
           subcategory: "tarifa_bancaria",
-          description: match.bankTx.description,
-          amount: match.bankTx.amount.toFixed(2),
-          supplier: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
+          description: tx.description,
+          amount: tx.amount.toFixed(2),
+          supplier: BANK_LABELS[bankName] ?? bankName,
           status: "realizado",
           sessionId,
           origin: "auto_tariff",

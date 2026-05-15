@@ -130731,9 +130731,53 @@ var reconciliationRouter = router({
       bankDates.add(dm1.toISOString().slice(0, 10));
       bankDates.add(dp1.toISOString().slice(0, 10));
     }
+    const BANK_TARIFF_KEYWORDS = [
+      "tarifa",
+      "taxa",
+      "manuten\xE7\xE3o",
+      "manutencao",
+      "anuidade",
+      "iof",
+      "cpmf",
+      "comiss\xE3o banc\xE1ria",
+      "comissao bancaria",
+      "encargo",
+      "servi\xE7o banc\xE1rio",
+      "servico bancario",
+      "d\xE9bito servi\xE7o cobran\xE7a",
+      "debito servico cobranca",
+      "tar doc/ted",
+      "tar doc ted",
+      "ted eletronico",
+      "ted eletr\xF4nico",
+      "cobran\xE7a banc\xE1ria",
+      "cobranca bancaria",
+      "tarifa guia",
+      "cod barra",
+      "c\xF3d barra",
+      "guia cobran\xE7a",
+      "tarifa boleto",
+      "emiss\xE3o boleto",
+      "emissao boleto",
+      "tarifa pix",
+      "tarifa ted",
+      "tarifa manut"
+    ];
+    const isBankTariff = (desc2) => BANK_TARIFF_KEYWORDS.some((k) => desc2.toLowerCase().includes(k));
+    const bankTariffTxs = [];
+    const parsedBanksClean = parsedBanks.map((bank) => ({
+      ...bank,
+      txs: bank.txs.filter((tx) => {
+        if (isBankTariff(tx.description)) {
+          bankTariffTxs.push({ bankName: bank.name, tx });
+          return false;
+        }
+        return true;
+      })
+    }));
     const apiTxs = allApiTxs.filter((t2) => bankDates.has(t2.date) && !t2.isInternal);
     const { reconcileMultiBank: reconcileMultiBank2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
-    const result = reconcileMultiBank2(parsedBanks, apiTxs);
+    const result = reconcileMultiBank2(parsedBanksClean, apiTxs);
     const sessionId = await createReconciliationSession({
       userId: ctx.user.id,
       referenceDate: input.referenceDate
@@ -130786,29 +130830,6 @@ var reconciliationRouter = router({
         });
       }
     }
-    const BANK_TARIFF_KEYWORDS = [
-      "tarifa",
-      "taxa",
-      "manuten\xE7\xE3o",
-      "manutencao",
-      "anuidade",
-      "iof",
-      "cpmf",
-      "comiss\xE3o banc\xE1ria",
-      "comissao bancaria",
-      "encargo",
-      "servi\xE7o banc\xE1rio",
-      "servico bancario",
-      "d\xE9bito servi\xE7o cobran\xE7a",
-      "debito servico cobranca",
-      "tar doc/ted",
-      "tar doc ted",
-      "ted eletronico",
-      "ted eletr\xF4nico",
-      "cobran\xE7a banc\xE1ria",
-      "cobranca bancaria"
-    ];
-    const isBankTariff = (desc2) => BANK_TARIFF_KEYWORDS.some((k) => desc2.toLowerCase().includes(k));
     const dbConn = await getDb();
     if (dbConn) {
       try {
@@ -130822,16 +130843,14 @@ var reconciliationRouter = router({
     }
     let autoDespesaCount = 0;
     let autoReceitaCount = 0;
-    for (const match of result.matches) {
-      if (match.status !== "unmatched_bank") continue;
-      if (!isBankTariff(match.bankTx.description)) continue;
+    for (const { bankName, tx } of bankTariffTxs) {
       await createExpense({
-        referenceDate: match.bankTx.date,
+        referenceDate: tx.date,
         category: "bancaria",
         subcategory: "tarifa_bancaria",
-        description: match.bankTx.description,
-        amount: match.bankTx.amount.toFixed(2),
-        supplier: BANK_LABELS[match.bankName ?? ""] ?? match.bankName,
+        description: tx.description,
+        amount: tx.amount.toFixed(2),
+        supplier: BANK_LABELS[bankName] ?? bankName,
         status: "realizado",
         sessionId,
         origin: "auto_tariff",
