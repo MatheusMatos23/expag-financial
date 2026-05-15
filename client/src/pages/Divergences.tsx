@@ -292,7 +292,13 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
           <div className="border border-border rounded-lg overflow-hidden">
             <div className="px-4 py-2 bg-accent/10 border-b border-border flex items-center gap-2">
               <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-xs font-semibold text-foreground">{d.bankName ?? "Banco"}</span>
+              <span className="text-xs font-semibold text-foreground">
+                {/* bank_shortage: bankName='API' (só API tem o valor) → mostra "Banco" com estado vazio */}
+                {d.divergenceType === "bank_shortage" ? "Banco" : (d.bankName ?? "Banco")}
+              </span>
+              {d.divergenceType === "bank_shortage" && (
+                <span className="text-[10px] text-muted-foreground ml-1">(sem lançamento)</span>
+              )}
             </div>
             <div className="p-4 space-y-2 text-xs">
               <div className="flex justify-between">
@@ -317,7 +323,12 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
           {/* Transação na API */}
           <div className="border border-border rounded-lg overflow-hidden">
             <div className="px-4 py-2 bg-accent/10 border-b border-border flex items-center gap-2">
-              <span className="text-xs font-semibold text-foreground">API Expag</span>
+              <span className="text-xs font-semibold text-foreground">
+                {d.divergenceType === "bank_shortage" ? (d.bankName === "API" ? "API Expag" : "API") : "API Expag"}
+              </span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ml-1 ${d.divergenceType === "bank_shortage" ? "text-red-400 bg-red-500/10" : "text-blue-400 bg-blue-500/10"}`}>
+                {d.divergenceType === "bank_shortage" ? "Falta no Banco" : "Sobra no Banco"}
+              </span>
             </div>
             <div className="p-4 space-y-2 text-xs">
               <div className="flex justify-between">

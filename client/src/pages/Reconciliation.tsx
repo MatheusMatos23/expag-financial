@@ -439,7 +439,8 @@ export default function Reconciliation() {
       setUploadOpen(false);
       setManualBack(false);
       const s = data.result.summary;
-      toast.success(`Concluído! ✅ ${s.matchedCount} conciliados · ⚠️ ${s.divergentCount + s.unmatchedBankCount + s.unmatchedApiCount} divergências`);
+      const totalDivs = s.divergentCount + s.unmatchedBankCount + s.unmatchedApiCount;
+      toast.success(`Concluído! ✅ ${s.matchedCount} conciliados · ⚠️ ${totalDivs} divergências a analisar`);
       refetchSessions();
       // Abre a sessão recém-criada
       setSelectedSession(data.sessionId);

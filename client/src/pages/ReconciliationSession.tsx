@@ -388,7 +388,7 @@ export default function ReconciliationSession() {
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="transações" highlight />
-        <KPI label="Divergências"  value={safeNumber(session.divergentCount, 0)} color="text-amber-400" sub="para analisar" />
+        <KPI label="Divergências"  value={liveDivergentCount} color="text-amber-400" sub={`${livePendingCount} pendentes · ${liveMatchedCount} conciliados`} />
         <KPI label="Taxa Matching"
           value={`${matchRate}%`}
           color={matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-amber-400" : "text-red-400"}
@@ -409,8 +409,8 @@ export default function ReconciliationSession() {
       <div className="bg-card border border-border rounded-xl p-5">
         <MatchQualityBar
           matched={liveMatchedCount}
-          divergent={divergentBank.length}
-          total={allBank.length}
+          divergent={liveDivergentCount}
+          total={liveTotal}
         />
       </div>
 

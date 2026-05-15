@@ -115,8 +115,17 @@ const reconciliationRouter = router({
         }),
       }));
 
-      // Filtrar API: remove internos e filtra datas
-      const apiTxs = allApiTxs.filter(t => bankDates.has(t.date) && !t.isInternal);
+      // Filtrar API: remove internos, tarifas e filtra datas
+      // isTariff=true NUNCA deve entrar no engine — vai direto para receitas
+      // isInternal=true são transferências entre contas próprias
+      const apiTxsForEngine = allApiTxs.filter(t =>
+        bankDates.has(t.date) && !t.isInternal && !t.isTariff
+      );
+      // Tarifas separadas para criar receitas depois (sem passar pelo engine)
+      const apiTariffTxs = allApiTxs.filter(t =>
+        bankDates.has(t.date) && !t.isInternal && t.isTariff
+      );
+      const apiTxs = apiTxsForEngine; // alias para manter compatibilidade
 
       // Rodar conciliação multi-banco (SEM as tarifas bancárias)
       const { reconcileMultiBank } = await import("./reconciliation/engine");
@@ -165,13 +174,23 @@ const reconciliationRouter = router({
       await db.insertBankTransactionsBatch(bankRows);
 
       const apiRows: Parameters<typeof db.insertApiTransactionsBatch>[0] = [];
-      for (const tx of apiTxs) {
+      // Engine txs: com matchStatus real
+      for (const tx of apiTxsForEngine) {
         const isMatched = tx.externalId ? matchedApiExternalIds.has(tx.externalId) : false;
         apiRows.push({
           sessionId, type: tx.type, transactionDate: tx.date,
           description: tx.description, amount: tx.amount.toFixed(2),
           channel: tx.channel, clientName: tx.clientName, externalId: tx.externalId,
           matchStatus: isMatched ? "matched" : "divergent",
+        });
+      }
+      // Tarifas API: sempre manual (auto-classificadas como receita)
+      for (const tx of apiTariffTxs as any[]) {
+        apiRows.push({
+          sessionId, type: tx.type, transactionDate: tx.date,
+          description: tx.description, amount: tx.amount.toFixed(2),
+          channel: tx.channel, clientName: tx.clientName, externalId: tx.externalId,
+          matchStatus: "manual",
         });
       }
       await db.insertApiTransactionsBatch(apiRows);
@@ -227,19 +246,17 @@ const reconciliationRouter = router({
       await db.insertExpensesBatch(tariffExpenseRows);
       autoDespesaCount = tariffExpenseRows.length;
 
-      // ── BATCH: tarifas API → receitas + não-tarifas → divergências ──────────
-      const tariffRevRows: Parameters<typeof db.insertRevenuesBatch>[0] = [];
+      // ── BATCH: tarifas API → receitas (pré-separadas antes do engine) ─────────
+      // result.unmatchedApi já não contém tarifas (filtradas em apiTxsForEngine)
+      const tariffRevRows: Parameters<typeof db.insertRevenuesBatch>[0] = apiTariffTxs.map((tx: any) => ({
+        referenceDate: tx.date, type: "receita_operacional",
+        description: tx.description || tx.channel,
+        amount: tx.amount.toFixed(2), clientName: tx.clientName,
+        sessionId, origin: "auto_tariff", createdByName: "Conciliação Automática",
+      }));
+
+      // Não-tarifas sem par no engine → divergências
       for (const tx of result.unmatchedApi) {
-        const isTariff = tx.isTariff ?? tx.channel === "TARIFA";
-        if (isTariff) {
-          tariffRevRows.push({
-            referenceDate: tx.date, type: "receita_operacional",
-            description: tx.description || tx.channel,
-            amount: tx.amount.toFixed(2), clientName: tx.clientName,
-            sessionId, origin: "auto_tariff", createdByName: "Conciliação Automática",
-          });
-          continue;
-        }
         divRows.push({
           sessionId, divergenceDate: tx.date,
           bankName: "API",

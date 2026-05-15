@@ -131820,7 +131820,13 @@ var reconciliationRouter = router({
         return true;
       })
     }));
-    const apiTxs = allApiTxs.filter((t2) => bankDates.has(t2.date) && !t2.isInternal);
+    const apiTxsForEngine = allApiTxs.filter(
+      (t2) => bankDates.has(t2.date) && !t2.isInternal && !t2.isTariff
+    );
+    const apiTariffTxs = allApiTxs.filter(
+      (t2) => bankDates.has(t2.date) && !t2.isInternal && t2.isTariff
+    );
+    const apiTxs = apiTxsForEngine;
     const { reconcileMultiBank: reconcileMultiBank2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const result = reconcileMultiBank2(parsedBanksClean, apiTxs);
     const sessionId = await createReconciliationSession({
@@ -131870,7 +131876,7 @@ var reconciliationRouter = router({
     }
     await insertBankTransactionsBatch(bankRows);
     const apiRows = [];
-    for (const tx of apiTxs) {
+    for (const tx of apiTxsForEngine) {
       const isMatched = tx.externalId ? matchedApiExternalIds.has(tx.externalId) : false;
       apiRows.push({
         sessionId,
@@ -131882,6 +131888,19 @@ var reconciliationRouter = router({
         clientName: tx.clientName,
         externalId: tx.externalId,
         matchStatus: isMatched ? "matched" : "divergent"
+      });
+    }
+    for (const tx of apiTariffTxs) {
+      apiRows.push({
+        sessionId,
+        type: tx.type,
+        transactionDate: tx.date,
+        description: tx.description,
+        amount: tx.amount.toFixed(2),
+        channel: tx.channel,
+        clientName: tx.clientName,
+        externalId: tx.externalId,
+        matchStatus: "manual"
       });
     }
     await insertApiTransactionsBatch(apiRows);
@@ -131934,22 +131953,17 @@ var reconciliationRouter = router({
     }));
     await insertExpensesBatch(tariffExpenseRows);
     autoDespesaCount = tariffExpenseRows.length;
-    const tariffRevRows = [];
+    const tariffRevRows = apiTariffTxs.map((tx) => ({
+      referenceDate: tx.date,
+      type: "receita_operacional",
+      description: tx.description || tx.channel,
+      amount: tx.amount.toFixed(2),
+      clientName: tx.clientName,
+      sessionId,
+      origin: "auto_tariff",
+      createdByName: "Concilia\xE7\xE3o Autom\xE1tica"
+    }));
     for (const tx of result.unmatchedApi) {
-      const isTariff = tx.isTariff ?? tx.channel === "TARIFA";
-      if (isTariff) {
-        tariffRevRows.push({
-          referenceDate: tx.date,
-          type: "receita_operacional",
-          description: tx.description || tx.channel,
-          amount: tx.amount.toFixed(2),
-          clientName: tx.clientName,
-          sessionId,
-          origin: "auto_tariff",
-          createdByName: "Concilia\xE7\xE3o Autom\xE1tica"
-        });
-        continue;
-      }
       divRows.push({
         sessionId,
         divergenceDate: tx.date,
