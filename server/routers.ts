@@ -1029,55 +1029,88 @@ const controllershipRouter = router({
     .input(z.object({
       installmentId: z.number(),
       creditId: z.number(),
-      paidAmount: z.string(),
-      paidDate: z.string(),
-      notes: z.string().optional(),
+      paidAmount:    z.string(),           // valor total pago pelo cliente
+      paidDate:      z.string(),
+      paidPrincipal: z.string().optional(), // amortização real (pode diferir da calculada)
+      paidInterest:  z.string().optional(), // juros reais (pode diferir do calculado)
+      paidPenalty:   z.string().optional(), // multa/mora por atraso
+      notes:         z.string().optional(),
+      clientName:    z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const dbConn = await db.getDb();
       if (!dbConn) throw new Error("DB unavailable");
-      const { sql: sqlTag, eq: eqOp } = await import("drizzle-orm");
+      const { eq: eqOp } = await import("drizzle-orm");
       const { creditInstallments, creditPortfolio, revenues } = await import("../drizzle/schema");
 
-      // Marca parcela como paga
-      await dbConn.update(creditInstallments)
-        .set({ status: 'pago', paidDate: input.paidDate as unknown as Date, paidAmount: input.paidAmount })
-        .where(eqOp(creditInstallments.id, input.installmentId));
-
-      // Busca a parcela para pegar juros e principal
+      // Busca parcela original para referência
       const installments = await dbConn.select().from(creditInstallments)
         .where(eqOp(creditInstallments.id, input.installmentId)).limit(1);
       const inst = installments[0];
+      if (!inst) throw new Error("Parcela não encontrada");
 
-      // Cria receita: juros recebidos
-      if (inst && parseFloat(String(inst.interestAmount ?? 0)) > 0) {
+      // Valores reais do pagamento (usa os editados pelo usuário ou os calculados)
+      const realInterest  = parseFloat(input.paidInterest  ?? String(inst.interestAmount  ?? 0));
+      const realPrincipal = parseFloat(input.paidPrincipal ?? String(inst.principalAmount ?? 0));
+      const realPenalty   = parseFloat(input.paidPenalty   ?? "0");
+      const realTotal     = parseFloat(input.paidAmount);
+      const creditName    = input.clientName ?? String(inst.installmentNumber);
+
+      // Marca parcela como paga com valores reais
+      await dbConn.update(creditInstallments)
+        .set({
+          status: 'pago',
+          paidDate:   input.paidDate as unknown as Date,
+          paidAmount: input.paidAmount,
+        })
+        .where(eqOp(creditInstallments.id, input.installmentId));
+
+      // Cria receita de juros (valor real)
+      if (realInterest > 0) {
         await dbConn.insert(revenues).values({
           referenceDate: input.paidDate as unknown as Date,
           type: 'receita_financeira' as any,
-          description: String(`Juros carteira crédito - parcela #${inst.installmentNumber}`).slice(0),
-          amount: String(inst.interestAmount),
+          description: `Juros parcela #${inst.installmentNumber}${input.notes ? ` — ${input.notes}` : ''}`,
+          amount: realInterest.toFixed(2),
           clientId: String(input.creditId),
+          clientName: creditName,
           status: 'realizado' as any,
           createdByName: ctx.user?.name ?? 'Sistema',
           origin: 'manual',
         });
       }
 
-      // Cria receita: amortização recebida
-      if (inst && parseFloat(String(inst.principalAmount ?? 0)) > 0) {
+      // Cria receita de amortização (valor real)
+      if (realPrincipal > 0) {
         await dbConn.insert(revenues).values({
           referenceDate: input.paidDate as unknown as Date,
           type: 'receita_financeira' as any,
-          description: `Amortização carteira crédito - parcela #${inst.installmentNumber}`,
-          amount: String(inst.principalAmount),
+          description: `Amortização parcela #${inst.installmentNumber}${input.notes ? ` — ${input.notes}` : ''}`,
+          amount: realPrincipal.toFixed(2),
           clientId: String(input.creditId),
+          clientName: creditName,
           status: 'realizado' as any,
           createdByName: ctx.user?.name ?? 'Sistema',
           origin: 'manual',
         });
       }
 
-      // Verifica se todas as parcelas foram pagas → atualiza status do crédito
+      // Cria receita de multa/mora se houver
+      if (realPenalty > 0) {
+        await dbConn.insert(revenues).values({
+          referenceDate: input.paidDate as unknown as Date,
+          type: 'receita_financeira' as any,
+          description: `Multa/mora parcela #${inst.installmentNumber}`,
+          amount: realPenalty.toFixed(2),
+          clientId: String(input.creditId),
+          clientName: creditName,
+          status: 'realizado' as any,
+          createdByName: ctx.user?.name ?? 'Sistema',
+          origin: 'manual',
+        });
+      }
+
+      // Verifica se todas as parcelas foram pagas → crédito = quitado
       const allInstallments = await dbConn.select().from(creditInstallments)
         .where(eqOp(creditInstallments.creditId, input.creditId));
       const allPaid = allInstallments.every(i => i.status === 'pago' || i.id === input.installmentId);
@@ -1087,7 +1120,7 @@ const controllershipRouter = router({
           .where(eqOp(creditPortfolio.id, input.creditId));
       }
 
-      return { success: true };
+      return { success: true, realTotal, realInterest, realPrincipal };
     }),
 
   getCreditInstallments: protectedProcedure

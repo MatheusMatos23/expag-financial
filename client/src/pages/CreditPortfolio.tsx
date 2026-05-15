@@ -20,36 +20,143 @@ const STATUS_COLORS: Record<string, string> = {
   renegociado: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
 };
 
-function PayInstallmentModal({ inst, onConfirm, onClose }: {
-  inst: any; onConfirm: (paidDate: string, notes: string) => void; onClose: () => void;
+function PayInstallmentModal({ inst, clientName, onConfirm, onClose }: {
+  inst: any;
+  clientName?: string;
+  onConfirm: (data: {
+    paidDate: string; paidAmount: string; paidPrincipal: string;
+    paidInterest: string; paidPenalty: string; notes: string;
+  }) => void;
+  onClose: () => void;
 }) {
-  const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
-  const [notes, setNotes] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
+  const dueDate = String(inst.dueDate ?? "").slice(0, 10);
+  const isLate  = dueDate && dueDate < today;
+
+  const [paidDate,      setPaidDate]      = useState(today);
+  const [paidPrincipal, setPaidPrincipal] = useState(String(parseFloat(String(inst.principalAmount ?? 0)).toFixed(2)));
+  const [paidInterest,  setPaidInterest]  = useState(String(parseFloat(String(inst.interestAmount ?? 0)).toFixed(2)));
+  const [paidPenalty,   setPaidPenalty]   = useState("0.00");
+  const [notes,         setNotes]         = useState("");
+  const [editMode,      setEditMode]      = useState(false);
+
+  const totalCalc = (parseFloat(paidPrincipal) || 0) + (parseFloat(paidInterest) || 0) + (parseFloat(paidPenalty) || 0);
+  const origTotal = parseFloat(String(inst.totalAmount ?? 0));
+  const diff      = totalCalc - origTotal;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-sm space-y-4">
+      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md space-y-5 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center">
-          <h3 className="font-bold text-foreground">Registrar Pagamento</h3>
+          <div>
+            <h3 className="font-bold text-foreground">Registrar Pagamento</h3>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Parcela #{inst.installmentNumber} · {clientName}</p>
+          </div>
           <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}><X className="w-4 h-4" /></Button>
         </div>
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 space-y-1 text-xs">
-          <div className="flex justify-between"><span className="text-muted-foreground">Parcela</span><span>#{inst.installmentNumber}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Principal</span><span>{formatCurrency(inst.principalAmount)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Juros</span><span className="text-emerald-400">{formatCurrency(inst.interestAmount)}</span></div>
-          <div className="flex justify-between font-bold"><span>Total</span><span>{formatCurrency(inst.totalAmount)}</span></div>
+
+        {/* Valores calculados originalmente */}
+        <div className="bg-accent/10 border border-border rounded-xl p-4 space-y-1.5 text-xs">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-2">Valores calculados (tabela Price)</p>
+          <div className="flex justify-between"><span className="text-muted-foreground">Amortização</span><span className="font-mono">{formatCurrency(inst.principalAmount)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Juros</span><span className="font-mono text-emerald-400">{formatCurrency(inst.interestAmount)}</span></div>
+          <div className="flex justify-between font-bold border-t border-border pt-1.5 mt-1.5"><span>Total</span><span className="font-mono">{formatCurrency(inst.totalAmount)}</span></div>
+          {isLate && (
+            <p className="text-[10px] text-yellow-400 mt-1">⚠ Vencimento: {dueDate} — em atraso</p>
+          )}
         </div>
-        <div>
-          <Label className="text-xs">Data do pagamento</Label>
-          <Input type="date" className="mt-1.5 h-8 text-xs" value={paidDate} onChange={e => setPaidDate(e.target.value)} />
+
+        {/* Toggle modo edição */}
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">Valores reais do pagamento</p>
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={cn("text-[10px] px-2 py-0.5 rounded-full border transition-colors",
+              editMode ? "text-blue-400 border-blue-500/30 bg-blue-500/10" : "text-muted-foreground border-border hover:border-primary/30"
+            )}
+          >
+            {editMode ? "✓ Editando valores" : "Editar valores"}
+          </button>
         </div>
-        <div>
-          <Label className="text-xs">Observação (opcional)</Label>
-          <Textarea className="mt-1.5 text-xs resize-none h-14" value={notes} onChange={e => setNotes(e.target.value)} />
+
+        <div className="space-y-3">
+          {/* Data */}
+          <div>
+            <Label className="text-xs">Data do pagamento <span className="text-red-400">*</span></Label>
+            <Input type="date" className="mt-1 h-8 text-xs" value={paidDate} onChange={e => setPaidDate(e.target.value)} />
+          </div>
+
+          {/* Valores editáveis */}
+          {editMode ? (
+            <div className="space-y-3 border border-blue-500/20 rounded-xl p-3 bg-blue-500/5">
+              <p className="text-[10px] text-blue-400">Edite os valores reais recebidos do cliente</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Amortização (R$)</Label>
+                  <Input type="number" step="0.01" className="mt-1 h-8 text-xs font-mono"
+                    value={paidPrincipal} onChange={e => setPaidPrincipal(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">Juros (R$)</Label>
+                  <Input type="number" step="0.01" className="mt-1 h-8 text-xs font-mono text-emerald-400"
+                    value={paidInterest} onChange={e => setPaidInterest(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Multa / Mora por atraso (R$)</Label>
+                <Input type="number" step="0.01" className="mt-1 h-8 text-xs font-mono text-yellow-400"
+                  value={paidPenalty} onChange={e => setPaidPenalty(e.target.value)} />
+              </div>
+              {/* Total calculado */}
+              <div className={cn("flex justify-between items-center text-xs font-bold pt-2 border-t border-border",
+                Math.abs(diff) < 0.02 ? "text-emerald-400" : diff > 0 ? "text-yellow-400" : "text-red-400"
+              )}>
+                <span>Total a registrar</span>
+                <span className="font-mono">{formatCurrency(totalCalc)}</span>
+              </div>
+              {Math.abs(diff) > 0.02 && (
+                <p className={cn("text-[10px]", diff > 0 ? "text-yellow-400" : "text-red-400")}>
+                  {diff > 0 ? `+${formatCurrency(diff)} acima` : `${formatCurrency(Math.abs(diff))} abaixo`} do valor calculado
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 flex justify-between items-center">
+              <span className="text-xs text-muted-foreground">Valor a registrar</span>
+              <span className="text-lg font-bold font-mono text-emerald-400">{formatCurrency(origTotal)}</span>
+            </div>
+          )}
+
+          {/* Observação */}
+          <div>
+            <Label className="text-xs">Observação (opcional)</Label>
+            <Textarea className="mt-1 text-xs resize-none h-16"
+              placeholder="Ex: Pagamento parcial, negociação de desconto nos juros..."
+              value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
         </div>
-        <p className="text-[10px] text-muted-foreground">O pagamento gerará receita financeira automaticamente (juros + amortização).</p>
+
+        <div className="bg-accent/10 rounded-lg p-3 text-[10px] text-muted-foreground space-y-0.5">
+          <p>✓ Receita de juros criada automaticamente: {formatCurrency(parseFloat(paidInterest)||0)}</p>
+          <p>✓ Receita de amortização criada automaticamente: {formatCurrency(parseFloat(paidPrincipal)||0)}</p>
+          {parseFloat(paidPenalty) > 0 && <p>✓ Receita de multa/mora: {formatCurrency(parseFloat(paidPenalty))}</p>}
+        </div>
+
         <div className="flex gap-2">
           <Button variant="outline" className="flex-1 text-xs" onClick={onClose}>Cancelar</Button>
-          <Button className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={() => onConfirm(paidDate, notes)}>
+          <Button
+            className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-700 gap-1.5"
+            disabled={!paidDate}
+            onClick={() => onConfirm({
+              paidDate,
+              paidAmount: totalCalc.toFixed(2),
+              paidPrincipal,
+              paidInterest,
+              paidPenalty,
+              notes,
+            })}
+          >
+            <CheckCircle className="w-3.5 h-3.5" />
             Confirmar Pagamento
           </Button>
         </div>
@@ -281,12 +388,13 @@ export default function CreditPortfolio() {
       {payingInst && (
         <PayInstallmentModal
           inst={payingInst}
+          clientName={loanList.find((l: any) => l.id === payingInst?.creditId)?.clientName ?? ""}
           onClose={() => setPayingInst(null)}
-          onConfirm={(paidDate, notes) => payMutation.mutate({
+          onConfirm={(data) => payMutation.mutate({
             installmentId: payingInst.id,
             creditId: payingInst.creditId,
-            paidAmount: payingInst.totalAmount,
-            paidDate, notes,
+            clientName: loanList.find((l: any) => l.id === payingInst?.creditId)?.clientName,
+            ...data,
           })}
         />
       )}

@@ -132654,35 +132654,68 @@ var controllershipRouter = router({
     installmentId: external_exports.number(),
     creditId: external_exports.number(),
     paidAmount: external_exports.string(),
+    // valor total pago pelo cliente
     paidDate: external_exports.string(),
-    notes: external_exports.string().optional()
+    paidPrincipal: external_exports.string().optional(),
+    // amortização real (pode diferir da calculada)
+    paidInterest: external_exports.string().optional(),
+    // juros reais (pode diferir do calculado)
+    paidPenalty: external_exports.string().optional(),
+    // multa/mora por atraso
+    notes: external_exports.string().optional(),
+    clientName: external_exports.string().optional()
   })).mutation(async ({ input, ctx }) => {
     const dbConn = await getDb();
     if (!dbConn) throw new Error("DB unavailable");
-    const { sql: sqlTag, eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const { eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
     const { creditInstallments: creditInstallments2, creditPortfolio: creditPortfolio2, revenues: revenues2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
-    await dbConn.update(creditInstallments2).set({ status: "pago", paidDate: input.paidDate, paidAmount: input.paidAmount }).where(eqOp(creditInstallments2.id, input.installmentId));
     const installments = await dbConn.select().from(creditInstallments2).where(eqOp(creditInstallments2.id, input.installmentId)).limit(1);
     const inst = installments[0];
-    if (inst && parseFloat(String(inst.interestAmount ?? 0)) > 0) {
+    if (!inst) throw new Error("Parcela n\xE3o encontrada");
+    const realInterest = parseFloat(input.paidInterest ?? String(inst.interestAmount ?? 0));
+    const realPrincipal = parseFloat(input.paidPrincipal ?? String(inst.principalAmount ?? 0));
+    const realPenalty = parseFloat(input.paidPenalty ?? "0");
+    const realTotal = parseFloat(input.paidAmount);
+    const creditName = input.clientName ?? String(inst.installmentNumber);
+    await dbConn.update(creditInstallments2).set({
+      status: "pago",
+      paidDate: input.paidDate,
+      paidAmount: input.paidAmount
+    }).where(eqOp(creditInstallments2.id, input.installmentId));
+    if (realInterest > 0) {
       await dbConn.insert(revenues2).values({
         referenceDate: input.paidDate,
         type: "receita_financeira",
-        description: String(`Juros carteira cr\xE9dito - parcela #${inst.installmentNumber}`).slice(0),
-        amount: String(inst.interestAmount),
+        description: `Juros parcela #${inst.installmentNumber}${input.notes ? ` \u2014 ${input.notes}` : ""}`,
+        amount: realInterest.toFixed(2),
         clientId: String(input.creditId),
+        clientName: creditName,
         status: "realizado",
         createdByName: ctx.user?.name ?? "Sistema",
         origin: "manual"
       });
     }
-    if (inst && parseFloat(String(inst.principalAmount ?? 0)) > 0) {
+    if (realPrincipal > 0) {
       await dbConn.insert(revenues2).values({
         referenceDate: input.paidDate,
         type: "receita_financeira",
-        description: `Amortiza\xE7\xE3o carteira cr\xE9dito - parcela #${inst.installmentNumber}`,
-        amount: String(inst.principalAmount),
+        description: `Amortiza\xE7\xE3o parcela #${inst.installmentNumber}${input.notes ? ` \u2014 ${input.notes}` : ""}`,
+        amount: realPrincipal.toFixed(2),
         clientId: String(input.creditId),
+        clientName: creditName,
+        status: "realizado",
+        createdByName: ctx.user?.name ?? "Sistema",
+        origin: "manual"
+      });
+    }
+    if (realPenalty > 0) {
+      await dbConn.insert(revenues2).values({
+        referenceDate: input.paidDate,
+        type: "receita_financeira",
+        description: `Multa/mora parcela #${inst.installmentNumber}`,
+        amount: realPenalty.toFixed(2),
+        clientId: String(input.creditId),
+        clientName: creditName,
         status: "realizado",
         createdByName: ctx.user?.name ?? "Sistema",
         origin: "manual"
@@ -132693,7 +132726,7 @@ var controllershipRouter = router({
     if (allPaid) {
       await dbConn.update(creditPortfolio2).set({ status: "quitado" }).where(eqOp(creditPortfolio2.id, input.creditId));
     }
-    return { success: true };
+    return { success: true, realTotal, realInterest, realPrincipal };
   }),
   getCreditInstallments: protectedProcedure.input(external_exports.object({ creditId: external_exports.number() })).query(async ({ input }) => getCreditInstallments(input.creditId)),
   getControllershipDashboard: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => getControllershipDashboard(input.dateFrom, input.dateTo)),
