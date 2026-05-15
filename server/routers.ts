@@ -147,6 +147,9 @@ const reconciliationRouter = router({
         "tarifa", "taxa", "manutenção", "manutencao", "anuidade",
         "iof", "cpmf", "comissão bancária", "comissao bancaria",
         "encargo", "serviço bancário", "servico bancario",
+        "débito serviço cobrança", "debito servico cobranca",
+        "tar doc/ted", "tar doc ted", "ted eletronico", "ted eletrônico",
+        "cobrança bancária", "cobranca bancaria",
       ];
       const isBankTariff = (desc: string) =>
         BANK_TARIFF_KEYWORDS.some(k => desc.toLowerCase().includes(k));
@@ -615,6 +618,7 @@ const controllershipRouter = router({
     .input(z.object({
       dateFrom: z.string().optional(), dateTo: z.string().optional(),
       type: z.string().optional(), status: z.string().optional(),
+      origin: z.string().optional(),
     }))
     .query(async ({ input }) => db.getRevenues(input)),
 
@@ -645,6 +649,7 @@ const controllershipRouter = router({
     .input(z.object({
       dateFrom: z.string().optional(), dateTo: z.string().optional(),
       category: z.string().optional(), status: z.string().optional(),
+      origin: z.string().optional(),
     }))
     .query(async ({ input }) => db.getExpenses(input)),
 

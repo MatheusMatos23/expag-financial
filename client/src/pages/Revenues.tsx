@@ -52,15 +52,18 @@ export default function Revenues() {
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState<any>(null);
   const [form, setForm] = useState(DEFAULT_FORM);
-  const [periodIdx, setPeriodIdx] = useState(0);
+  const [periodIdx, setPeriodIdx] = useState(2); // padrão: últimos 90 dias para incluir conciliações recentes
   const [typeFilter, setTypeFilter] = useState("all");
+  const [originFilter, setOriginFilter] = useState("all");
   const [selectedRow, setSelectedRow] = useState<any>(null);
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const { dateFrom, dateTo } = PERIODS[periodIdx].getValue();
 
   const { data: revenues, refetch, isLoading } = trpc.controllership.getRevenues.useQuery({
-    dateFrom, dateTo, type: typeFilter !== "all" ? typeFilter : undefined,
+    dateFrom, dateTo,
+    type: typeFilter !== "all" ? typeFilter : undefined,
+    origin: originFilter !== "all" ? originFilter : undefined,
   });
   const { data: summary } = trpc.controllership.getRevenueSummary.useQuery({ dateFrom, dateTo });
   const { data: costCenters } = trpc.accounting.getCostCenters.useQuery();

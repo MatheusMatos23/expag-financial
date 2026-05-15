@@ -54,8 +54,9 @@ const PERIODS = [
 export default function Expenses() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(DEFAULT_FORM);
-  const [periodIdx, setPeriodIdx] = useState(0);
+  const [periodIdx, setPeriodIdx] = useState(2); // padrão: últimos 90 dias
   const [catFilter, setCatFilter] = useState("all");
+  const [originFilter, setOriginFilter] = useState("all");
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const { dateFrom, dateTo } = PERIODS[periodIdx].getValue();
@@ -66,6 +67,7 @@ export default function Expenses() {
   const { data: expenses, refetch, isLoading } = trpc.controllership.getExpenses.useQuery({
     dateFrom, dateTo,
     category: catFilter !== "all" ? catFilter : undefined,
+    origin: originFilter !== "all" ? originFilter : undefined,
   });
   const { data: summary } = trpc.controllership.getExpenseSummary.useQuery({ dateFrom, dateTo });
   const { data: costCenters } = trpc.accounting.getCostCenters.useQuery();
