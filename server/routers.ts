@@ -591,6 +591,9 @@ const reconciliationRouter = router({
   getDailyBankBalances: protectedProcedure
     .query(async () => db.getDailyBankBalances()),
 
+  getBankBalancesByBank: protectedProcedure
+    .query(async () => db.getBankBalancesByBank()),
+
   // ── Resolver NDI (identificar cliente) ───────────────────────────────────
   resolveNdi: protectedProcedure
     .input(z.object({

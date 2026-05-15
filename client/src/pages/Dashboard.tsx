@@ -72,6 +72,7 @@ export default function Dashboard() {
   );
   const { data: sessions } = trpc.reconciliation.getSessions.useQuery();
   const { data: balances } = trpc.reconciliation.getDailyBankBalances.useQuery();
+  const { data: bankBreakdownData } = trpc.reconciliation.getBankBalancesByBank.useQuery();
   const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({});
 
   // ── Derived values ───────────────────────────────────────────────────────────
@@ -96,29 +97,20 @@ export default function Dashboard() {
   const balanceRows = (balances as any[]) ?? [];
   const latestBalance = balanceRows[balanceRows.length - 1];
 
-  // Try to get per-bank data from sessions
+  // Real bank breakdown from bank_transactions grouped by bankName
   const bankBreakdown = useMemo(() => {
-    if (!sessionList.length) return [];
-    // Aggregate from sessions byBank summary if available
-    const map: Record<string, { credits: number; debits: number; matched: number }> = {};
-    for (const s of sessionList.slice(0, 5)) {
-      const byBank = s.byBank as Record<string, any> | undefined;
-      if (!byBank) continue;
-      for (const [bank, data] of Object.entries(byBank)) {
-        if (!map[bank]) map[bank] = { credits: 0, debits: 0, matched: 0 };
-        map[bank].credits += parseFloat(String((data as any).credits ?? 0));
-        map[bank].debits  += parseFloat(String((data as any).debits ?? 0));
-        map[bank].matched += parseInt(String((data as any).matched ?? 0));
-      }
-    }
-    return Object.entries(map).map(([bank, d], i) => ({
-      bank,
-      credits: d.credits,
-      debits: d.debits,
-      net: d.credits - d.debits,
+    const rows = (bankBreakdownData as any[]) ?? [];
+    return rows.map((r: any, i: number) => ({
+      bank: r.bankName,
+      credits: parseFloat(String(r.totalCredits ?? 0)),
+      debits:  parseFloat(String(r.totalDebits  ?? 0)),
+      matched: parseInt(String(r.matchedTxs ?? 0)),
+      divergent: parseInt(String(r.divergentTxs ?? 0)),
+      total: parseInt(String(r.totalTxs ?? 0)),
+      lastDate: String(r.lastDate ?? "").slice(0, 10),
       color: BANK_COLOR_LIST[i % BANK_COLOR_LIST.length],
     }));
-  }, [sessionList]);
+  }, [bankBreakdownData]);
 
   // ── Evolution chart from daily balances ─────────────────────────────────────
   const evolutionData = useMemo(() => {
@@ -253,30 +245,33 @@ export default function Dashboard() {
 
               {/* Por banco individual */}
               {bankBreakdown.length > 0 ? (
-                <div className="space-y-2">
-                  {bankBreakdown.map(b => (
-                    <div key={b.bank} className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: b.color }} />
-                      <span className="text-xs text-muted-foreground flex-1">{b.bank}</span>
-                      <span className="text-xs font-mono text-emerald-400">{fmtShort(b.credits)}</span>
-                      <span className="text-[10px] text-muted-foreground">↔</span>
-                      <span className="text-xs font-mono text-red-400">{fmtShort(b.debits)}</span>
-                    </div>
-                  ))}
+                <div className="space-y-2.5">
+                  {bankBreakdown.map(b => {
+                    const rate = b.total > 0 ? Math.round((b.matched / b.total) * 100) : 0;
+                    return (
+                      <div key={b.bank} className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ background: b.color }} />
+                          <span className="text-xs font-medium text-foreground flex-1">{b.bank}</span>
+                          <span className="text-[10px] font-mono text-emerald-400">+{fmtShort(b.credits)}</span>
+                          <span className="text-[10px] text-muted-foreground">/</span>
+                          <span className="text-[10px] font-mono text-red-400">-{fmtShort(b.debits)}</span>
+                          <span className={cn("text-[10px] font-bold ml-1", rate >= 90 ? "text-emerald-400" : rate >= 70 ? "text-yellow-400" : "text-red-400")}>{rate}%</span>
+                        </div>
+                        <div className="ml-4 w-full bg-accent/20 rounded-full h-1 overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${rate}%`, background: b.color }} />
+                        </div>
+                        {b.divergent > 0 && (
+                          <p className="ml-4 text-[9px] text-muted-foreground">{b.divergent} divergente{b.divergent > 1 ? "s" : ""}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {[
-                    { bank: "Sicoob", color: "#10b981" },
-                    { bank: "Banco do Brasil", color: "#f59e0b" },
-                    { bank: "JD", color: "#38bdf8" },
-                  ].map(b => (
-                    <div key={b.bank} className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: b.color }} />
-                      <span className="text-xs text-muted-foreground flex-1">{b.bank}</span>
-                      <span className="text-[10px] text-muted-foreground italic">aguardando conciliação</span>
-                    </div>
-                  ))}
+                <div className="flex flex-col items-center justify-center h-20 gap-1">
+                  <p className="text-xs text-muted-foreground">Nenhum dado de banco disponível</p>
+                  <p className="text-[10px] text-muted-foreground">Execute uma conciliação para ver os saldos</p>
                 </div>
               )}
             </>

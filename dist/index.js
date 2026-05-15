@@ -108612,6 +108612,26 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   await db.update(reconciliationSessions).set({ matchedCount: newMatchedCount, pendingCount }).where(eq(reconciliationSessions.id, sessionId));
   return { success: true, count: ids.length, netAmount };
 }
+async function getBankBalancesByBank() {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT
+      bt.bankName,
+      SUM(CASE WHEN bt.type = 'credit' THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalCredits,
+      SUM(CASE WHEN bt.type = 'debit'  THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalDebits,
+      COUNT(*)                                                                              as totalTxs,
+      SUM(CASE WHEN bt.matchStatus IN ('matched','manual') THEN 1 ELSE 0 END)             as matchedTxs,
+      SUM(CASE WHEN bt.matchStatus NOT IN ('matched','manual') THEN 1 ELSE 0 END)         as divergentTxs,
+      MAX(rs.referenceDate)                                                                 as lastDate
+    FROM bank_transactions bt
+    JOIN reconciliation_sessions rs ON rs.id = bt.sessionId
+    WHERE bt.bankName IS NOT NULL AND bt.bankName != ''
+    GROUP BY bt.bankName
+    ORDER BY totalCredits DESC
+  `);
+  return result[0] ?? [];
+}
 async function getDailyBankBalances() {
   const db = await getDb();
   if (!db) return [];
@@ -131340,6 +131360,7 @@ var reconciliationRouter = router({
   }),
   // ── Saldo diário dos bancos ───────────────────────────────────────────────
   getDailyBankBalances: protectedProcedure.query(async () => getDailyBankBalances()),
+  getBankBalancesByBank: protectedProcedure.query(async () => getBankBalancesByBank()),
   // ── Resolver NDI (identificar cliente) ───────────────────────────────────
   resolveNdi: protectedProcedure.input(external_exports.object({
     id: external_exports.number(),

@@ -1059,6 +1059,28 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
 
 // ─── SALDO DIÁRIO POR BANCO (do histórico de sessões) ─────────────────────────
 
+export async function getBankBalancesByBank() {
+  const db = await getDb();
+  if (!db) return [];
+  // Agrega bank_transactions por bankName das últimas sessões completadas
+  const result = await db.execute(sql`
+    SELECT
+      bt.bankName,
+      SUM(CASE WHEN bt.type = 'credit' THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalCredits,
+      SUM(CASE WHEN bt.type = 'debit'  THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalDebits,
+      COUNT(*)                                                                              as totalTxs,
+      SUM(CASE WHEN bt.matchStatus IN ('matched','manual') THEN 1 ELSE 0 END)             as matchedTxs,
+      SUM(CASE WHEN bt.matchStatus NOT IN ('matched','manual') THEN 1 ELSE 0 END)         as divergentTxs,
+      MAX(rs.referenceDate)                                                                 as lastDate
+    FROM bank_transactions bt
+    JOIN reconciliation_sessions rs ON rs.id = bt.sessionId
+    WHERE bt.bankName IS NOT NULL AND bt.bankName != ''
+    GROUP BY bt.bankName
+    ORDER BY totalCredits DESC
+  `);
+  return (result as any)[0] ?? [];
+}
+
 export async function getDailyBankBalances() {
   const db = await getDb();
   if (!db) return [];
