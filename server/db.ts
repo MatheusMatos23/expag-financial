@@ -860,14 +860,51 @@ export async function createManualAdjustment(data: {
     status: 'aprovado',
   });
 
-  // Marca divergências relacionadas como reclassificado
+  // Marca divergências como regularizado (sai das pendências)
   if (data.divergenceIds && data.divergenceIds.length > 0) {
     const dbConn = db;
     await dbConn.execute(sql`
-      UPDATE divergences SET status = 'reclassificado',
-      actionTaken = CONCAT('Ajuste manual: ', ${data.description})
+      UPDATE divergences
+      SET status = 'regularizado',
+          actionTaken = CONCAT('Conciliado manualmente: ', ${data.description})
       WHERE id IN (${sql.raw(data.divergenceIds.join(','))})
     `);
+
+    // Atualiza matchedCount e pendingCount da sessão
+    if (data.sessionId) {
+      // Conta divergências pendentes restantes
+      const pending = await dbConn.execute(sql`
+        SELECT COUNT(*) as cnt FROM divergences
+        WHERE sessionId = ${data.sessionId}
+        AND status NOT IN ('regularizado', 'reclassificado', 'baixado')
+      `);
+      const pendingCount = (pending as any)[0]?.[0]?.cnt ?? 0;
+
+      // Conta total regularizados (matched + manuais)
+      const matched = await dbConn.execute(sql`
+        SELECT COUNT(*) as cnt FROM divergences
+        WHERE sessionId = ${data.sessionId}
+        AND status IN ('regularizado', 'reclassificado')
+      `);
+      const resolvedCount = (matched as any)[0]?.[0]?.cnt ?? 0;
+
+      // Total de transações da sessão para calcular taxa
+      const session = await dbConn.select()
+        .from(reconciliationSessions)
+        .where(eq(reconciliationSessions.id, data.sessionId))
+        .limit(1);
+
+      if (session[0]) {
+        const currentMatched = session[0].matchedCount ?? 0;
+        const newMatched = currentMatched + data.divergenceIds.length;
+        await dbConn.update(reconciliationSessions)
+          .set({
+            matchedCount: newMatched,
+            pendingCount,
+          })
+          .where(eq(reconciliationSessions.id, data.sessionId));
+      }
+    }
   }
 
   return (result as any)[0]?.insertId ?? 0;
