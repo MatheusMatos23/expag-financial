@@ -326,7 +326,7 @@ export async function createRevenue(data: {
     INSERT INTO revenues (referenceDate, type, description, amount, clientId, clientName, status, costCenterId, createdByName, divergenceId, sessionId, origin)
     VALUES (${data.referenceDate}, ${data.type}, ${data.description || null}, ${data.amount},
             ${data.clientId || null}, ${data.clientName || null}, ${status}, ${data.costCenterId ?? null},
-            ${data.createdByName || null}, ${data.divergenceId ?? null}, ${data.sessionId ?? null},
+            ${data.createdByName || null}, ${data.divergenceId ? Number(data.divergenceId) : null}, ${data.sessionId ? Number(data.sessionId) : null},
             ${data.origin ?? 'manual'})
   `);
   return (result as any)[0]?.insertId ?? 0;
@@ -379,8 +379,8 @@ export async function createExpense(data: {
     VALUES (
       ${data.referenceDate}, ${data.category}, ${data.subcategory || null},
       ${data.description || null}, ${data.amount}, ${data.supplier || null},
-      ${expStatus}, ${data.costCenterId || null}, ${data.createdByName || null},
-      ${data.divergenceId ?? null}, ${data.sessionId ?? null}, ${data.origin ?? 'manual'}
+      ${expStatus}, ${data.costCenterId ? Number(data.costCenterId) : null}, ${data.createdByName || null},
+      ${data.divergenceId ? Number(data.divergenceId) : null}, ${data.sessionId ? Number(data.sessionId) : null}, ${data.origin ?? 'manual'}
     )
   `);
   return (result as any)[0]?.insertId ?? 0;
