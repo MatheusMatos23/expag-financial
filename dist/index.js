@@ -50842,6 +50842,10 @@ var init_schema2 = __esm({
       // NDI — Não Identificado: entrada no banco sem correspondência na API
       isNdi: boolean("isNdi").default(false),
       ndiNote: text("ndiNote"),
+      ndiFoundDate: date("ndiFoundDate"),
+      // data em que foi identificado
+      ndiClientName: varchar("ndiClientName", { length: 200 }),
+      // cliente identificado
       // Estorno: transação estornada automaticamente detectada
       isEstorno: boolean("isEstorno").default(false),
       bankTransactionId: int("bankTransactionId"),
@@ -132455,8 +132459,21 @@ var reconciliationRouter = router({
   deleteDivergence: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     const dbConn = await getDb();
     if (!dbConn) throw new Error("DB unavailable");
-    const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const { sql: sqlTag, eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const { reconciliationSessions: reconciliationSessions2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
+    const divData = await dbConn.execute(sqlTag`SELECT sessionId, bankTransactionId, externalId FROM divergences WHERE id = ${input.id} LIMIT 1`);
+    const div = divData[0]?.[0];
     await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
+    if (div?.bankTransactionId) {
+      await dbConn.execute(sqlTag`UPDATE bank_transactions SET matchStatus = 'divergent' WHERE id = ${div.bankTransactionId}`);
+    }
+    if (div?.sessionId) {
+      const pending = await dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${div.sessionId} AND status NOT IN ('regularizado','reclassificado','baixado')`);
+      const pendingCount = parseInt(String(pending[0]?.[0]?.cnt ?? 0));
+      const matched = await dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${div.sessionId} AND matchStatus IN ('matched','manual')`);
+      const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
+      await dbConn.update(reconciliationSessions2).set({ pendingCount, matchedCount }).where(eqOp(reconciliationSessions2.id, div.sessionId));
+    }
     return { success: true };
   }),
   // ── Recalcula e corrige stats da sessão a partir dos dados reais ────────────
@@ -132541,6 +132558,29 @@ var reconciliationRouter = router({
     });
   }),
   // ── NDI — Não Identificados ───────────────────────────────────────────────
+  // ── Editar NDI (nota, data encontrada) ───────────────────────────────────
+  updateNdi: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    ndiNote: external_exports.string().optional(),
+    ndiFoundDate: external_exports.string().optional(),
+    // data em que o valor foi identificado
+    ndiClientName: external_exports.string().optional(),
+    // cliente suspeito (sem confirmar)
+    priority: external_exports.string().optional()
+  })).mutation(async ({ input }) => {
+    const dbConn = await getDb();
+    if (!dbConn) throw new Error("DB unavailable");
+    const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    await dbConn.execute(sqlTag`
+        UPDATE divergences SET
+          ndiNote       = ${input.ndiNote ?? null},
+          ndiFoundDate  = ${input.ndiFoundDate ?? null},
+          ndiClientName = ${input.ndiClientName ?? null},
+          priority      = ${input.priority ?? "high"}
+        WHERE id = ${input.id}
+      `);
+    return { success: true };
+  }),
   markAsNdi: protectedProcedure.input(external_exports.object({
     ids: external_exports.array(external_exports.number()).min(1),
     ndiNote: external_exports.string().optional()

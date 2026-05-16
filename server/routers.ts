@@ -625,8 +625,24 @@ const reconciliationRouter = router({
     .mutation(async ({ input }) => {
       const dbConn = await db.getDb();
       if (!dbConn) throw new Error("DB unavailable");
-      const { sql: sqlTag } = await import("drizzle-orm");
+      const { sql: sqlTag, eq: eqOp } = await import("drizzle-orm");
+      const { reconciliationSessions } = await import("../drizzle/schema");
+      // Busca sessão antes de deletar
+      const divData = await dbConn.execute(sqlTag`SELECT sessionId, bankTransactionId, externalId FROM divergences WHERE id = ${input.id} LIMIT 1`);
+      const div = (divData as any)[0]?.[0];
       await dbConn.execute(sqlTag`DELETE FROM divergences WHERE id = ${input.id}`);
+      // Atualiza bank_transaction para divergent (não mais matched)
+      if (div?.bankTransactionId) {
+        await dbConn.execute(sqlTag`UPDATE bank_transactions SET matchStatus = 'divergent' WHERE id = ${div.bankTransactionId}`);
+      }
+      // Recalcula stats da sessão
+      if (div?.sessionId) {
+        const pending = await dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${div.sessionId} AND status NOT IN ('regularizado','reclassificado','baixado')`);
+        const pendingCount = parseInt(String((pending as any)[0]?.[0]?.cnt ?? 0));
+        const matched = await dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${div.sessionId} AND matchStatus IN ('matched','manual')`);
+        const matchedCount = parseInt(String((matched as any)[0]?.[0]?.cnt ?? 0));
+        await dbConn.update(reconciliationSessions).set({ pendingCount, matchedCount }).where(eqOp(reconciliationSessions.id, div.sessionId));
+      }
       return { success: true };
     }),
 
@@ -745,6 +761,30 @@ const reconciliationRouter = router({
     }),
 
   // ── NDI — Não Identificados ───────────────────────────────────────────────
+  // ── Editar NDI (nota, data encontrada) ───────────────────────────────────
+  updateNdi: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      ndiNote: z.string().optional(),
+      ndiFoundDate: z.string().optional(),   // data em que o valor foi identificado
+      ndiClientName: z.string().optional(),  // cliente suspeito (sem confirmar)
+      priority: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) throw new Error("DB unavailable");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      await dbConn.execute(sqlTag`
+        UPDATE divergences SET
+          ndiNote       = ${input.ndiNote ?? null},
+          ndiFoundDate  = ${input.ndiFoundDate ?? null},
+          ndiClientName = ${input.ndiClientName ?? null},
+          priority      = ${input.priority as any ?? 'high'}
+        WHERE id = ${input.id}
+      `);
+      return { success: true };
+    }),
+
   markAsNdi: protectedProcedure
     .input(z.object({
       ids: z.array(z.number()).min(1),

@@ -782,6 +782,16 @@ export default function Divergences() {
                                   onClick={() => setSelected(d)}>
                                   <Edit2 className="w-3 h-3" />
                                 </Button>
+                                <Button variant="ghost" size="sm"
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`Excluir esta divergência de ${formatCurrency(d.amount)}?`)) {
+                                      deleteMutation.mutate({ id: d.id });
+                                    }
+                                  }}>
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
                               </td>
                             </tr>
                           );
