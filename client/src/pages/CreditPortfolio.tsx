@@ -189,9 +189,11 @@ export default function CreditPortfolio() {
   const payMutation = trpc.controllership.recordInstallmentPayment.useMutation({
     onSuccess: () => {
       toast.success("Pagamento registrado — receita financeira criada!");
-      setPayingInst(null); refetch(); refetchInst();
+      setPayingInst(null);
+      refetch();
+      setTimeout(() => refetchInst(), 300); // wait for DB write before re-fetching
     },
-    onError: e => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const loanList = (loans as any[]) ?? [];

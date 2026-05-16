@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import {
-  formatCurrency, formatCurrencyCompact, formatDate,
+  formatCurrency, formatDate,
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
@@ -270,9 +270,9 @@ export default function Revenues() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total",      value: formatCurrencyCompact(total),    color: "text-emerald-400", icon: DollarSign, sub: "no período" },
-          { label: "Realizado",  value: formatCurrencyCompact(received), color: "text-emerald-400", icon: TrendingUp, sub: "confirmado" },
-          { label: "Previsto",   value: formatCurrencyCompact(pending),  color: "text-amber-400",   icon: Calendar,  sub: "a confirmar" },
+          { label: "Total",      value: formatCurrency(total),    color: "text-emerald-400", icon: DollarSign, sub: "no período" },
+          { label: "Realizado",  value: formatCurrency(received), color: "text-emerald-400", icon: TrendingUp, sub: "confirmado" },
+          { label: "Previsto",   value: formatCurrency(pending),  color: "text-amber-400",   icon: Calendar,  sub: "a confirmar" },
           { label: "Lançamentos",value: count,                           color: "text-foreground",  icon: Hash,      sub: "registros" },
         ].map(({ label, value, color, icon: Icon, sub }) => (
           <div key={label} className="bg-card border border-border rounded-xl p-4 kpi-card">
@@ -319,7 +319,7 @@ export default function Revenues() {
                       {item.name}
                     </span>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-foreground">{formatCurrencyCompact(item.valor)}</span>
+                      <span className="text-xs font-mono text-foreground">{formatCurrency(item.valor)}</span>
                       <span className="text-[10px] text-muted-foreground w-8 text-right">{item.pct}%</span>
                     </div>
                   </div>

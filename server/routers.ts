@@ -778,6 +778,7 @@ const reconciliationRouter = router({
     .input(z.object({
       ids: z.array(z.number()).min(1),
       note: z.string().min(1),
+      sessionId: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const result = await db.manualReconcileDivergences(
@@ -785,6 +786,7 @@ const reconciliationRouter = router({
         input.note,
         ctx.user?.name ?? ctx.user?.email ?? 'Usuário'
       );
+      await updateSessionPendingCount(input.sessionId);
       return result;
     }),
 
@@ -1084,7 +1086,7 @@ const controllershipRouter = router({
             referenceDate: paidDate,
             category: 'operacional',
             subcategory: 'conta_a_pagar',
-            description: String(p.description ?? 'Conta a pagar'),
+            description: String(p.description ?? p.category ?? 'Conta a pagar').slice(0, 200),
             amount: String(p.amount),
             supplier: String(p.supplier ?? ''),
             status: 'realizado',

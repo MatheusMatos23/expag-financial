@@ -43,14 +43,18 @@ export default function Alerts() {
 
   const generateMutation = trpc.dashboard.generateAlerts.useMutation({
     onSuccess: (r: any) => {
-      if (r.generated > 0) {
+      if ((r?.generated ?? 0) > 0) {
         toast.success(`${r.generated} novo(s) alerta(s) gerado(s)!`);
       } else {
         toast.info("Nenhum novo alerta — sistema operando normalmente.");
       }
-      refetch();
+      // Force immediate refetch to show new alerts
+      setTimeout(() => refetch(), 200);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => {
+      toast.error(`Erro ao verificar alertas: ${e.message}`);
+      refetch(); // still refresh to show current state
+    },
   });
 
   const ackMutation = trpc.dashboard.acknowledgeAlert.useMutation({

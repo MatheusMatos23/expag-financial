@@ -442,7 +442,7 @@ export default function Divergences() {
   const { data: divergences, refetch, isLoading } = trpc.reconciliation.getDivergences.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     priority: priorityFilter !== "all" ? priorityFilter : undefined,
-  });
+  }, { refetchInterval: 10000, staleTime: 5000 });
 
   const updateMutation = trpc.reconciliation.updateDivergence.useMutation({
     onSuccess: () => { toast.success("Divergência atualizada!"); refetch(); setSelected(null); },
@@ -857,7 +857,7 @@ export default function Divergences() {
               <Button
                 className="flex-1 text-xs bg-violet-600 hover:bg-violet-700 gap-1.5"
                 disabled={!reconcileNote.trim() || manualReconcileMutation.isPending}
-                onClick={() => manualReconcileMutation.mutate({ ids: Array.from(selectedIds), note: reconcileNote })}
+                onClick={() => manualReconcileMutation.mutate({ ids: Array.from(selectedIds), note: reconcileNote, sessionId: rows.find((d: any) => selectedIds.has(d.id))?.sessionId })}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {manualReconcileMutation.isPending ? "Conciliando..." : "Confirmar Conciliação"}
@@ -972,7 +972,7 @@ export default function Divergences() {
           total={selectedTotal}
           isLoading={moveToRevenueMutation.isPending}
           onClose={() => setMoveToRevenueOpen(false)}
-          onConfirm={(data) => moveToRevenueMutation.mutate({ ids: Array.from(selectedIds), ...data })}
+          onConfirm={(data) => moveToRevenueMutation.mutate({ ids: Array.from(selectedIds), ...data, sessionId: rows.find((d: any) => selectedIds.has(d.id))?.sessionId })}
         />
       )}
       {moveToExpenseOpen && (
@@ -981,7 +981,7 @@ export default function Divergences() {
           total={selectedTotal}
           isLoading={moveToExpenseMutation.isPending}
           onClose={() => setMoveToExpenseOpen(false)}
-          onConfirm={(data) => moveToExpenseMutation.mutate({ ids: Array.from(selectedIds), ...data })}
+          onConfirm={(data) => moveToExpenseMutation.mutate({ ids: Array.from(selectedIds), ...data, sessionId: rows.find((d: any) => selectedIds.has(d.id))?.sessionId })}
         />
       )}
 

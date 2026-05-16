@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatDate } from "@/lib/utils";
 import { useState } from "react";
-import { Users as UsersIcon, Shield, Mail, Calendar, Clock, Search } from "lucide-react";
+import { Users as UsersIcon, Shield, Mail, Calendar, Clock, Search, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,7 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function Users() {
   const [search, setSearch] = useState("");
-  const { data: users, isLoading } = trpc.system.getUsers.useQuery();
+  const { data: users, isLoading, refetch } = trpc.system.getUsers.useQuery(undefined, { refetchInterval: 30000 });
 
   const filtered = ((users ?? []) as any[]).filter(u => {
     if (!search) return true;

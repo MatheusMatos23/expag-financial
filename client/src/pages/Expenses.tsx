@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import {
-  formatCurrency, formatCurrencyCompact, formatDate,
+  formatCurrency, formatDate,
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
@@ -253,9 +253,9 @@ export default function Expenses() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total do Mês",  value: formatCurrencyCompact(total),   color: "text-red-400",      icon: TrendingDown, sub: "acumulado" },
-          { label: "Realizado",     value: formatCurrencyCompact(paid),    color: "text-red-400",      icon: Receipt,      sub: "confirmado" },
-          { label: "Pendente",      value: formatCurrencyCompact(pending), color: "text-amber-400",    icon: Calendar,     sub: "a confirmar" },
+          { label: "Total do Mês",  value: formatCurrency(total),   color: "text-red-400",      icon: TrendingDown, sub: "acumulado" },
+          { label: "Realizado",     value: formatCurrency(paid),    color: "text-red-400",      icon: Receipt,      sub: "confirmado" },
+          { label: "Pendente",      value: formatCurrency(pending), color: "text-amber-400",    icon: Calendar,     sub: "a confirmar" },
           { label: "Lançamentos",   value: count,                          color: "text-foreground",   icon: Hash,         sub: "no período" },
         ].map(({ label, value, color, icon: Icon, sub }) => (
           <div key={label} className="bg-card border border-border rounded-xl p-4">

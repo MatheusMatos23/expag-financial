@@ -58,9 +58,9 @@ export default function Dashboard() {
   const { data: ctrlData, refetch: refetchCtrl } = trpc.controllership.getControllershipDashboard.useQuery(
     { dateFrom, dateTo }, { refetchOnWindowFocus: false }
   );
-  const { data: sessions } = trpc.reconciliation.getSessions.useQuery();
+  const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery(undefined, { refetchInterval: 30000 });
   const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 15000 });
-  const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({});
+  const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({}, { refetchInterval: 30000, staleTime: 15000 });
   const { data: dailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
 
   // ── Derived ──────────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Visão geral — últimos 90 dias</p>
         </div>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => refetchCtrl()}>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => { refetchCtrl(); refetchSessions(); }}>
           <RefreshCw className="w-3.5 h-3.5" /> Atualizar
         </Button>
       </div>

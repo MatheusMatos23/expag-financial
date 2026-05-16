@@ -391,7 +391,8 @@ export async function getDivergences(filters?: {
   if (filters?.dateTo) conditions.push(lte(divergences.divergenceDate, filters.dateTo as unknown as Date));
   return db.select().from(divergences)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(divergences.createdAt));
+    .orderBy(desc(divergences.createdAt))
+    .limit(1000);  // never do full table scan
 }
 
 export async function updateDivergenceStatus(id: number, data: {
@@ -493,7 +494,7 @@ export async function getRevenues(filters?: {
   if (filters?.type) conditions.push(eq(revenues.type, filters.type as any));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status as any));
   if (filters?.origin) conditions.push(sql`revenues.origin = ${filters.origin}`);
-  const limit = Math.min((filters as any)?.limit ?? 500, 2000);
+  const limit = Math.min((filters as any)?.limit ?? 2000, 5000);
   return db.select().from(revenues)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(revenues.referenceDate))
@@ -628,7 +629,7 @@ export async function getExpenses(filters?: {
   if (filters?.category) conditions.push(eq(expenses.category, filters.category as any));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status as any));
   if (filters?.origin) conditions.push(sql`expenses.origin = ${filters.origin}`);
-  const limit = Math.min((filters as any)?.limit ?? 500, 2000);
+  const limit = Math.min((filters as any)?.limit ?? 2000, 5000);
   return db.select().from(expenses)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(expenses.referenceDate))
@@ -979,7 +980,7 @@ export async function generateSystemAlerts() {
   const overdueLoans = await db.execute(sql`
     SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(totalAmount AS DECIMAL(18,2))),0) as total
     FROM credit_installments
-    WHERE status = 'pendente' AND dueDate < ${today}
+    WHERE (status = 'pendente' OR status IS NULL) AND dueDate < ${today}
   `);
   const ovLoan = (overdueLoans as any)[0]?.[0];
   if (parseInt(String(ovLoan?.cnt ?? 0)) > 0) {

@@ -108766,7 +108766,7 @@ async function getDivergences(filters) {
   if (filters?.priority) conditions.push(eq(divergences.priority, filters.priority));
   if (filters?.dateFrom) conditions.push(gte(divergences.divergenceDate, filters.dateFrom));
   if (filters?.dateTo) conditions.push(lte(divergences.divergenceDate, filters.dateTo));
-  return db.select().from(divergences).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(divergences.createdAt));
+  return db.select().from(divergences).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(divergences.createdAt)).limit(1e3);
 }
 async function updateDivergenceStatus(id, data) {
   const db = await getDb();
@@ -108845,7 +108845,7 @@ async function getRevenues(filters) {
   if (filters?.type) conditions.push(eq(revenues.type, filters.type));
   if (filters?.status) conditions.push(eq(revenues.status, filters.status));
   if (filters?.origin) conditions.push(sql`revenues.origin = ${filters.origin}`);
-  const limit = Math.min(filters?.limit ?? 500, 2e3);
+  const limit = Math.min(filters?.limit ?? 2e3, 5e3);
   return db.select().from(revenues).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(revenues.referenceDate)).limit(limit);
 }
 async function getRevenueSummary(dateFrom, dateTo) {
@@ -108935,7 +108935,7 @@ async function getExpenses(filters) {
   if (filters?.category) conditions.push(eq(expenses.category, filters.category));
   if (filters?.status) conditions.push(eq(expenses.status, filters.status));
   if (filters?.origin) conditions.push(sql`expenses.origin = ${filters.origin}`);
-  const limit = Math.min(filters?.limit ?? 500, 2e3);
+  const limit = Math.min(filters?.limit ?? 2e3, 5e3);
   return db.select().from(expenses).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(expenses.referenceDate)).limit(limit);
 }
 async function getExpenseSummary(dateFrom, dateTo) {
@@ -109234,7 +109234,7 @@ async function generateSystemAlerts() {
   const overdueLoans = await db.execute(sql`
     SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(totalAmount AS DECIMAL(18,2))),0) as total
     FROM credit_installments
-    WHERE status = 'pendente' AND dueDate < ${today}
+    WHERE (status = 'pendente' OR status IS NULL) AND dueDate < ${today}
   `);
   const ovLoan = overdueLoans[0]?.[0];
   if (parseInt(String(ovLoan?.cnt ?? 0)) > 0) {
@@ -132566,13 +132566,15 @@ var reconciliationRouter = router({
   // ── Conciliação Manual ────────────────────────────────────────────────────
   manualReconcile: protectedProcedure.input(external_exports.object({
     ids: external_exports.array(external_exports.number()).min(1),
-    note: external_exports.string().min(1)
+    note: external_exports.string().min(1),
+    sessionId: external_exports.number().optional()
   })).mutation(async ({ input, ctx }) => {
     const result = await manualReconcileDivergences(
       input.ids,
       input.note,
       ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
     );
+    await updateSessionPendingCount(input.sessionId);
     return result;
   }),
   // ── Saldo diário dos bancos ───────────────────────────────────────────────
@@ -132841,7 +132843,7 @@ var controllershipRouter = router({
           referenceDate: paidDate,
           category: "operacional",
           subcategory: "conta_a_pagar",
-          description: String(p.description ?? "Conta a pagar"),
+          description: String(p.description ?? p.category ?? "Conta a pagar").slice(0, 200),
           amount: String(p.amount),
           supplier: String(p.supplier ?? ""),
           status: "realizado",
