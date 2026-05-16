@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   formatCurrency, formatDate, formatDateTime,
@@ -395,16 +396,25 @@ export default function ReconciliationSession() {
       </div>
 
       {/* ── Recalcular stats para sessões antigas ── */}
-      <div className="flex justify-end mb-2">
-        <button
-          onClick={() => recalcMutation.mutate({ id })}
-          disabled={recalcMutation.isPending}
-          className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-        >
-          <RefreshCw className={`w-3 h-3 ${recalcMutation.isPending ? 'animate-spin' : ''}`} />
-          {recalcMutation.isPending ? 'Recalculando...' : 'Recalcular stats'}
-        </button>
-      </div>
+      {/* Banner para sessões com dados potencialmente desatualizados */}
+      {(liveStats?.matchRate ?? 0) < 85 && session?.status === 'completed' && (
+        <div className="flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3 mb-1">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-3.5 h-3.5 text-yellow-400" />
+            <p className="text-xs text-yellow-400">
+              Taxa de matching baixa — pode ser uma sessão antiga com dados desatualizados.
+            </p>
+          </div>
+          <Button size="sm" variant="outline"
+            className="h-7 text-xs gap-1.5 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 shrink-0"
+            onClick={() => recalcMutation.mutate({ id })}
+            disabled={recalcMutation.isPending}
+          >
+            <RefreshCw className={`w-3 h-3 ${recalcMutation.isPending ? 'animate-spin' : ''}`} />
+            {recalcMutation.isPending ? 'Recalculando...' : 'Recalcular agora'}
+          </Button>
+        </div>
+      )}
 
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

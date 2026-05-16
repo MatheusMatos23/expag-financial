@@ -19,11 +19,6 @@ const TOOLTIP = {
 };
 const BANK_COLORS = ["#10b981","#f59e0b","#38bdf8","#818cf8","#f87171","#fb923c"];
 
-function fmtS(v: number) {
-  if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
-  return formatCurrency(v);
-}
 
 // ── 90-day range helper ───────────────────────────────────────────────────────
 function get90DayRange() {
@@ -52,6 +47,8 @@ function KpiCard({ label, value, sub, color, icon: Icon, onClick }: {
     </div>
   );
 }
+
+const fmtS = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`; if (Math.abs(v) >= 1_000) return `R$ ${(v/1_000).toFixed(0)}k`; return formatCurrency(v); };
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
@@ -141,10 +138,10 @@ export default function Dashboard() {
 
       {/* ── Faixa 1: KPIs financeiros ─────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <KpiCard label="Receitas"     value={fmtS(totalRevenue)}  color="text-emerald-400" icon={TrendingUp}   onClick={() => navigate("/receitas")} sub={`${ctrlData?.recentRevenues?.length ?? 0} lançamentos`} />
-        <KpiCard label="Despesas"     value={fmtS(totalExpenses)} color="text-red-400"     icon={TrendingDown} onClick={() => navigate("/despesas")} sub={`${ctrlData?.recentExpenses?.length ?? 0} lançamentos`} />
-        <KpiCard label="Resultado"    value={fmtS(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} sub={`Margem ${margin.toFixed(1)}%`} />
-        <KpiCard label="Pendente"     value={fmtS(pendingAmt)}    color="text-yellow-400"  icon={AlertTriangle} onClick={() => navigate("/divergencias")} sub={`${pendingDivs.length} itens · ${criticalDivs.length} críticos`} />
+        <KpiCard label="Receitas"     value={formatCurrency(totalRevenue)}  color="text-emerald-400" icon={TrendingUp}   onClick={() => navigate("/receitas")} sub={`${ctrlData?.recentRevenues?.length ?? 0} lançamentos`} />
+        <KpiCard label="Despesas"     value={formatCurrency(totalExpenses)} color="text-red-400"     icon={TrendingDown} onClick={() => navigate("/despesas")} sub={`${ctrlData?.recentExpenses?.length ?? 0} lançamentos`} />
+        <KpiCard label="Resultado"    value={formatCurrency(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} sub={`Margem ${margin.toFixed(1)}%`} />
+        <KpiCard label="Pendente"     value={formatCurrency(pendingAmt)}    color="text-yellow-400"  icon={AlertTriangle} onClick={() => navigate("/divergencias")} sub={`${pendingDivs.length} itens · ${criticalDivs.length} críticos`} />
         <KpiCard label="Conciliação"  value={`${matchRate}%`}     color={matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400"} icon={CheckCircle2} onClick={() => navigate("/conciliacao")} sub={`${lastMatched.toLocaleString()} de ${lastTotal.toLocaleString()} transações`} />
       </div>
 
@@ -153,7 +150,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Volume Total Pendente</p>
-            <p className="text-xl font-bold font-mono text-orange-400 mt-1">{fmtS(pendingAmt)}</p>
+            <p className="text-xl font-bold font-mono text-orange-400 mt-1">{formatCurrency(pendingAmt)}</p>
             <p className="text-[10px] text-muted-foreground mt-1">Meta: R$ 0,00 (zerar)</p>
             <div className="mt-2 w-full bg-accent/20 rounded-full h-1.5">
               <div className="h-full bg-orange-400 rounded-full" style={{ width: `${Math.min(100, (pendingAmt / (pendingAmt + (totalRevenue||1))) * 100)}%` }} />
@@ -161,12 +158,12 @@ export default function Dashboard() {
           </div>
           <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">↑ Sobra Banco (banco &gt; API)</p>
-            <p className="text-xl font-bold font-mono text-red-400 mt-1">{fmtS(surplusAmt)}</p>
+            <p className="text-xl font-bold font-mono text-red-400 mt-1">{formatCurrency(surplusAmt)}</p>
             <p className="text-[10px] text-muted-foreground mt-1">{pendingDivs.filter(d => d.divergenceType === "bank_surplus").length} divergências</p>
           </div>
           <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">↓ Falta Banco (API &gt; banco)</p>
-            <p className="text-xl font-bold font-mono text-yellow-400 mt-1">{fmtS(shortageAmt)}</p>
+            <p className="text-xl font-bold font-mono text-yellow-400 mt-1">{formatCurrency(shortageAmt)}</p>
             <p className="text-[10px] text-muted-foreground mt-1">{pendingDivs.filter(d => d.divergenceType === "bank_shortage").length} divergências</p>
           </div>
         </div>
@@ -229,11 +226,11 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 gap-2 mb-4">
               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-2.5">
                 <p className="text-[9px] text-muted-foreground">Banco</p>
-                <p className="text-sm font-bold font-mono text-emerald-400">{fmtS(parseFloat(String(latestBal.totalCredits??0)))}</p>
+                <p className="text-sm font-bold font-mono text-emerald-400">{formatCurrency(parseFloat(String(latestBal.totalCredits??0)))}</p>
               </div>
               <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-2.5">
                 <p className="text-[9px] text-muted-foreground">API</p>
-                <p className="text-sm font-bold font-mono text-blue-400">{fmtS(parseFloat(String(latestBal.apiCredits??0)))}</p>
+                <p className="text-sm font-bold font-mono text-blue-400">{formatCurrency(parseFloat(String(latestBal.apiCredits??0)))}</p>
               </div>
             </div>
           )}
@@ -252,9 +249,9 @@ export default function Dashboard() {
                     <span className={cn("text-[10px] font-bold", rate>=90?"text-emerald-400":rate>=70?"text-yellow-400":"text-red-400")}>{rate}%</span>
                   </div>
                   <div className="ml-4 flex items-center gap-2 text-[9px] text-muted-foreground">
-                    <span className="text-emerald-400">+{fmtS(cred)}</span>
+                    <span className="text-emerald-400">+{formatCurrency(cred)}</span>
                     <span>/</span>
-                    <span className="text-red-400">-{fmtS(deb)}</span>
+                    <span className="text-red-400">-{formatCurrency(deb)}</span>
                     {parseInt(String(b.divergentTxs??0)) > 0 && (
                       <span className="text-yellow-400">{b.divergentTxs} div.</span>
                     )}
@@ -394,7 +391,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 min-w-0">
                 <DollarSign className="w-4 h-4 text-yellow-400 shrink-0" />
                 <div>
-                  <p className="text-xs font-semibold text-foreground">{fmtS(pendingAmt)} em aberto</p>
+                  <p className="text-xs font-semibold text-foreground">{formatCurrency(pendingAmt)} em aberto</p>
                   <p className="text-[10px] text-muted-foreground">{pendingDivs.length} pendentes para zerar</p>
                 </div>
               </div>

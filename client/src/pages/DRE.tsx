@@ -9,11 +9,8 @@ import { cn } from "@/lib/utils";
 
 const TOOLTIP = { background:"#0d1528", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", fontSize:"11px", color:"#e8edf5" };
 
-function fmtS(v: number) {
-  if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
-  return formatCurrency(v);
-}
+
+const fmtS = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`; if (Math.abs(v) >= 1_000) return `R$ ${(v/1_000).toFixed(0)}k`; return formatCurrency(v); };
 
 export default function DRE() {
   const [months, setMonths] = useState(6);
@@ -62,9 +59,9 @@ export default function DRE() {
       {/* KPIs do período */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: `Receita Total (${months}m)`, value: fmtS(totalRev), color: "text-emerald-400", icon: TrendingUp },
-          { label: `Despesas Total (${months}m)`, value: fmtS(totalExp), color: "text-red-400", icon: TrendingDown },
-          { label: "Resultado Acum.", value: fmtS(totalNet), color: totalNet >= 0 ? "text-emerald-400" : "text-red-400", icon: DollarSign },
+          { label: `Receita Total (${months}m)`, value: formatCurrency(totalRev), color: "text-emerald-400", icon: TrendingUp },
+          { label: `Despesas Total (${months}m)`, value: formatCurrency(totalExp), color: "text-red-400", icon: TrendingDown },
+          { label: "Resultado Acum.", value: formatCurrency(totalNet), color: totalNet >= 0 ? "text-emerald-400" : "text-red-400", icon: DollarSign },
           { label: "Margem Média", value: `${avgMargin.toFixed(1)}%`, color: avgMargin >= 30 ? "text-blue-400" : avgMargin >= 0 ? "text-yellow-400" : "text-red-400", icon: Percent },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="bg-card border border-border rounded-xl p-4">
@@ -148,9 +145,9 @@ export default function DRE() {
               <tfoot>
                 <tr className="bg-accent/5 border-t-2 border-border">
                   <td className="px-4 py-3 font-bold text-foreground text-xs">TOTAL</td>
-                  <td className="px-4 py-3 font-mono font-bold text-emerald-400">{fmtS(totalRev)}</td>
-                  <td className="px-4 py-3 font-mono font-bold text-red-400">{fmtS(totalExp)}</td>
-                  <td className={cn("px-4 py-3 font-mono font-bold", totalNet >= 0 ? "text-blue-400" : "text-orange-400")}>{fmtS(totalNet)}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-emerald-400">{formatCurrency(totalRev)}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-red-400">{formatCurrency(totalExp)}</td>
+                  <td className={cn("px-4 py-3 font-mono font-bold", totalNet >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(totalNet)}</td>
                   <td className={cn("px-4 py-3 font-mono font-bold", avgMargin >= 0 ? "text-emerald-400" : "text-red-400")}>{avgMargin.toFixed(1)}%</td>
                   <td />
                 </tr>

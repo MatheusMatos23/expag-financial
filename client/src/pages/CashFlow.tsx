@@ -9,11 +9,8 @@ import { cn } from "@/lib/utils";
 
 const TOOLTIP = { background:"#0d1528", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", fontSize:"11px", color:"#e8edf5" };
 
-function fmtS(v: number) {
-  if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000)     return `R$ ${(v/1_000).toFixed(0)}k`;
-  return formatCurrency(v);
-}
+
+const fmtS = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`; if (Math.abs(v) >= 1_000) return `R$ ${(v/1_000).toFixed(0)}k`; return formatCurrency(v); };
 
 export default function CashFlow() {
   const [days, setDays] = useState(30);
@@ -58,10 +55,10 @@ export default function CashFlow() {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Entradas", value: fmtS(totalIn), color: "text-emerald-400", icon: ArrowUpRight },
-          { label: "Total Saídas", value: fmtS(totalOut), color: "text-red-400", icon: ArrowDownRight },
-          { label: "Fluxo Líquido", value: fmtS(netFlow), color: netFlow >= 0 ? "text-blue-400" : "text-orange-400", icon: DollarSign },
-          { label: "Saldo Final", value: fmtS(lastBalance), color: lastBalance >= 0 ? "text-emerald-400" : "text-red-400", icon: TrendingUp },
+          { label: "Total Entradas", value: formatCurrency(totalIn), color: "text-emerald-400", icon: ArrowUpRight },
+          { label: "Total Saídas", value: formatCurrency(totalOut), color: "text-red-400", icon: ArrowDownRight },
+          { label: "Fluxo Líquido", value: formatCurrency(netFlow), color: netFlow >= 0 ? "text-blue-400" : "text-orange-400", icon: DollarSign },
+          { label: "Saldo Final", value: formatCurrency(lastBalance), color: lastBalance >= 0 ? "text-emerald-400" : "text-red-400", icon: TrendingUp },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="bg-card border border-border rounded-xl p-4">
             <div className="flex items-center gap-1.5 mb-2"><Icon className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span></div>

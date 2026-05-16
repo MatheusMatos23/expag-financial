@@ -15,15 +15,17 @@ export function formatCurrency(value: number | string | null | undefined): strin
 
 export function formatCurrencyCompact(value: number | string | null | undefined): string {
   const num = typeof value === "string" ? parseFloat(value) : (value ?? 0);
-  if (isNaN(num)) return "R$ 0";
+  if (isNaN(num)) return "R$ 0,00";
   const abs = Math.abs(num);
-  const sign = num < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${sign}R$ ${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}R$ ${(abs / 1_000).toFixed(1)}k`;
+  // Só abrevia para valores >= R$1 bilhão (extremamente raros em uso normal)
+  if (abs >= 1_000_000_000) {
+    const sign = num < 0 ? "-" : "";
+    return `${sign}R$ ${(abs / 1_000_000_000).toFixed(2)}B`;
+  }
   return formatCurrency(num);
 }
 
-// ─── FORMATAÇÃO DE DATAS ──────────────────────────────────────────────────────
+
 export function formatDate(date: Date | string | null | undefined): string {
   if (!date) return "-";
   // MySQL DATE type comes back as Date object — use ISO to avoid locale string issues

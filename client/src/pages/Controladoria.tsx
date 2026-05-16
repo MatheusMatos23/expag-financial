@@ -41,11 +41,8 @@ const EXP_COLORS  = ["#f87171","#fb923c","#fbbf24","#a3e635","#34d399","#38bdf8"
 const TOOLTIP_STYLE = { background:"#0d1528", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", fontSize:"11px", color:"#e8edf5" };
 
 function fmt(v: number) { return formatCurrency(v); }
-function fmtShort(v: number) {
-  if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000)    return `R$ ${(v/1_000).toFixed(0)}k`;
-  return formatCurrency(v);
-}
+// fmtShort only for chart axes
+const fmtShort = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`; if (Math.abs(v) >= 1_000) return `R$ ${(v/1_000).toFixed(0)}k`; return formatCurrency(v); };
 function fmtDate(d: string) {
   const [y,m,day] = d.split("-");
   return `${day}/${m}`;
@@ -167,11 +164,11 @@ export default function Controladoria() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <KpiCard label="Total Receitas"  value={fmtShort(totalRev)}  color="text-emerald-400" icon={TrendingUp}    sub={`${(data?.recentRevenues?.length ?? 0)} lançamentos`} />
-        <KpiCard label="Total Despesas"  value={fmtShort(totalExp)}  color="text-red-400"     icon={TrendingDown}  sub={`${(data?.recentExpenses?.length ?? 0)} lançamentos`} />
-        <KpiCard label="Resultado Líq."  value={fmtShort(netResult)} color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} />
+        <KpiCard label="Total Receitas"  value={formatCurrency(totalRev)}  color="text-emerald-400" icon={TrendingUp}    sub={`${(data?.recentRevenues?.length ?? 0)} lançamentos`} />
+        <KpiCard label="Total Despesas"  value={formatCurrency(totalExp)}  color="text-red-400"     icon={TrendingDown}  sub={`${(data?.recentExpenses?.length ?? 0)} lançamentos`} />
+        <KpiCard label="Resultado Líq."  value={formatCurrency(netResult)} color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} />
         <KpiCard label="Margem"          value={`${margin.toFixed(1)}%`} color={margin >= 0 ? "text-blue-400" : "text-red-400"} icon={Target} sub="Receitas - Despesas / Receitas" />
-        <KpiCard label="Divergências"    value={fmtShort(divValue)}  color="text-yellow-400"  icon={AlertTriangle} sub={`${divCount} pendentes`} />
+        <KpiCard label="Divergências"    value={formatCurrency(divValue)}  color="text-yellow-400"  icon={AlertTriangle} sub={`${divCount} pendentes`} />
       </div>
 
       {/* Origem: Auto vs Manual */}
@@ -256,7 +253,7 @@ export default function Controladoria() {
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: REV_COLORS[i % REV_COLORS.length] }} />
                       <span className="text-[10px] text-muted-foreground truncate">{d.name}</span>
                     </div>
-                    <span className="text-[10px] font-mono font-semibold text-emerald-400 shrink-0">{fmtShort(d.value)}</span>
+                    <span className="text-[10px] font-mono font-semibold text-emerald-400 shrink-0">{formatCurrency(d.value)}</span>
                   </div>
                 ))}
               </div>
