@@ -51125,7 +51125,7 @@ var init_schema2 = __esm({
       title: varchar("title", { length: 300 }).notNull(),
       message: text("message").notNull(),
       severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
-      status: mysqlEnum("status", ["active", "acknowledged", "resolved"]).default("active").notNull(),
+      status: mysqlEnum("status", ["active", "acknowledged", "resolved", "dismissed"]).default("active").notNull(),
       referenceId: int("referenceId"),
       referenceType: varchar("referenceType", { length: 50 }),
       acknowledgedBy: int("acknowledgedBy"),
@@ -133101,7 +133101,7 @@ var dashboardRouter = router({
     const dbConn = await getDb();
     if (!dbConn) throw new Error("DB unavailable");
     const { sql: s } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
-    await dbConn.execute(s`UPDATE alerts SET status = 'dismissed' WHERE id = ${input.id}`);
+    await dbConn.execute(s`UPDATE alerts SET status = 'resolved' WHERE id = ${input.id}`);
     return { success: true };
   }),
   getSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string() })).query(async ({ input }) => getSystemConfig(input.key)),

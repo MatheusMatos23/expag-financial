@@ -4,7 +4,7 @@ import {
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, Receipt, TrendingDown, Calendar, Hash, Filter, ArrowDownRight, Edit2, Trash2 } from "lucide-react";
+import { Plus, Receipt, TrendingDown, Calendar, Hash, Filter, ArrowDownRight, Edit2, Trash2 , RefreshCw} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -168,6 +168,7 @@ export default function Expenses() {
         </div>
         <Dialog open={open} onOpenChange={v => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
           <DialogTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}><RefreshCw className="w-3.5 h-3.5" /> Atualizar</Button>
             <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Despesa</Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">

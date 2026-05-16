@@ -1404,7 +1404,7 @@ const dashboardRouter = router({
       const dbConn = await db.getDb();
       if (!dbConn) throw new Error("DB unavailable");
       const { sql: s } = await import("drizzle-orm");
-      await dbConn.execute(s`UPDATE alerts SET status = 'dismissed' WHERE id = ${input.id}`);
+      await dbConn.execute(s`UPDATE alerts SET status = 'resolved' WHERE id = ${input.id}`);
       return { success: true };
     }),
 

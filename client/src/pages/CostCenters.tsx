@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, getCurrentMonthRange } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, Building2, Trash2, Edit2 } from "lucide-react";
+import { Plus, Building2, Trash2, Edit2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,10 +65,10 @@ export default function CostCenters() {
           <h1 className="text-2xl font-bold text-foreground">Centros de Custo</h1>
           <p className="text-sm text-muted-foreground mt-1">Categoria 3 · Mapeamento por centro de despesas e receitas</p>
         </div>
-        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs mr-2" onClick={() => refetch()}><RefreshCw className="w-3.5 h-3.5" /> Atualizar</Button>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
           <DialogTrigger asChild>
-            <Button className="gap-2"><Plus className="w-4 h-4" /> Novo Centro</Button>
-          </DialogTrigger>
+            <Button className="gap-2"><Plus className="w-4 h-4" /> Novo Centro</Button></DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>{editRow ? "Editar Centro de Custo" : "Criar Centro de Custo"}</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">

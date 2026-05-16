@@ -4,7 +4,7 @@ import {
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, TrendingUp, DollarSign, Calendar, Hash, ArrowUpRight, Filter, Edit2, Trash2 } from "lucide-react";
+import { Plus, TrendingUp, DollarSign, Calendar, Hash, ArrowUpRight, Filter, Edit2, Trash2 , RefreshCw} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -188,7 +188,10 @@ export default function Revenues() {
             </SelectContent>
           </Select>
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}>
+            <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+          </Button>
+          <DialogTrigger asChild>
               <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Receita</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">

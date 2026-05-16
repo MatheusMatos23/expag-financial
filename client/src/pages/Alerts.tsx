@@ -19,7 +19,7 @@ const STATUS_TABS = [
   { key: "active",       label: "Ativos" },
   { key: "acknowledged", label: "Reconhecidos" },
   { key: "resolved",     label: "Resolvidos" },
-  { key: undefined,      label: "Todos" },
+  { key: "",             label: "Todos" },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
@@ -33,11 +33,11 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function Alerts() {
-  const [statusFilter, setStatusFilter] = useState<string | undefined>("active");
+  const [statusFilter, setStatusFilter] = useState<string>("active");
   const [severityFilter, setSeverityFilter] = useState("all");
 
   const { data: rawAlerts, isLoading, refetch } = trpc.dashboard.getAlerts.useQuery(
-    { status: statusFilter },
+    { status: statusFilter || undefined },
     { refetchInterval: 30000 } // auto-refresh 30s
   );
 
@@ -61,15 +61,16 @@ export default function Alerts() {
     onSuccess: () => { toast.success("Alerta dispensado."); refetch(); },
   });
 
-  const alerts = ((rawAlerts ?? []) as any[]).filter(a =>
+  const allRaw = (rawAlerts ?? []) as any[];
+  const alerts = allRaw.filter((a: any) =>
     severityFilter === "all" || a.severity === severityFilter
   );
 
   const counts = {
-    critical: ((rawAlerts ?? []) as any[]).filter(a => a.severity === "critical" && a.status === "active").length,
-    warning:  ((rawAlerts ?? []) as any[]).filter(a => a.severity === "warning"  && a.status === "active").length,
-    info:     ((rawAlerts ?? []) as any[]).filter(a => a.severity === "info"     && a.status === "active").length,
-    resolved: ((rawAlerts ?? []) as any[]).filter(a => a.status !== "active").length,
+    critical: ((rawAlerts ?? []) as any[]).filter((a: any) => a.severity === "critical" && a.status === "active").length,
+    warning:  ((rawAlerts ?? []) as any[]).filter((a: any) => a.severity === "warning"  && a.status === "active").length,
+    info:     ((rawAlerts ?? []) as any[]).filter((a: any) => a.severity === "info"     && a.status === "active").length,
+    resolved: ((rawAlerts ?? []) as any[]).filter((a: any) => ["resolved","acknowledged","dismissed"].includes(a.status)).length,
   };
 
   return (
@@ -116,7 +117,7 @@ export default function Alerts() {
           {STATUS_TABS.map(tab => (
             <button key={String(tab.key)} onClick={() => setStatusFilter(tab.key)}
               className={cn("px-3 py-1.5 text-xs rounded-md transition-all font-medium",
-                statusFilter === tab.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                statusFilter === (tab.key || '') ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
               )}>
               {tab.label}
             </button>

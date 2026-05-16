@@ -149,8 +149,11 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   if (!data) return <div className="text-center py-12 text-muted-foreground text-sm">Sessão não encontrada.</div>;
 
   const { session: sess, bankTxs, apiTxs, divs } = data as any;
-  const matchRate = sess.matchedCount > 0
-    ? Math.round((sess.matchedCount / Math.max(1, sess.matchedCount + sess.divergentCount)) * 100)
+  // matchRate calculado sobre pendingCount real (não divergentCount inflado)
+  // session.pendingCount = divergências reais pendentes na tabela
+  const realTotal = sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0);
+  const matchRate = realTotal > 0
+    ? Math.round((sess.matchedCount / realTotal) * 100)
     : 0;
   const totalDivValue = (divs ?? []).reduce((s: number, d: any) => s + parseFloat(d.amount ?? 0), 0);
   const pendingDivs = (divs ?? []).filter((d: any) => d.status === "pendente" || d.status === "em_analise");
@@ -495,7 +498,7 @@ export default function Reconciliation() {
                   <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", s.divergentCount > 0 ? "bg-yellow-400" : "bg-emerald-400")} />
                   <span className="text-muted-foreground w-24 shrink-0">{formatDate(s.referenceDate)}</span>
                   <span className="text-emerald-400">✅ {s.matchedCount}</span>
-                  <span className="text-yellow-400">⚠️ {s.divergentCount}</span>
+                  <span className="text-yellow-400">⚠️ {s.pendingCount ?? s.divergentCount ?? 0} pend.</span>
                   <span className="text-muted-foreground ml-auto text-[10px]">#{s.id}</span>
                 </div>
               ))}
@@ -591,16 +594,17 @@ export default function Reconciliation() {
               </thead>
               <tbody className="divide-y divide-border">
                 {(sessions as any[]).map((sess: any) => {
-                  const rate = sess.matchedCount > 0
-                    ? Math.round((sess.matchedCount / Math.max(1, sess.matchedCount + sess.divergentCount)) * 100)
+                  const realT = sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0);
+                  const rate = realT > 0
+                    ? Math.round((sess.matchedCount / realT) * 100)
                     : 0;
                   return (
                     <tr key={sess.id} className="hover:bg-accent/20 cursor-pointer" onClick={() => setSelectedSession(sess.id)}>
                       <td className="px-4 py-3 font-medium">{formatDate(sess.referenceDate)}</td>
                       <td className="px-4 py-3 text-emerald-400 font-semibold">{sess.matchedCount}</td>
                       <td className="px-4 py-3">
-                        <span className={cn("font-semibold", sess.divergentCount > 0 ? "text-yellow-400" : "text-emerald-400")}>
-                          {sess.divergentCount}
+                        <span className={cn("font-semibold", (sess.pendingCount ?? sess.divergentCount ?? 0) > 0 ? "text-yellow-400" : "text-emerald-400")}>
+                          {sess.pendingCount ?? sess.divergentCount ?? 0}
                         </span>
                       </td>
                       <td className="px-4 py-3 font-mono text-blue-400">{formatCurrency(sess.totalBankCredits ?? 0)}</td>

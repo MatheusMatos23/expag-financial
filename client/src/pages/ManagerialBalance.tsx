@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useState } from "react";
-import { Wallet, TrendingUp, TrendingDown, Lock, Plus, Trash2, Edit2 } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, Lock, Plus, Trash2, Edit2 , RefreshCw} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,7 @@ export default function ManagerialBalance() {
     setOpen(true);
   };
 
-  const { data: latest, refetch: refetchLatest } = trpc.reconciliation.getManagerialBalance.useQuery();
+  const { data: latest, refetch: refetchLatest } = trpc.reconciliation.getManagerialBalance.useQuery(undefined, { refetchInterval: 15000 });
   const { data: history, refetch: refetchHistory } = trpc.reconciliation.getManagerialBalanceHistory.useQuery({ days: 30 });
   const upsertMutation = trpc.reconciliation.upsertManagerialBalance.useMutation({
     onSuccess: () => { toast.success("Saldo gerencial atualizado!"); setOpen(false); refetchLatest(); refetchHistory(); setEditRow(null); },
@@ -75,7 +75,8 @@ export default function ManagerialBalance() {
           <h1 className="text-2xl font-bold text-foreground">Saldo Gerencial</h1>
           <p className="text-sm text-muted-foreground mt-1">Caixa Real = Bancos - Clientes - Comprometido ± Divergências</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs mr-2" onClick={() => { refetchLatest(); refetchHistory(); }}><RefreshCw className="w-3.5 h-3.5" /> Atualizar</Button>
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button className="gap-2"><Plus className="w-4 h-4" /> Registrar Saldo</Button></DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Registrar Saldo Gerencial</DialogTitle></DialogHeader>

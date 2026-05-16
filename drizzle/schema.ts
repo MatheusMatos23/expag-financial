@@ -442,7 +442,7 @@ export const alerts = mysqlTable("alerts", {
   title: varchar("title", { length: 300 }).notNull(),
   message: text("message").notNull(),
   severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
-  status: mysqlEnum("status", ["active", "acknowledged", "resolved"]).default("active").notNull(),
+  status: mysqlEnum("status", ["active", "acknowledged", "resolved", "dismissed"]).default("active").notNull(),
   referenceId: int("referenceId"),
   referenceType: varchar("referenceType", { length: 50 }),
   acknowledgedBy: int("acknowledgedBy"),
