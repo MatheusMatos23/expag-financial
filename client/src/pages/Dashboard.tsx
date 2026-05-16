@@ -73,18 +73,22 @@ export default function Dashboard() {
   const margin        = ctrlData?.margin        ?? 0;
 
   const sessionList = (sessions as any[]) ?? [];
+  // Busca stats ao vivo da última sessão para valores corretos
   const lastSession = sessionList[0];
-  const lastMatched   = lastSession?.matchedCount   ?? 0;
-  // divergentCount na sessão pode estar inflado (pré-fix de tarifas)
-  // Usa o menor valor entre divergentCount e pendingCount quando disponível
-  const lastDivergent = Math.min(
-    lastSession?.divergentCount ?? 0,
-    lastSession?.pendingCount ?? lastSession?.divergentCount ?? 0
+  const { data: lastSessionStats } = trpc.reconciliation.getSessionStats.useQuery(
+    { id: lastSession?.id ?? 0 },
+    { enabled: !!lastSession?.id, refetchInterval: 15000 }
   );
-  // Total correto: usa matchedCount + divergentCount da sessão
-  // (divergentCount agora reflete o real após o fix)
-  const lastTotal = lastMatched + lastDivergent;
-  const matchRate = lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0;
+  // Usa stats ao vivo se disponível (mais preciso), fallback para sessão
+  const liveMatched    = (lastSessionStats as any)?.matchedCount  ?? lastSession?.matchedCount  ?? 0;
+  const liveTotal      = (lastSessionStats as any)?.totalCount    ?? 0;
+  const livePending    = (lastSessionStats as any)?.pendingCount  ?? lastSession?.pendingCount  ?? 0;
+  const liveMatchRate  = (lastSessionStats as any)?.matchRate;
+
+  const lastMatched    = liveMatched;
+  const lastDivergent  = livePending; // pendentes reais da tabela divergences
+  const lastTotal      = liveTotal > 0 ? liveTotal : (liveMatched + livePending);
+  const matchRate      = liveMatchRate ?? (lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0);
 
   const PENDING_ST = ["pendente","em_analise","identificado","escalado_diretoria","em_aberto"];
   const divList      = (divAll as any[]) ?? [];
@@ -141,7 +145,7 @@ export default function Dashboard() {
         <KpiCard label="Despesas"     value={fmtS(totalExpenses)} color="text-red-400"     icon={TrendingDown} onClick={() => navigate("/despesas")} sub={`${ctrlData?.recentExpenses?.length ?? 0} lançamentos`} />
         <KpiCard label="Resultado"    value={fmtS(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} sub={`Margem ${margin.toFixed(1)}%`} />
         <KpiCard label="Pendente"     value={fmtS(pendingAmt)}    color="text-yellow-400"  icon={AlertTriangle} onClick={() => navigate("/divergencias")} sub={`${pendingDivs.length} itens · ${criticalDivs.length} críticos`} />
-        <KpiCard label="Conciliação"  value={`${matchRate}%`}     color={matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400"} icon={CheckCircle2} onClick={() => navigate("/conciliacao")} sub={`${lastMatched} de ${lastTotal} transações`} />
+        <KpiCard label="Conciliação"  value={`${matchRate}%`}     color={matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400"} icon={CheckCircle2} onClick={() => navigate("/conciliacao")} sub={`${lastMatched.toLocaleString()} de ${lastTotal.toLocaleString()} transações`} />
       </div>
 
       {/* ── Faixa 2: Divergências pendentes resumo ───────────────────────── */}

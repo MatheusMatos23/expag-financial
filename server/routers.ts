@@ -13,6 +13,30 @@ import { parseStatement } from "./reconciliation/parsers";
 import { sql } from "drizzle-orm";
 
 // ─── CONCILIAÇÃO ROUTER ───────────────────────────────────────────────────────
+
+// ── Helper: recalcula pendingCount da sessão após regularizações ──────────────
+async function updateSessionPendingCount(sessionId: number | undefined) {
+  if (!sessionId) return;
+  const dbConn = await db.getDb();
+  if (!dbConn) return;
+  const { sql: sqlTag, eq: eqOp } = await import("drizzle-orm");
+  const { reconciliationSessions } = await import("../drizzle/schema");
+  const pending = await dbConn.execute(sqlTag`
+    SELECT COUNT(*) as cnt FROM divergences
+    WHERE sessionId = ${sessionId}
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+  `);
+  const matched = await dbConn.execute(sqlTag`
+    SELECT COUNT(*) as cnt FROM bank_transactions
+    WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
+  `);
+  const pendingCount = parseInt(String((pending as any)[0]?.[0]?.cnt ?? 0));
+  const matchedCount = parseInt(String((matched as any)[0]?.[0]?.cnt ?? 0));
+  await dbConn.update(reconciliationSessions)
+    .set({ pendingCount, matchedCount })
+    .where(eqOp(reconciliationSessions.id, sessionId));
+}
+
 const reconciliationRouter = router({
   getSessions: protectedProcedure.query(async () => {
     return db.getReconciliationSessions(30);
@@ -151,8 +175,14 @@ const reconciliationRouter = router({
         if (match.apiTx?.externalId) matchedApiExternalIds.add(match.apiTx.externalId);
       }
 
+      // ── BANK TRANSACTIONS BATCH ───────────────────────────────────────────────
+      // IMPORTANTE: usar parsedBanksClean (sem tarifas) + bankTariffTxs separadas
+      // parsedBanks inclui tarifas → se usar parsedBanks aqui AND bankTariffTxs abaixo
+      // as tarifas são contadas em dobro (bug: 1880+105 = 1985 em vez de 1880)
       const bankRows: Parameters<typeof db.insertBankTransactionsBatch>[0] = [];
-      for (const bank of parsedBanks) {
+
+      // Transações reais (sem tarifas) — matchStatus do engine
+      for (const bank of parsedBanksClean) {
         for (const tx of bank.txs) {
           const key = `${tx.date}|${tx.amount.toFixed(2)}|${tx.type}|${bank.name}`;
           const isMatched = (tx.externalId && matchedExternalIds.has(tx.externalId)) || matchedByDat.has(key);
@@ -164,13 +194,13 @@ const reconciliationRouter = router({
           });
         }
       }
-      // Tarifas bancárias também precisam ser persistidas (para histórico/saldo)
+      // Tarifas bancárias — adicionadas uma única vez com matchStatus='manual'
       for (const { bankName, tx } of bankTariffTxs) {
         bankRows.push({
           sessionId, type: tx.type, transactionDate: tx.date,
           description: tx.description, amount: tx.amount.toFixed(2),
           channel: tx.channel, bankName, externalId: tx.externalId,
-          matchStatus: "manual", // tarifas são auto-classificadas
+          matchStatus: "manual",
         });
       }
       await db.insertBankTransactionsBatch(bankRows);
@@ -337,12 +367,13 @@ const reconciliationRouter = router({
       // ── FLUSH FINAL: todas as divergências em batch ───────────────────────
       await db.insertDivergencesBatch(divRows);
 
-      // ── Atualiza session com contagem REAL de divergências criadas ─────────
-      // session.divergentCount deve refletir apenas as divergências criadas,
-      // não incluindo tarifas que viraram receitas/despesas automaticamente
+      // ── Contagens reais após todos os inserts ─────────────────────────────
+      // realDivergentCount = divergências reais criadas (não tarifas)
+      // realMatchedCount   = transações matchadas pelo engine
+      // realTotalBank      = total de bank_transactions (sem duplicatas)
       const realDivergentCount = divRows.length;
       const realMatchedCount   = result.summary.matchedCount;
-      const realTotalBank      = bankRows.length; // total real de bank_transactions
+      const realTotalBank      = bankRows.length; // parsedBanksClean + tarifas (correto)
 
       // Atualizar sessão
       await db.updateReconciliationSession(sessionId, {
@@ -688,36 +719,55 @@ const reconciliationRouter = router({
       if (!dbConn) return null;
       const { sql: sqlTag } = await import("drizzle-orm");
 
-      const [totalRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
+      // Conta transações reais (excluindo tarifas 'manual' do denominador para matchRate correto)
+      const [totalRealRes, totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
+        // Transações reais = não são tarifas auto (matchStatus != 'manual' OU channel != 'TARIFA')
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND (matchStatus != 'manual' OR matchType IS NULL)`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
         dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`),
       ]);
 
-      const totalBankTxs    = parseInt(String((totalRes   as any)[0]?.[0]?.cnt ?? 0));
-      const matchedBankTxs  = parseInt(String((matchedRes as any)[0]?.[0]?.cnt ?? 0));
-      const pendingDivs     = parseInt(String((pendingRes as any)[0]?.[0]?.cnt ?? 0));
+      const totalRealTxs    = parseInt(String((totalRealRes as any)[0]?.[0]?.cnt ?? 0));
+      const totalAllTxs     = parseInt(String((totalAllRes  as any)[0]?.[0]?.cnt ?? 0));
+      const matchedBankTxs  = parseInt(String((matchedRes   as any)[0]?.[0]?.cnt ?? 0));
+      const pendingDivs     = parseInt(String((pendingRes   as any)[0]?.[0]?.cnt ?? 0));
       const sessionRow      = (sessionRes as any)[0]?.[0];
-      const sessionMatched  = parseInt(String(sessionRow?.matchedCount  ?? 0));
+      const sessionMatched  = parseInt(String(sessionRow?.matchedCount   ?? 0));
       const sessionDivergent= parseInt(String(sessionRow?.divergentCount ?? 0));
 
-      // Taxa de matching CORRETA:
-      // - Numerador: bank_transactions com matchStatus matched/manual (ou session.matchedCount)
-      // - Denominador: TOTAL de bank_transactions (não matched+divergent, que inclui tarifas)
-      const effectiveMatched = matchedBankTxs > 0 ? matchedBankTxs : sessionMatched;
-      // Usa total de bank_transactions como base (mais preciso que matched+divergent)
-      const effectiveTotal = totalBankTxs > 0
-        ? totalBankTxs
-        : (sessionMatched + sessionDivergent); // fallback sessão antiga
-      const matchRate = effectiveTotal > 0 ? Math.round((effectiveMatched / effectiveTotal) * 100) : 0;
-      // divergentCount real = divergências pendentes na tabela + regularizadas
+      // matchRate correto:
+      // - Numerador: matched (pelo engine) — NÃO inclui tarifas auto
+      // - Denominador: transações reais (sem tarifas) — para refletir qualidade real do matching
+      // Para sessões novas: matchedRealTxs = matched (sem manual/tarifa) / totalRealTxs
+      const matchedRealTxs = await dbConn.execute(sqlTag`
+        SELECT COUNT(*) as cnt FROM bank_transactions
+        WHERE sessionId = ${input.id} AND matchStatus = 'matched'
+      `);
+      const matchedOnlyReal = parseInt(String((matchedRealTxs as any)[0]?.[0]?.cnt ?? 0));
+
+      let effectiveMatched: number;
+      let effectiveTotal: number;
+
+      if (totalAllTxs > 0) {
+        // Sessão nova com bank_transactions populadas
+        // Rate = matchedByEngine / totalRealTxs (exclui tarifas do denominador)
+        effectiveMatched = matchedOnlyReal > 0 ? matchedOnlyReal : matchedBankTxs;
+        effectiveTotal   = totalRealTxs   > 0 ? totalRealTxs   : totalAllTxs;
+      } else {
+        // Fallback: sessão antiga sem matchStatus
+        effectiveMatched = sessionMatched;
+        effectiveTotal   = sessionMatched + sessionDivergent;
+      }
+
+      const matchRate     = effectiveTotal > 0 ? Math.round((effectiveMatched / effectiveTotal) * 100) : 0;
       const realDivergent = effectiveTotal - effectiveMatched;
 
       return {
-        totalCount:   effectiveTotal,
-        matchedCount: effectiveMatched,
-        pendingCount: pendingDivs,
+        totalCount:    effectiveTotal,
+        matchedCount:  effectiveMatched,
+        pendingCount:  pendingDivs,
         matchRate,
         divergentCount: realDivergent,
       };
@@ -845,6 +895,7 @@ const reconciliationRouter = router({
         sessionId: input.sessionId,
         createdByName: ctx.user?.name ?? 'Sistema',
       });
+      await updateSessionPendingCount(input.sessionId);
       return { success: true, revenueIds };
     }),
 
@@ -867,6 +918,7 @@ const reconciliationRouter = router({
         sessionId: input.sessionId,
         createdByName: ctx.user?.name ?? 'Sistema',
       });
+      await updateSessionPendingCount(input.sessionId);
       return { success: true, expenseIds };
     }),
 

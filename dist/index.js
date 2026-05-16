@@ -131873,6 +131873,25 @@ function parseStatement(buffer, bank) {
 
 // server/routers.ts
 init_drizzle_orm();
+async function updateSessionPendingCount(sessionId) {
+  if (!sessionId) return;
+  const dbConn = await getDb();
+  if (!dbConn) return;
+  const { sql: sqlTag, eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+  const { reconciliationSessions: reconciliationSessions2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
+  const pending = await dbConn.execute(sqlTag`
+    SELECT COUNT(*) as cnt FROM divergences
+    WHERE sessionId = ${sessionId}
+    AND status NOT IN ('regularizado','reclassificado','baixado')
+  `);
+  const matched = await dbConn.execute(sqlTag`
+    SELECT COUNT(*) as cnt FROM bank_transactions
+    WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
+  `);
+  const pendingCount = parseInt(String(pending[0]?.[0]?.cnt ?? 0));
+  const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
+  await dbConn.update(reconciliationSessions2).set({ pendingCount, matchedCount }).where(eqOp(reconciliationSessions2.id, sessionId));
+}
 var reconciliationRouter = router({
   getSessions: protectedProcedure.query(async () => {
     return getReconciliationSessions(30);
@@ -131997,7 +132016,7 @@ var reconciliationRouter = router({
       if (match.apiTx?.externalId) matchedApiExternalIds.add(match.apiTx.externalId);
     }
     const bankRows = [];
-    for (const bank of parsedBanks) {
+    for (const bank of parsedBanksClean) {
       for (const tx of bank.txs) {
         const key = `${tx.date}|${tx.amount.toFixed(2)}|${tx.type}|${bank.name}`;
         const isMatched = tx.externalId && matchedExternalIds.has(tx.externalId) || matchedByDat.has(key);
@@ -132025,7 +132044,6 @@ var reconciliationRouter = router({
         bankName,
         externalId: tx.externalId,
         matchStatus: "manual"
-        // tarifas são auto-classificadas
       });
     }
     await insertBankTransactionsBatch(bankRows);
@@ -132506,20 +132524,35 @@ var reconciliationRouter = router({
     const dbConn = await getDb();
     if (!dbConn) return null;
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
-    const [totalRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
+    const [totalRealRes, totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
+      // Transações reais = não são tarifas auto (matchStatus != 'manual' OU channel != 'TARIFA')
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND (matchStatus != 'manual' OR matchType IS NULL)`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
       dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`)
     ]);
-    const totalBankTxs = parseInt(String(totalRes[0]?.[0]?.cnt ?? 0));
+    const totalRealTxs = parseInt(String(totalRealRes[0]?.[0]?.cnt ?? 0));
+    const totalAllTxs = parseInt(String(totalAllRes[0]?.[0]?.cnt ?? 0));
     const matchedBankTxs = parseInt(String(matchedRes[0]?.[0]?.cnt ?? 0));
     const pendingDivs = parseInt(String(pendingRes[0]?.[0]?.cnt ?? 0));
     const sessionRow = sessionRes[0]?.[0];
     const sessionMatched = parseInt(String(sessionRow?.matchedCount ?? 0));
     const sessionDivergent = parseInt(String(sessionRow?.divergentCount ?? 0));
-    const effectiveMatched = matchedBankTxs > 0 ? matchedBankTxs : sessionMatched;
-    const effectiveTotal = totalBankTxs > 0 ? totalBankTxs : sessionMatched + sessionDivergent;
+    const matchedRealTxs = await dbConn.execute(sqlTag`
+        SELECT COUNT(*) as cnt FROM bank_transactions
+        WHERE sessionId = ${input.id} AND matchStatus = 'matched'
+      `);
+    const matchedOnlyReal = parseInt(String(matchedRealTxs[0]?.[0]?.cnt ?? 0));
+    let effectiveMatched;
+    let effectiveTotal;
+    if (totalAllTxs > 0) {
+      effectiveMatched = matchedOnlyReal > 0 ? matchedOnlyReal : matchedBankTxs;
+      effectiveTotal = totalRealTxs > 0 ? totalRealTxs : totalAllTxs;
+    } else {
+      effectiveMatched = sessionMatched;
+      effectiveTotal = sessionMatched + sessionDivergent;
+    }
     const matchRate = effectiveTotal > 0 ? Math.round(effectiveMatched / effectiveTotal * 100) : 0;
     const realDivergent = effectiveTotal - effectiveMatched;
     return {
@@ -132625,6 +132658,7 @@ var reconciliationRouter = router({
       sessionId: input.sessionId,
       createdByName: ctx.user?.name ?? "Sistema"
     });
+    await updateSessionPendingCount(input.sessionId);
     return { success: true, revenueIds };
   }),
   // ── Mover divergências para Despesas (bulk) ───────────────────────────────
@@ -132644,6 +132678,7 @@ var reconciliationRouter = router({
       sessionId: input.sessionId,
       createdByName: ctx.user?.name ?? "Sistema"
     });
+    await updateSessionPendingCount(input.sessionId);
     return { success: true, expenseIds };
   }),
   getManagerialBalance: protectedProcedure.query(async () => {
