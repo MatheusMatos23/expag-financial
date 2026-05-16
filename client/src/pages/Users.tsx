@@ -42,14 +42,14 @@ export default function Users() {
           { label: "Admins", value: filtered.filter((u: any) => u.role === "admin").length, color: "text-red-400" },
           { label: "Operadores", value: filtered.filter((u: any) => u.role === "operator").length, color: "text-blue-400" },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
             <p className={cn("text-2xl font-bold font-mono mt-1", color)}>{value}</p>
           </div>
         ))}
       </div>
 
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="card-premium rounded-xl overflow-hidden">
         {isLoading ? (
           <div className="py-12 text-center text-sm text-muted-foreground">Carregando usuários...</div>
         ) : filtered.length === 0 ? (

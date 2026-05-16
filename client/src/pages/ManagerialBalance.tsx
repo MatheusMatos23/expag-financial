@@ -95,14 +95,14 @@ export default function ManagerialBalance() {
       </div>
 
       {latest && (
-        <div className="bg-card border border-border rounded-xl p-4 text-xs text-muted-foreground">
+        <div className="card-premium rounded-xl p-4 text-xs text-muted-foreground">
           Última atualização: {formatDate(latest.referenceDate)} · Divergências abertas: {latest.openDivergences ?? 0}
         </div>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {cards.map(({ label, value, icon: Icon, color, desc }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-5">
+          <div key={label} className="card-premium rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
               <div className={`w-8 h-8 rounded-lg border flex items-center justify-center ${color}`}><Icon className="w-4 h-4" /></div>
@@ -113,7 +113,7 @@ export default function ManagerialBalance() {
         ))}
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-5">
+      <div className="card-premium rounded-xl p-5">
         <h3 className="text-sm font-semibold text-foreground mb-4">Evolução de Saldos (30 dias)</h3>
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={260}>
@@ -146,7 +146,7 @@ export default function ManagerialBalance() {
 
       {/* History table */}
       {(history ?? []).length > 0 && (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="card-premium rounded-xl overflow-hidden">
           <div className="px-5 py-3 border-b border-border">
             <h3 className="text-sm font-semibold text-foreground">Histórico de Registros</h3>
           </div>

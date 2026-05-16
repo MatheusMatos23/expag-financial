@@ -275,7 +275,7 @@ export default function Revenues() {
           { label: "Previsto",   value: formatCurrency(pending),  color: "text-amber-400",   icon: Calendar,  sub: "a confirmar" },
           { label: "Lançamentos",value: count,                           color: "text-foreground",  icon: Hash,      sub: "registros" },
         ].map(({ label, value, color, icon: Icon, sub }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4 kpi-card">
+          <div key={label} className="card-premium rounded-xl p-4 kpi-card">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</span>
               <Icon className="w-3.5 h-3.5 text-muted-foreground" />
@@ -290,7 +290,7 @@ export default function Revenues() {
       {chartData.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Bar chart */}
-          <div className="bg-card border border-border rounded-xl p-5">
+          <div className="card-premium rounded-xl p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-emerald-400" />
               Receitas por Tipo
@@ -309,7 +309,7 @@ export default function Revenues() {
           </div>
 
           {/* Breakdown table */}
-          <div className="bg-card border border-border rounded-xl p-5">
+          <div className="card-premium rounded-xl p-5">
             <h3 className="text-sm font-semibold text-foreground mb-4">Mix de Receitas</h3>
             <div className="space-y-2.5">
               {chartData.map((item: any) => (

@@ -288,7 +288,7 @@ export default function Payables() {
           <p className={cn("text-2xl font-bold font-mono", overdue.length > 0 ? "text-red-400" : "text-foreground")}>{overdue.length}</p>
           <p className="text-[10px] text-muted-foreground mt-1">{formatCurrencyCompact(totalOverdue)}</p>
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="card-premium rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">A Vencer</span>
             <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -296,7 +296,7 @@ export default function Payables() {
           <p className="text-2xl font-bold font-mono text-amber-400">{upcoming.length}</p>
           <p className="text-[10px] text-muted-foreground mt-1">{formatCurrencyCompact(totalUpcoming)}</p>
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="card-premium rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pago</span>
             <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
@@ -304,7 +304,7 @@ export default function Payables() {
           <p className="text-2xl font-bold font-mono text-emerald-400">{paid.length}</p>
           <p className="text-[10px] text-muted-foreground mt-1">{formatCurrencyCompact(totalPaid)}</p>
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="card-premium rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total</span>
             <DollarSign className="w-3.5 h-3.5 text-muted-foreground" />

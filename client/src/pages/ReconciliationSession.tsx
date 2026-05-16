@@ -437,7 +437,7 @@ export default function ReconciliationSession() {
       </div>
 
       {/* ── Match Quality Bar ── */}
-      <div className="bg-card border border-border rounded-xl p-5">
+      <div className="card-premium rounded-xl p-5">
         <MatchQualityBar
           matched={liveMatchedCount}
           divergent={liveDivergentCount}
@@ -448,7 +448,7 @@ export default function ReconciliationSession() {
       {/* ── Charts Row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Comparativo */}
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="card-premium rounded-xl p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" />
             Comparativo Banco × API
@@ -485,7 +485,7 @@ export default function ReconciliationSession() {
         </div>
 
         {/* Match type distribution */}
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="card-premium rounded-xl p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-primary" />
             Distribuição por Tipo de Match

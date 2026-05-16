@@ -258,7 +258,7 @@ export default function Expenses() {
           { label: "Pendente",      value: formatCurrency(pending), color: "text-amber-400",    icon: Calendar,     sub: "a confirmar" },
           { label: "Lançamentos",   value: count,                          color: "text-foreground",   icon: Hash,         sub: "no período" },
         ].map(({ label, value, color, icon: Icon, sub }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</span>
               <Icon className="w-3.5 h-3.5 text-muted-foreground" />
@@ -271,7 +271,7 @@ export default function Expenses() {
 
       {/* Chart */}
       {chartData.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="card-premium rounded-xl p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
             <TrendingDown className="w-4 h-4 text-red-400" />
             Top Categorias — Mês Atual

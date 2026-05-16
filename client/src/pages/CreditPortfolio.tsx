@@ -46,7 +46,7 @@ function PayInstallmentModal({ inst, clientName, onConfirm, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md space-y-5 max-h-[90vh] overflow-y-auto">
+      <div className="card-premium rounded-2xl p-6 w-full max-w-md space-y-5 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center">
           <div>
             <h3 className="font-bold text-foreground">Registrar Pagamento</h3>
@@ -230,7 +230,7 @@ export default function CreditPortfolio() {
           { label: "Juros Esperados", value: formatCurrency(totalInterest), color: "text-yellow-400", icon: Percent, sub: "mensal" },
           { label: "Em Atraso", value: overdueCount, color: overdueCount > 0 ? "text-red-400" : "text-muted-foreground", icon: AlertTriangle },
         ].map(({ label, value, color, icon: Icon, sub }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <div className="flex items-center gap-1.5 mb-2"><Icon className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span></div>
             <p className={cn("text-xl font-bold font-mono", color)}>{value}</p>
             {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
@@ -241,7 +241,7 @@ export default function CreditPortfolio() {
       {/* Lista de créditos */}
       {isLoading ? <div className="text-center py-8 text-muted-foreground text-sm">Carregando...</div>
       : loanList.length === 0 ? (
-        <div className="bg-card border border-border rounded-xl p-12 text-center">
+        <div className="card-premium rounded-xl p-12 text-center">
           <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Nenhum crédito cadastrado. Clique em "Novo Crédito" para começar.</p>
         </div>
@@ -256,7 +256,7 @@ export default function CreditPortfolio() {
             const nextDue = instList.filter(i => i.status !== 'pago').sort((a: any, b: any) => String(a.dueDate).localeCompare(String(b.dueDate)))[0];
 
             return (
-              <div key={loan.id} className="bg-card border border-border rounded-xl overflow-hidden">
+              <div key={loan.id} className="card-premium rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-accent/10" onClick={() => setExpanded(isExp ? null : loan.id)}>
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
@@ -347,7 +347,7 @@ export default function CreditPortfolio() {
       {/* Modal novo crédito */}
       {newOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg space-y-4 overflow-y-auto max-h-[90vh]">
+          <div className="card-premium rounded-2xl p-6 w-full max-w-lg space-y-4 overflow-y-auto max-h-[90vh]">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-foreground">Novo Crédito</h3>
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setNewOpen(false)}><X className="w-4 h-4" /></Button>

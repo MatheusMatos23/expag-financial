@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -44,200 +44,463 @@
 }
 
 :root {
-  --radius: 0.6rem;
+  --radius: 0.75rem;
 
-  /* ══════════════════════════════════════════════════════════════════
-     EXPAG PREMIUM DESIGN SYSTEM
-     Toda a paleta parte do navy #0b1e4a — uma única família de cores.
-     Fundo → Cards → Sidebar → Bordas → Acentos: tudo alinhado.
-     ══════════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════
+     EXPAG — PREMIUM FINTECH DESIGN SYSTEM
+     Filosofia: escuridão profunda + acentos luminosos precisos
+     Inspiração: Bloomberg Terminal meets Linear meets Stripe
+     ═══════════════════════════════════════════════════════ */
 
-  /* Backgrounds — família navy escura */
-  --background:              #080e1c;   /* fundo geral — navy profundo */
-  --card:                    #0d1528;   /* cards — um tom acima */
-  --popover:                 #0d1528;
-  --card-foreground:         #e8edf5;
-  --popover-foreground:      #e8edf5;
+  /* Core surfaces */
+  --background:    #050810;   /* quase preto com toque índigo */
+  --card:          #0a0f1e;   /* cards: levemente acima do fundo */
+  --popover:       #0d1426;
+  --card-foreground: #eef1f8;
+  --popover-foreground: #eef1f8;
 
-  /* Texto */
-  --foreground:              #e8edf5;   /* branco suave com toque azul */
+  /* Text */
+  --foreground:    #eef1f8;   /* branco frio de alta legibilidade */
 
-  /* Primária — azul elétrico Expag */
-  --primary:                 #3b82f6;   /* blue-500 vibrante */
-  --primary-foreground:      #ffffff;
+  /* Primary — azul índigo saturado, marca Expag */
+  --primary:       #4f6ef7;   /* azul elétrico refinado */
+  --primary-foreground: #ffffff;
 
-  /* Secundária */
-  --secondary:               #162040;
-  --secondary-foreground:    #c8d3e8;
+  /* Secondary */
+  --secondary:     #0f1a35;
+  --secondary-foreground: #9badd4;
 
   /* Muted */
-  --muted:                   #111d38;
-  --muted-foreground:        #5c7099;
+  --muted:         #0c1428;
+  --muted-foreground: #4d6490;
 
   /* Accent */
-  --accent:                  #162040;
-  --accent-foreground:       #e8edf5;
+  --accent:        #111d3a;
+  --accent-foreground: #eef1f8;
 
   /* Destructive */
-  --destructive:             #ef4444;
-  --destructive-foreground:  #ffffff;
+  --destructive:   #e84040;
+  --destructive-foreground: #ffffff;
 
-  /* Bordas e inputs — navy médio */
-  --border:                  #1a2d50;
-  --input:                   #111d38;
-  --ring:                    #3b82f6;
+  /* Borders — super sutis */
+  --border:        #161f3a;
+  --input:         #0c1428;
+  --ring:          #4f6ef7;
 
-  /* Charts — paleta Expag */
-  --chart-1:                 #3b82f6;   /* azul principal */
-  --chart-2:                 #10b981;   /* verde */
-  --chart-3:                 #f59e0b;   /* âmbar */
-  --chart-4:                 #ef4444;   /* vermelho */
-  --chart-5:                 #8b5cf6;   /* roxo */
+  /* Charts */
+  --chart-1:       #4f6ef7;
+  --chart-2:       #06d6a0;
+  --chart-3:       #ffd166;
+  --chart-4:       #ef476f;
+  --chart-5:       #a78bfa;
 
-  /* ── Sidebar — Expag navy escuro, mesmo tom da família ── */
-  --sidebar:                 #060c18;   /* navy mais escuro que o fundo */
-  --sidebar-foreground:      #c8d3e8;
-  --sidebar-primary:         #3b82f6;
+  /* Sidebar — mais escuro que o fundo para hierarquia */
+  --sidebar:              #030509;
+  --sidebar-foreground:   #7d99c8;
+  --sidebar-primary:      #4f6ef7;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent:          #0d1a30;   /* hover items */
-  --sidebar-accent-foreground: #e8edf5;
-  --sidebar-border:          #131f38;
-  --sidebar-ring:            #3b82f6;
+  --sidebar-accent:       #0a1220;
+  --sidebar-accent-foreground: #eef1f8;
+  --sidebar-border:       #0f1930;
+  --sidebar-ring:         #4f6ef7;
 }
 
-/* Dark theme same as root - system is always dark */
-.dark { }
+.dark {}
 
+/* ─── BASE ───────────────────────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    box-sizing: border-box;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter', sans-serif;
+
+  html {
+    scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  .font-mono { font-family: 'JetBrains Mono', monospace; }
-  .value-positive { @apply text-emerald-400 font-semibold; }
-  .value-negative { @apply text-red-400 font-semibold; }
-  .value-neutral  { @apply text-blue-400 font-semibold; }
-  .badge-success  { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-warning  { @apply bg-amber-500/15  text-amber-400  border border-amber-500/30  text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-danger   { @apply bg-red-500/15    text-red-400    border border-red-500/30    text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-info     { @apply bg-blue-500/15   text-blue-400   border border-blue-500/30   text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
-  .badge-neutral  { @apply bg-gray-500/15   text-gray-400   border border-gray-500/30   text-xs px-2 py-0.5 rounded-full font-medium inline-block; }
 
-  /* Scrollbar premium */
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Geist', 'Inter', system-ui, sans-serif;
+    font-feature-settings: "cv03", "cv04", "cv09", "calt";
+    letter-spacing: -0.01em;
+    overflow-x: hidden;
+  }
+
+  /* Geist Mono para valores numéricos */
+  .font-mono {
+    font-family: 'Geist Mono', 'JetBrains Mono', monospace;
+    font-feature-settings: "tnum", "zero";
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Scrollbar ultra-refinada ── */
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #1a2d50; border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: #2a4070; }
-
-  /* Selection */
-  ::selection { background: rgba(59, 130, 246, 0.25); }
-
-  /* Premium card glow on hover */
-  .card-hover {
-    transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  ::-webkit-scrollbar-thumb {
+    background: rgba(79, 110, 247, 0.2);
+    border-radius: 99px;
+    transition: background 0.2s;
   }
-  .card-hover:hover {
-    border-color: rgba(59, 130, 246, 0.2) !important;
-    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.08), 0 8px 32px rgba(0, 0, 0, 0.3);
-    transform: translateY(-1px);
+  ::-webkit-scrollbar-thumb:hover { background: rgba(79, 110, 247, 0.5); }
+
+  /* ── Seleção de texto ── */
+  ::selection {
+    background: rgba(79, 110, 247, 0.3);
+    color: #eef1f8;
   }
 
-  /* Page header consistency */
-  .page-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #e8edf5;
-    line-height: 1.2;
-  }
-  .page-subtitle {
-    font-size: 0.8125rem;
-    color: #5c7099;
-    margin-top: 0.25rem;
+  /* ── Foco acessível ── */
+  *:focus-visible {
+    outline: 2px solid rgba(79, 110, 247, 0.7);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 
-  /* KPI card accent lines */
-  .kpi-card {
-    position: relative;
-    overflow: hidden;
-  }
-  .kpi-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent);
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  .kpi-card:hover::before { opacity: 1; }
-
-  /* Smooth table rows */
-  tr { transition: background-color 0.1s; }
-
-  /* Input focus ring */
+  /* ── Input / Textarea focus ── */
   input:focus, textarea:focus, select:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 0 0 1px rgba(79, 110, 247, 0.5), 0 0 0 3px rgba(79, 110, 247, 0.12);
   }
 
+  /* ── Transição suave em linhas de tabela ── */
+  tr { transition: background-color 0.12s ease; }
+
+  /* ── Cursors ── */
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
-  [type="button"]:not(:disabled),
-  [type="submit"]:not(:disabled),
-  [type="reset"]:not(:disabled),
-  a[href],
-  select:not(:disabled),
+  a[href], label,
   input[type="checkbox"]:not(:disabled),
   input[type="radio"]:not(:disabled) {
-    @apply cursor-pointer;
+    cursor: pointer;
   }
 }
 
+/* ─── COMPONENTS ────────────────────────────────────────────────────────── */
 @layer components {
-  /**
-   * Custom container utility that centers content and adds responsive padding.
-   *
-   * This overrides Tailwind's default container behavior to:
-   * - Auto-center content (mx-auto)
-   * - Add responsive horizontal padding
-   * - Set max-width for large screens
-   *
-   * Usage: <div className="container">...</div>
-   *
-   * For custom widths, use max-w-* utilities directly:
-   * <div className="max-w-6xl mx-auto px-4">...</div>
-   */
+
+  /* ── Cards premium — borda interna sutil, glow ao hover ── */
+  .card-premium {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    transition: border-color 0.2s, box-shadow 0.25s, transform 0.18s;
+    will-change: transform;
+  }
+  .card-premium::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(79,110,247,0.04) 0%, transparent 60%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+  .card-premium:hover {
+    border-color: rgba(79,110,247,0.25);
+    box-shadow:
+      0 0 0 1px rgba(79,110,247,0.06),
+      0 4px 24px rgba(0,0,0,0.4),
+      0 1px 4px rgba(79,110,247,0.08);
+    transform: translateY(-1px);
+  }
+  .card-premium:hover::before { opacity: 1; }
+
+  /* ── KPI card com linha de acento no topo ── */
+  .kpi-accent {
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-accent::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 12%; right: 12%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(79,110,247,0.6), transparent);
+    border-radius: 99px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .kpi-accent:hover::after { opacity: 1; }
+
+  /* ── Badge tokens financeiros ── */
+  .badge-success {
+    @apply inline-flex items-center gap-1;
+    background: rgba(6,214,160,0.1);
+    color: #06d6a0;
+    border: 1px solid rgba(6,214,160,0.25);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 99px;
+    letter-spacing: 0.01em;
+  }
+  .badge-warning {
+    @apply inline-flex items-center gap-1;
+    background: rgba(255,209,102,0.1);
+    color: #ffd166;
+    border: 1px solid rgba(255,209,102,0.25);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 99px;
+  }
+  .badge-danger {
+    @apply inline-flex items-center gap-1;
+    background: rgba(232,64,64,0.1);
+    color: #e84040;
+    border: 1px solid rgba(232,64,64,0.25);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 99px;
+  }
+  .badge-info {
+    @apply inline-flex items-center gap-1;
+    background: rgba(79,110,247,0.12);
+    color: #7b97f9;
+    border: 1px solid rgba(79,110,247,0.25);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 99px;
+  }
+  .badge-neutral {
+    @apply inline-flex items-center gap-1;
+    background: rgba(77,100,144,0.15);
+    color: #7d99c8;
+    border: 1px solid rgba(77,100,144,0.25);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 99px;
+  }
+
+  /* ── Valor positivo/negativo/neutro ── */
+  .value-positive { color: #06d6a0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .value-negative { color: #e84040; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .value-neutral  { color: #7b97f9; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* ── Separador com gradiente ── */
+  .divider-gradient {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
+  }
+
+  /* ── Título de página ── */
+  .page-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: #eef1f8;
+    line-height: 1.15;
+  }
+  .page-subtitle {
+    font-size: 0.8125rem;
+    color: #4d6490;
+    margin-top: 0.25rem;
+    letter-spacing: -0.005em;
+  }
+
+  /* ── Tabela premium ── */
+  .table-row-hover:hover td { background: rgba(79,110,247,0.04); }
+  .table-head th {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #4d6490;
+  }
+
+  /* ── Input premium ── */
+  .input-premium {
+    background: rgba(11,20,44,0.8);
+    border: 1px solid rgba(22,31,58,0.9);
+    color: #eef1f8;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    backdrop-filter: blur(4px);
+  }
+  .input-premium::placeholder { color: #2d4166; }
+  .input-premium:focus {
+    border-color: rgba(79,110,247,0.5);
+    box-shadow: 0 0 0 3px rgba(79,110,247,0.1);
+  }
+
+  /* ── Button premium ── */
+  .btn-primary-premium {
+    background: linear-gradient(135deg, #4f6ef7 0%, #3b5ae0 100%);
+    color: white;
+    border: 1px solid rgba(79,110,247,0.6);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px rgba(79,110,247,0.1) inset;
+    transition: all 0.15s;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .btn-primary-premium:hover:not(:disabled) {
+    background: linear-gradient(135deg, #6480f9 0%, #4f6ef7 100%);
+    box-shadow: 0 4px 12px rgba(79,110,247,0.35), 0 1px 3px rgba(0,0,0,0.3);
+    transform: translateY(-1px);
+  }
+  .btn-primary-premium:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+
+  /* ── Glass card (para modais e overlays) ── */
+  .glass {
+    background: rgba(10,15,30,0.85);
+    backdrop-filter: blur(20px) saturate(1.2);
+    border: 1px solid rgba(22,31,58,0.8);
+  }
+
+  /* ── Stat chip inline ── */
+  .stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.375rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-chip-up   { background: rgba(6,214,160,0.1); color: #06d6a0; }
+  .stat-chip-down { background: rgba(232,64,64,0.1);  color: #e84040; }
+  .stat-chip-flat { background: rgba(79,110,247,0.1); color: #7b97f9; }
+
+  /* ── Tooltip estilizado ── */
+  .recharts-tooltip-wrapper { filter: drop-shadow(0 8px 24px rgba(0,0,0,0.5)); }
+
+  /* ── Sidebar nav ── */
+  .sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.4rem 0.625rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 450;
+    color: #4d6490;
+    transition: all 0.12s;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+    position: relative;
+  }
+  .sidebar-nav-item:hover {
+    background: rgba(10,18,32,0.9);
+    color: #9badd4;
+  }
+  .sidebar-nav-item.active {
+    background: rgba(79,110,247,0.1);
+    color: #eef1f8;
+  }
+  .sidebar-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 25%; bottom: 25%;
+    width: 2px;
+    background: #4f6ef7;
+    border-radius: 0 2px 2px 0;
+    box-shadow: 0 0 6px rgba(79,110,247,0.8);
+  }
+
+  /* ── Number ticker animation ── */
+  @keyframes slideUp {
+    from { transform: translateY(6px); opacity: 0; }
+    to   { transform: translateY(0);  opacity: 1; }
+  }
+  .animate-slide-up { animation: slideUp 0.3s ease forwards; }
+
+  /* ── Pulse indicator (alertas, NDI) ── */
+  @keyframes softPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.6; transform: scale(0.85); }
+  }
+  .pulse-soft { animation: softPulse 2.4s ease-in-out infinite; }
+
+  /* ── Skeleton loading ── */
+  @keyframes shimmer {
+    0%   { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+  .skeleton {
+    background: linear-gradient(90deg, #0c1428 25%, #111d38 50%, #0c1428 75%);
+    background-size: 800px 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+    border-radius: 0.375rem;
+  }
+
+  /* ── Progress bar premium ── */
+  .progress-bar {
+    height: 3px;
+    background: rgba(22,31,58,0.8);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  /* ── Modal backdrop ── */
+  .modal-backdrop {
+    background: rgba(3,5,9,0.75);
+    backdrop-filter: blur(8px);
+  }
+
+  /* Container */
   .container {
     width: 100%;
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem; /* 16px - mobile padding */
-    padding-right: 1rem;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
   }
+  @media (min-width: 640px)  { .container { padding-left: 1.5rem; padding-right: 1.5rem; } }
+  @media (min-width: 1024px) { .container { padding-left: 2rem; padding-right: 2rem; max-width: 1400px; } }
 
-  .flex {
-    min-height: 0;
-    min-width: 0;
-  }
-
-  @media (min-width: 640px) {
-    .container {
-      padding-left: 1.5rem; /* 24px - tablet padding */
-      padding-right: 1.5rem;
-    }
-  }
-
-  @media (min-width: 1024px) {
-    .container {
-      padding-left: 2rem; /* 32px - desktop padding */
-      padding-right: 2rem;
-      max-width: 1280px; /* Standard content width */
-    }
-  }
+  /* Flex min-width/height fix */
+  .flex { min-height: 0; min-width: 0; }
 }
+
+/* ─── GLOBAL MICRO-INTERACTIONS ────────────────────────────────────────── */
+
+/* Smooth page transitions */
+main, [data-content] {
+  animation: fadeIn 0.18s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Todas as interações de hover na sidebar */
+[data-sidebar="menu-button"] {
+  transition: all 0.12s ease !important;
+}
+
+/* Botões shadcn — override para look premium */
+button[class*="bg-primary"] {
+  background: linear-gradient(135deg, #4f6ef7 0%, #3b5ae0 100%) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25), 0 0 0 1px rgba(79,110,247,0.15) inset;
+}
+button[class*="bg-primary"]:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6480f9 0%, #4f6ef7 100%) !important;
+  box-shadow: 0 4px 12px rgba(79,110,247,0.3);
+}
+
+/* Cards padrão — border mais sutil */
+[class*="bg-card"][class*="border-border"] {
+  border-color: rgba(22,31,58,0.9) !important;
+}
+
+/* Number inputs alinhados */
+input[type="number"] { font-variant-numeric: tabular-nums; }
+

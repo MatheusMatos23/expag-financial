@@ -91,7 +91,7 @@ function MoveToRevenueModal({ ids, total, onConfirm, onClose, isLoading }: {
   const [description, setDescription] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+      <div className="card-premium rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-emerald-400" />
@@ -159,7 +159,7 @@ function MoveToExpenseModal({ ids, total, onConfirm, onClose, isLoading }: {
   const [supplier, setSupplier] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+      <div className="card-premium rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingDown className="w-5 h-5 text-red-400" />
@@ -619,7 +619,7 @@ export default function Divergences() {
           { label: "Falta Banco", value: formatCurrency(shortageTotal), sub: "API > banco", color: "text-red-400", icon: ArrowDownRight },
           { label: "Pendentes", value: pendingCount, sub: `${criticalCount} críticas`, color: pendingCount > 0 ? "text-yellow-400" : "text-emerald-400", icon: Clock },
         ].map(({ label, value, sub, color, icon: Icon }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <div className="flex items-center gap-1.5 mb-2">
               <Icon className="w-3.5 h-3.5 text-muted-foreground" />
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
@@ -665,7 +665,7 @@ export default function Divergences() {
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground text-sm">Carregando divergências...</div>
       ) : rows.length === 0 ? (
-        <div className="bg-card border border-border rounded-xl p-12 text-center">
+        <div className="card-premium rounded-xl p-12 text-center">
           <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3 opacity-50" />
           <p className="text-sm font-semibold text-foreground">Nenhuma divergência encontrada</p>
           <p className="text-xs text-muted-foreground mt-1">Processe uma conciliação para gerar divergências automaticamente.</p>
@@ -692,7 +692,7 @@ export default function Divergences() {
             const groupSelectedCount = items.filter((d: any) => selectedIds.has(d.id)).length;
 
             return (
-              <div key={statusKey} className="bg-card border border-border rounded-xl overflow-hidden">
+              <div key={statusKey} className="card-premium rounded-xl overflow-hidden">
                 <button
                   className="w-full flex items-center justify-between px-5 py-3 hover:bg-accent/20 transition-colors"
                   onClick={() => setExpanded(isOpen ? null : statusKey)}
@@ -816,7 +816,7 @@ export default function Divergences() {
       {/* Modal Conciliação Manual */}
       {reconcileOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+          <div className="card-premium rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-violet-400" />
@@ -870,7 +870,7 @@ export default function Divergences() {
       {/* Modal NDI */}
       {ndiOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+          <div className="card-premium rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Tag className="w-5 h-5 text-orange-400" />
@@ -901,7 +901,7 @@ export default function Divergences() {
       {/* Modal Ajuste Manual */}
       {adjustOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+          <div className="card-premium rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Wrench className="w-5 h-5 text-blue-400" />

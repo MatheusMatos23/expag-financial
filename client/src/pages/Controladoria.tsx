@@ -54,7 +54,7 @@ function KpiCard({ label, value, sub, color, icon: Icon, trend }: {
   icon: any; trend?: number;
 }) {
   return (
-    <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
+    <div className="card-premium rounded-2xl p-5 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", color.replace("text-","bg-").replace("-400","-500/15"))}>
           <Icon className={cn("w-4.5 h-4.5", color)} />
@@ -189,7 +189,7 @@ export default function Controladoria() {
 
       {/* Gráfico de evolução */}
       {evolutionData.length > 0 && (
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-sm font-bold text-foreground">Evolução Receitas vs Despesas</h3>
@@ -229,7 +229,7 @@ export default function Controladoria() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Receitas por tipo */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Receitas por Tipo</h3>
             <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/receitas")}>
@@ -266,7 +266,7 @@ export default function Controladoria() {
         </div>
 
         {/* Despesas por categoria */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Despesas por Categoria</h3>
             <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/despesas")}>
@@ -296,7 +296,7 @@ export default function Controladoria() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Últimas Receitas */}
-        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="card-premium rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-emerald-400" />
@@ -328,7 +328,7 @@ export default function Controladoria() {
         </div>
 
         {/* Últimas Despesas */}
-        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="card-premium rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <TrendingDown className="w-4 h-4 text-red-400" />

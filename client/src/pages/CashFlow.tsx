@@ -60,7 +60,7 @@ export default function CashFlow() {
           { label: "Fluxo Líquido", value: formatCurrency(netFlow), color: netFlow >= 0 ? "text-blue-400" : "text-orange-400", icon: DollarSign },
           { label: "Saldo Final", value: formatCurrency(lastBalance), color: lastBalance >= 0 ? "text-emerald-400" : "text-red-400", icon: TrendingUp },
         ].map(({ label, value, color, icon: Icon }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <div className="flex items-center gap-1.5 mb-2"><Icon className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span></div>
             <p className={cn("text-xl font-bold font-mono", color)}>{value}</p>
           </div>
@@ -70,7 +70,7 @@ export default function CashFlow() {
       {chartData.length > 0 && (
         <>
           {/* Saldo acumulado */}
-          <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="card-premium rounded-2xl p-5">
             <h3 className="text-sm font-bold text-foreground mb-4">Saldo Acumulado</h3>
             <ResponsiveContainer width="100%" height={180}>
               <AreaChart data={chartData} margin={{ top:0, right:0, left:0, bottom:0 }}>
@@ -90,7 +90,7 @@ export default function CashFlow() {
           </div>
 
           {/* Entradas vs Saídas */}
-          <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="card-premium rounded-2xl p-5">
             <h3 className="text-sm font-bold text-foreground mb-4">Entradas vs Saídas por Dia</h3>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={chartData} margin={{ top:0, right:0, left:0, bottom:0 }}>
@@ -110,12 +110,12 @@ export default function CashFlow() {
       {isLoading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Carregando...</div>
       ) : rows.length === 0 ? (
-        <div className="bg-card border border-border rounded-xl p-12 text-center">
+        <div className="card-premium rounded-xl p-12 text-center">
           <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-30 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Sem movimentações no período. Registre receitas e despesas para gerar o fluxo de caixa.</p>
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="card-premium rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>

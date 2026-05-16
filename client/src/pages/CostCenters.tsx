@@ -122,7 +122,7 @@ export default function CostCenters() {
           const budget = parseFloat(cc.budget ?? "0");
           const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
           return (
-            <div key={cc.id} className="bg-card border border-border rounded-xl p-5 kpi-card">
+            <div key={cc.id} className="card-premium rounded-xl p-5 kpi-card">
               <div className="flex items-start justify-between mb-3 gap-2">
                 <div className="min-w-0">
                   <h3 className="text-sm font-semibold text-foreground truncate">{cc.name}</h3>

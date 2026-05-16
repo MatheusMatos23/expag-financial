@@ -97,7 +97,7 @@ function BalanceBar({ bankVal, apiVal, label }: { bankVal: number; apiVal: numbe
   const apiPct  = (apiVal  / max) * 100;
   const balanced = Math.abs(diff) < 0.01;
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
+    <div className="card-premium rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-semibold text-foreground">{label}</span>
         <span className={cn("text-xs font-bold font-mono", balanced ? "text-emerald-400" : "text-yellow-400")}>
@@ -193,7 +193,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
 
       {/* KPIs superiores */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="bg-card border border-border rounded-xl p-4 col-span-1">
+        <div className="card-premium rounded-xl p-4 col-span-1">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Taxa Matching</p>
           <p className={cn("text-2xl font-bold", matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-yellow-400" : "text-red-400")}>
             {matchRate}%
@@ -203,16 +203,16 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
               style={{ width: `${matchRate}%` }} />
           </div>
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Conciliados</p>
           <p className="text-2xl font-bold text-emerald-400">{sess.matchedCount}</p>
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Divergentes</p>
           <p className="text-2xl font-bold text-yellow-400">{(divs ?? []).length}</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{pendingDivs.length} pendentes</p>
         </div>
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Valor em Aberto</p>
           <p className="text-lg font-bold font-mono text-yellow-400">{formatCurrency(totalDivValue)}</p>
         </div>
@@ -244,7 +244,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
       </div>
 
       {/* Tab Content */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="card-premium rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           {/* Divergências */}
           {tab === "divs" && (
@@ -487,7 +487,7 @@ export default function Reconciliation() {
 
         {/* Histórico compacto */}
         {(sessions as any[])?.length > 1 && (
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="card-premium rounded-xl overflow-hidden">
             <div className="px-5 py-2.5 border-b border-border">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Outras sessões</p>
             </div>
@@ -526,7 +526,7 @@ export default function Reconciliation() {
 
       {/* Upload Panel */}
       {uploadOpen && (
-        <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+        <div className="card-premium rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">Importar Extratos</h2>
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setUploadOpen(false)}>
@@ -578,7 +578,7 @@ export default function Reconciliation() {
 
       {/* Histórico de sessões */}
       {(sessions as any[])?.length > 0 ? (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="card-premium rounded-xl overflow-hidden">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">Sessões de Conciliação</h2>
             <span className="text-xs text-muted-foreground">{(sessions as any[]).length} sessões</span>
@@ -642,7 +642,7 @@ export default function Reconciliation() {
           </div>
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-xl p-16 text-center">
+        <div className="card-premium rounded-xl p-16 text-center">
           <Scale className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-30" />
           <p className="text-sm font-semibold text-foreground">Nenhuma conciliação realizada</p>
           <p className="text-xs text-muted-foreground mt-1">Clique em "Nova Conciliação" para começar.</p>

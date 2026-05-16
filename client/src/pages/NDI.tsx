@@ -337,7 +337,7 @@ export default function NDI() {
           { label: "Dias Médios",     value: `${avgDays}d`,                sub: "em investigação",     color: avgDays > 30 ? "text-red-400" : "text-muted-foreground" },
           { label: "Vencidos +30d",  value: `${overdue}`,                 sub: "requerem atenção",    color: overdue > 0 ? "text-red-400" : "text-emerald-400" },
         ].map(({ label, value, sub, color }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
             <p className={cn("text-xl font-bold font-mono", color)}>{value}</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>
@@ -381,7 +381,7 @@ export default function NDI() {
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground text-sm">Carregando NDIs...</div>
       ) : filtered.length === 0 ? (
-        <div className="bg-card border border-border rounded-xl p-12 text-center">
+        <div className="card-premium rounded-xl p-12 text-center">
           <FileSearch className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-30" />
           <p className="text-sm font-semibold text-foreground">
             {items.length === 0 ? "Nenhum NDI registrado" : "Nenhum resultado"}
@@ -391,7 +391,7 @@ export default function NDI() {
           </p>
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="card-premium rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>

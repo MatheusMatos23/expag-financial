@@ -403,7 +403,7 @@ function DashboardLayoutContent({
     <>
       <div className="relative" ref={sidebarRef}>
         <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar" disableTransition={isResizing}>
-          <SidebarHeader className="h-16 justify-center border-b border-sidebar-border">
+          <SidebarHeader className="h-[58px] justify-center border-b border-sidebar-border/60">
             <div className={cn("flex items-center px-2 w-full", isCollapsed ? "justify-center" : "gap-3")}>
               {!isCollapsed && (
                 <button
@@ -429,9 +429,9 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0 py-2">
             {menuGroups.map((group) => (
-              <SidebarGroup key={group.label} className="px-2 py-1">
+              <SidebarGroup key={group.label} className="px-2 py-0.5">
                 {!isCollapsed && (
-                  <SidebarGroupLabel className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40 px-2 mb-1">
+                  <SidebarGroupLabel className="text-[9px] font-700 uppercase tracking-[0.1em] text-[#273b5c] px-2 mb-0.5 mt-1">
                     {group.label}
                   </SidebarGroupLabel>
                 )}
@@ -444,12 +444,21 @@ function DashboardLayoutContent({
                           isActive={isActive}
                           onClick={() => setLocation(item.path)}
                           tooltip={item.label}
-                          className="h-9 transition-all font-normal text-sidebar-foreground/80 hover:text-sidebar-foreground hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-primary"
+                          className={cn(
+                            "h-8 transition-all duration-100 rounded-lg relative overflow-hidden",
+                            "font-normal tracking-tight",
+                            isActive
+                              ? "bg-[rgba(79,110,247,0.12)] text-[#eef1f8] shadow-[inset_0_0_0_1px_rgba(79,110,247,0.2)]"
+                              : "text-[#4d6490] hover:text-[#9badd4] hover:bg-[rgba(10,18,32,0.9)]"
+                          )}
                         >
-                          <item.icon className={`h-4 w-4 shrink-0 ${isActive ? "text-primary" : ""}`} />
-                          <span className="text-sm">{item.label}</span>
+                          {isActive && (
+                            <span className="absolute left-0 top-[25%] bottom-[25%] w-[2px] bg-[#4f6ef7] rounded-r-full shadow-[0_0_8px_rgba(79,110,247,0.9)]" />
+                          )}
+                          <item.icon className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-[#7b97f9]" : "")} />
+                          <span className="text-[13px]">{item.label}</span>
                           {item.path === '/alertas' && alertCount > 0 && !isCollapsed && (
-                            <span className="ml-auto text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 rounded-full px-1.5 py-0.5 font-medium">
+                            <span className="ml-auto text-[10px] bg-red-500/15 text-red-400 border border-red-500/25 rounded-full px-1.5 min-w-[18px] text-center font-semibold leading-[18px]">
                               {alertCount}
                             </span>
                           )}

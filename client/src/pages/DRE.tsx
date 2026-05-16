@@ -64,7 +64,7 @@ export default function DRE() {
           { label: "Resultado Acum.", value: formatCurrency(totalNet), color: totalNet >= 0 ? "text-emerald-400" : "text-red-400", icon: DollarSign },
           { label: "Margem Média", value: `${avgMargin.toFixed(1)}%`, color: avgMargin >= 30 ? "text-blue-400" : avgMargin >= 0 ? "text-yellow-400" : "text-red-400", icon: Percent },
         ].map(({ label, value, color, icon: Icon }) => (
-          <div key={label} className="bg-card border border-border rounded-xl p-4">
+          <div key={label} className="card-premium rounded-xl p-4">
             <div className="flex items-center gap-1.5 mb-2"><Icon className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span></div>
             <p className={cn("text-xl font-bold font-mono", color)}>{value}</p>
           </div>
@@ -73,7 +73,7 @@ export default function DRE() {
 
       {/* Gráfico */}
       {chartData.length > 0 && (
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <h3 className="text-sm font-bold text-foreground mb-4">Receita vs Despesa vs Resultado</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} margin={{ top:0, right:0, left:0, bottom:0 }}>
@@ -95,12 +95,12 @@ export default function DRE() {
       {isLoading ? (
         <div className="text-center py-8 text-muted-foreground text-sm">Carregando DRE...</div>
       ) : list.length === 0 ? (
-        <div className="bg-card border border-border rounded-xl p-12 text-center">
+        <div className="card-premium rounded-xl p-12 text-center">
           <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-30 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Sem dados no período. Registre receitas e despesas para gerar o DRE automaticamente.</p>
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="card-premium rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>

@@ -35,15 +35,31 @@ function KpiCard({ label, value, sub, color, icon: Icon, onClick }: {
   label: string; value: string; sub?: string; color: string; icon: any; onClick?: () => void;
 }) {
   return (
-    <div className={cn("bg-card border border-border rounded-2xl p-5 space-y-3", onClick && "cursor-pointer hover:border-primary/30 transition-colors")} onClick={onClick}>
-      <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", color.replace("text-","bg-").replace("-400","-500/15"))}>
-        <Icon className={cn("w-4 h-4", color)} />
+    <div
+      className={cn(
+        "kpi-accent card-premium relative p-5 space-y-3 group",
+        onClick && "cursor-pointer"
+      )}
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <div className={cn(
+          "w-7 h-7 rounded-lg flex items-center justify-center opacity-70 group-hover:opacity-100 transition-opacity",
+          color.replace("text-","bg-").replace("-400","-500/12")
+        )}>
+          <Icon className={cn("w-3.5 h-3.5", color)} />
+        </div>
       </div>
       <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{label}</p>
-        <p className={cn("text-2xl font-bold font-mono mt-0.5", color)}>{value}</p>
-        {sub && <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>}
+        <p className={cn("text-[1.6rem] font-bold font-mono tracking-tight leading-none", color)}>{value}</p>
+        {sub && <p className="text-[11px] text-muted-foreground mt-1.5 font-normal">{sub}</p>}
       </div>
+      {onClick && (
+        <div className="absolute bottom-3.5 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+        </div>
+      )}
     </div>
   );
 }
@@ -217,7 +233,7 @@ export default function Dashboard() {
         </div>
 
         {/* Saldo por banco */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Saldo por Banco</h3>
             <span className="text-[10px] text-muted-foreground">Acumulado</span>
@@ -272,7 +288,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         {/* Receitas por tipo */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Receitas por Tipo</h3>
             <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/receitas")}>
@@ -309,7 +325,7 @@ export default function Dashboard() {
         </div>
 
         {/* Despesas por categoria */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Despesas por Categoria</h3>
             <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/despesas")}>
@@ -335,7 +351,7 @@ export default function Dashboard() {
         </div>
 
         {/* Taxa de conciliação + sessões */}
-        <div className="bg-card border border-border rounded-2xl p-5">
+        <div className="card-premium rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-foreground">Taxa de Conciliação</h3>
             <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-muted-foreground" onClick={() => navigate("/conciliacao")}>
