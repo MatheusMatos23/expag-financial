@@ -124,155 +124,206 @@ function AuthScreen() {
   return (
     <div className="flex min-h-screen bg-background overflow-hidden">
 
-      {/* ── LEFT — Branding premium ── */}
-      <div className="hidden lg:flex lg:w-[480px] xl:w-[540px] shrink-0 flex-col relative overflow-hidden"
-        style={{ background: "linear-gradient(160deg, #0d1a38 0%, #060c18 60%, #0a1628 100%)" }}>
+      {/* ── LEFT — Branding panel ── */}
+      <div className="hidden lg:flex lg:w-[460px] xl:w-[520px] shrink-0 flex-col relative overflow-hidden"
+        style={{ background: "linear-gradient(150deg, #07102a 0%, #030509 55%, #050d1f 100%)" }}>
 
-        {/* Grid pattern overlay */}
-        <div className="absolute inset-0 opacity-[0.04]"
+        {/* Subtle dot grid */}
+        <div className="absolute inset-0"
           style={{
-            backgroundImage: "linear-gradient(rgba(59,130,246,1) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,1) 1px, transparent 1px)",
-            backgroundSize: "40px 40px",
+            backgroundImage: "radial-gradient(circle, rgba(79,110,247,0.18) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+            maskImage: "radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%)",
           }} />
 
-        {/* Blue glow top-right */}
-        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full opacity-10"
-          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
-        {/* Blue glow bottom-left */}
-        <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full opacity-8"
-          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }} />
+        {/* Glow orb top */}
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full pointer-events-none"
+          style={{ background: "radial-gradient(circle, rgba(79,110,247,0.12) 0%, transparent 65%)" }} />
+
+        {/* Glow orb bottom */}
+        <div className="absolute -bottom-32 -left-20 w-80 h-80 rounded-full pointer-events-none"
+          style={{ background: "radial-gradient(circle, rgba(79,110,247,0.07) 0%, transparent 70%)" }} />
+
+        {/* Thin vertical accent line */}
+        <div className="absolute right-0 top-[15%] bottom-[15%] w-px"
+          style={{ background: "linear-gradient(to bottom, transparent, rgba(79,110,247,0.3) 40%, rgba(79,110,247,0.3) 60%, transparent)" }} />
 
         <div className="relative z-10 flex flex-col justify-between h-full p-10 xl:p-14">
-          {/* Logo — maior e com tagline */}
-          <div>
-            <ExpagLogo collapsed={false} className="scale-[1.6] origin-left mb-2" />
-            <p className="text-[10px] text-white/30 tracking-widest uppercase mt-5 ml-0.5">Financial System</p>
+
+          {/* Logo */}
+          <div className="space-y-3">
+            <ExpagLogo collapsed={false} size="lg" />
+            <div className="flex items-center gap-2 mt-1">
+              <div className="h-px flex-1 bg-gradient-to-r from-[rgba(79,110,247,0.4)] to-transparent" />
+              <span className="text-[9px] font-semibold tracking-[0.22em] text-[#4f6ef7]/60 uppercase">Financial System</span>
+            </div>
           </div>
 
-          {/* Main headline — meio do painel */}
-          <div>
-            <p className="text-[10px] font-bold tracking-[0.2em] text-primary/70 uppercase mb-4">
-              Sistema Financeiro Institucional
-            </p>
-            <h2 className="text-3xl xl:text-[2.5rem] font-bold text-white leading-[1.15] tracking-tight">
-              Gestão financeira<br />de nível institucional
+          {/* Headline */}
+          <div className="space-y-5">
+            <div className="inline-flex items-center gap-2 bg-[rgba(79,110,247,0.1)] border border-[rgba(79,110,247,0.2)] rounded-full px-3 py-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#4f6ef7] animate-pulse" />
+              <span className="text-[10px] font-semibold text-[#7b97f9] tracking-wide">Plataforma Institucional</span>
+            </div>
+            <h2 className="text-[2.1rem] xl:text-[2.5rem] font-bold text-white leading-[1.1] tracking-[-0.03em]">
+              Gestão financeira<br />
+              <span style={{ background: "linear-gradient(90deg, #7b97f9, #4f6ef7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                de nível institucional
+              </span>
             </h2>
-            <p className="text-sm text-white/35 mt-5 leading-relaxed max-w-[300px]">
-              Conciliação bancária, controladoria, DRE e carteira de crédito integrados em um único painel operacional.
+            <p className="text-sm text-white/30 leading-relaxed max-w-[290px]">
+              Conciliação bancária, controladoria, DRE e carteira de crédito — tudo integrado.
             </p>
           </div>
 
-          {/* Feature cards */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Feature list — mais elegante */}
+          <div className="space-y-3">
             {FEATURES.map(({ icon: Icon, label, sub }) => (
-              <div key={label} className="rounded-xl p-4 border"
-                style={{ background: "rgba(59,130,246,0.07)", borderColor: "rgba(59,130,246,0.15)" }}>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
-                  style={{ background: "rgba(59,130,246,0.18)" }}>
-                  <Icon className="w-4 h-4 text-primary" />
+              <div key={label} className="flex items-center gap-3.5 group">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                  style={{ background: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.18)" }}>
+                  <Icon className="w-3.5 h-3.5 text-[#7b97f9]" />
                 </div>
-                <p className="text-xs font-semibold text-white/85 leading-tight">{label}</p>
-                <p className="text-[10px] text-white/35 mt-1.5 leading-relaxed">{sub}</p>
+                <div>
+                  <p className="text-xs font-semibold text-white/75 leading-tight">{label}</p>
+                  <p className="text-[10px] text-white/28 mt-0.5">{sub}</p>
+                </div>
               </div>
             ))}
           </div>
 
-          {/* Bottom status */}
-          <div className="flex items-center gap-2.5 pt-5 border-t"
-            style={{ borderColor: "rgba(255,255,255,0.07)" }}>
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="text-[10px] text-white/35 tracking-wide">Sistema operacional · Todos os serviços ativos</span>
+          {/* Status */}
+          <div className="flex items-center gap-2.5 pt-5 border-t border-white/5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"
+              style={{ boxShadow: "0 0 6px rgba(52,211,153,0.8)" }} />
+            <span className="text-[10px] text-white/30 tracking-wide">Todos os sistemas operacionais</span>
           </div>
         </div>
       </div>
 
       {/* ── RIGHT — Form ── */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
 
-        {/* Subtle top border glow */}
-        <div className="absolute top-0 left-0 right-0 h-px"
-          style={{ background: "linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent)" }} />
+        {/* Background subtle glow */}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse 60% 50% at 50% 40%, rgba(79,110,247,0.05) 0%, transparent 100%)" }} />
 
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-[360px] relative z-10">
+
           {/* Mobile logo */}
           <div className="lg:hidden mb-10 flex justify-center">
-            <ExpagLogo collapsed={false} />
+            <ExpagLogo collapsed={false} size="lg" />
           </div>
 
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {isSetup ? "Configurar acesso" : "Bem-vindo de volta"}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1.5">
-              {isSetup
-                ? "Configure o primeiro administrador do sistema."
-                : "Entre com suas credenciais para acessar o painel."}
-            </p>
-          </div>
+          {/* Card form */}
+          <div className="rounded-2xl p-8"
+            style={{
+              background: "rgba(10,15,30,0.7)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid rgba(79,110,247,0.15)",
+              boxShadow: "0 0 0 1px rgba(79,110,247,0.06), 0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)",
+            }}>
 
-          {/* Form */}
-          <form onSubmit={isSetup ? handleSetup : handleLogin} className="space-y-4">
-            {isSetup && (
-              <div className="space-y-1.5">
-                <Label htmlFor="name" className="text-xs font-medium text-muted-foreground">Nome completo</Label>
-                <Input id="name" type="text" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Seu nome" className="h-11 bg-card border-border"
-                  autoComplete="name" />
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-xs font-medium text-muted-foreground">Email *</Label>
-              <div className="relative">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
-                <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="admin@expag.com.br"
-                  className="pl-10 h-11 bg-card border-border"
-                  required autoComplete="email" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">
-                Senha * {isSetup && <span className="text-muted-foreground/50 font-normal">(mín. 8 caracteres)</span>}
-              </Label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
-                <Input id="password" type={showPass ? "text" : "password"}
-                  value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder={isSetup ? "Crie uma senha segura" : "Sua senha"}
-                  className="pl-10 pr-10 h-11 bg-card border-border"
-                  required autoComplete={isSetup ? "new-password" : "current-password"} />
-                <button type="button" onClick={() => setShowPass(v => !v)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
-                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="flex items-start gap-2.5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-red-400 leading-relaxed">{error}</p>
-              </div>
-            )}
-
-            <Button type="submit" disabled={loading}
-              className="w-full h-11 font-semibold text-sm mt-2">
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Aguarde...
+            {/* Card header */}
+            <div className="mb-7">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                  style={{ background: "rgba(79,110,247,0.15)", border: "1px solid rgba(79,110,247,0.25)" }}>
+                  <Lock className="w-3.5 h-3.5 text-[#7b97f9]" />
+                </div>
+                <span className="text-[10px] font-semibold text-[#4d6490] tracking-[0.1em] uppercase">
+                  {isSetup ? "Configuração inicial" : "Autenticação"}
                 </span>
-              ) : isSetup ? "Criar Administrador" : "Entrar no Sistema"}
-            </Button>
-          </form>
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-[#eef1f8]">
+                {isSetup ? "Criar administrador" : "Acessar sistema"}
+              </h1>
+              <p className="text-[13px] text-[#4d6490] mt-1.5">
+                {isSetup
+                  ? "Configure o acesso inicial ao Expag Financial."
+                  : "Entre com suas credenciais institucionais."}
+              </p>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={isSetup ? handleSetup : handleLogin} className="space-y-4">
+              {isSetup && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="name" className="text-[11px] font-semibold text-[#4d6490] uppercase tracking-wider">
+                    Nome completo
+                  </Label>
+                  <Input id="name" type="text" value={name} onChange={e => setName(e.target.value)}
+                    placeholder="Seu nome"
+                    className="h-11 text-sm"
+                    style={{ background: "rgba(5,8,16,0.6)", border: "1px solid rgba(22,31,58,0.9)", color: "#eef1f8" }}
+                    autoComplete="name" />
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-[11px] font-semibold text-[#4d6490] uppercase tracking-wider">
+                  Email
+                </Label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#2d4166] pointer-events-none" />
+                  <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="admin@expag.com.br"
+                    className="pl-10 h-11 text-sm"
+                    style={{ background: "rgba(5,8,16,0.6)", border: "1px solid rgba(22,31,58,0.9)", color: "#eef1f8" }}
+                    required autoComplete="email" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-[11px] font-semibold text-[#4d6490] uppercase tracking-wider">
+                  Senha {isSetup && <span className="text-[#2d4166] font-normal normal-case tracking-normal">(mín. 8 caracteres)</span>}
+                </Label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#2d4166] pointer-events-none" />
+                  <Input id="password" type={showPass ? "text" : "password"}
+                    value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder={isSetup ? "Crie uma senha segura" : "••••••••"}
+                    className="pl-10 pr-10 h-11 text-sm"
+                    style={{ background: "rgba(5,8,16,0.6)", border: "1px solid rgba(22,31,58,0.9)", color: "#eef1f8" }}
+                    required autoComplete={isSetup ? "new-password" : "current-password"} />
+                  <button type="button" onClick={() => setShowPass(v => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#2d4166] hover:text-[#4d6490] transition-colors">
+                    {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {error && (
+                <div className="flex items-start gap-2.5 p-3 rounded-lg"
+                  style={{ background: "rgba(232,64,64,0.08)", border: "1px solid rgba(232,64,64,0.2)" }}>
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-400 leading-relaxed">{error}</p>
+                </div>
+              )}
+
+              <button type="submit" disabled={loading}
+                className="w-full h-11 rounded-lg font-semibold text-sm text-white transition-all mt-1 disabled:opacity-60"
+                style={{
+                  background: loading
+                    ? "rgba(79,110,247,0.5)"
+                    : "linear-gradient(135deg, #4f6ef7 0%, #3b5ae0 100%)",
+                  border: "1px solid rgba(79,110,247,0.5)",
+                  boxShadow: loading ? "none" : "0 4px 16px rgba(79,110,247,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+                }}>
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/25 border-t-white rounded-full animate-spin" />
+                    Verificando...
+                  </span>
+                ) : isSetup ? "Criar administrador" : "Entrar"}
+              </button>
+            </form>
+          </div>
 
           {/* Dev bypass */}
           {import.meta.env.VITE_APP_ID === "local-dev" && (
-            <div className="mt-6 pt-5 border-t border-border/50">
-              <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground/60 hover:text-muted-foreground"
+            <div className="mt-4">
+              <Button variant="ghost" size="sm" className="w-full text-xs text-[#2d4166] hover:text-[#4d6490]"
                 onClick={() => { window.location.href = "/api/dev-login"; }}>
                 Entrar como dev local
               </Button>
@@ -280,8 +331,8 @@ function AuthScreen() {
           )}
 
           {/* Footer */}
-          <p className="text-center text-[11px] text-muted-foreground/40 mt-8">
-            Expag Financial System · Uso interno e exclusivo
+          <p className="text-center text-[10px] text-[#1e2f50] mt-6 tracking-wide">
+            Expag Financial System · Uso exclusivo interno
           </p>
         </div>
       </div>
