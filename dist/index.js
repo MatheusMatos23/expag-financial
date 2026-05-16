@@ -132494,16 +132494,43 @@ var reconciliationRouter = router({
     }
     return { success: true };
   }),
-  // ── Recalcula e corrige stats da sessão a partir dos dados reais ────────────
+  // ── Recalcula e corrige stats + remove tarifas duplicadas (sessões antigas) ──
   recalculateSessionStats: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     const dbConn = await getDb();
     if (!dbConn) throw new Error("DB unavailable");
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
     const { reconciliationSessions: reconciliationSessions2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
     const { eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const dupCheck = await dbConn.execute(sqlTag`
+        SELECT COUNT(*) as cnt FROM bank_transactions t1
+        INNER JOIN bank_transactions t2
+          ON t1.sessionId = t2.sessionId
+          AND t1.bankName = t2.bankName
+          AND t1.amount = t2.amount
+          AND CAST(t1.transactionDate AS DATE) = CAST(t2.transactionDate AS DATE)
+          AND t1.id != t2.id
+          AND t1.matchStatus = 'divergent'
+          AND t2.matchStatus = 'manual'
+        WHERE t1.sessionId = ${input.id}
+      `);
+    const dupCount = parseInt(String(dupCheck[0]?.[0]?.cnt ?? 0));
+    if (dupCount > 0) {
+      await dbConn.execute(sqlTag`
+          DELETE t1 FROM bank_transactions t1
+          INNER JOIN bank_transactions t2
+            ON t1.sessionId = t2.sessionId
+            AND t1.bankName = t2.bankName
+            AND t1.amount = t2.amount
+            AND CAST(t1.transactionDate AS DATE) = CAST(t2.transactionDate AS DATE)
+            AND t1.id > t2.id
+            AND t1.matchStatus = 'divergent'
+            AND t2.matchStatus = 'manual'
+          WHERE t1.sessionId = ${input.id}
+        `);
+    }
     const [totalRes, matchedRes, pendingRes, totalDivRes] = await Promise.all([
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
-      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'matched'`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id}`)
     ]);
@@ -132512,12 +132539,8 @@ var reconciliationRouter = router({
     const pending = parseInt(String(pendingRes[0]?.[0]?.cnt ?? 0));
     const totalDivs = parseInt(String(totalDivRes[0]?.[0]?.cnt ?? 0));
     const matchRate = totalBank > 0 ? Math.round(matchedBank / totalBank * 100) : 0;
-    await dbConn.update(reconciliationSessions2).set({
-      matchedCount: matchedBank,
-      divergentCount: totalDivs,
-      pendingCount: pending
-    }).where(eqOp(reconciliationSessions2.id, input.id));
-    return { matchedCount: matchedBank, divergentCount: totalDivs, pendingCount: pending, matchRate };
+    await dbConn.update(reconciliationSessions2).set({ matchedCount: matchedBank, divergentCount: totalDivs, pendingCount: pending }).where(eqOp(reconciliationSessions2.id, input.id));
+    return { matchedCount: matchedBank, divergentCount: totalDivs, pendingCount: pending, matchRate, totalBank, fixedDuplicates: dupCount };
   }),
   // ── Stats em tempo real da sessão ────────────────────────────────────────────
   getSessionStats: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
@@ -132547,8 +132570,8 @@ var reconciliationRouter = router({
     let effectiveMatched;
     let effectiveTotal;
     if (totalAllTxs > 0) {
-      effectiveMatched = matchedOnlyReal > 0 ? matchedOnlyReal : matchedBankTxs;
-      effectiveTotal = totalRealTxs > 0 ? totalRealTxs : totalAllTxs;
+      effectiveMatched = matchedOnlyReal;
+      effectiveTotal = totalAllTxs;
     } else {
       effectiveMatched = sessionMatched;
       effectiveTotal = sessionMatched + sessionDivergent;
@@ -132560,7 +132583,7 @@ var reconciliationRouter = router({
       matchedCount: effectiveMatched,
       pendingCount: pendingDivs,
       matchRate,
-      divergentCount: realDivergent
+      divergentCount: Math.max(0, realDivergent)
     };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────

@@ -396,24 +396,36 @@ export default function ReconciliationSession() {
       </div>
 
       {/* ── Recalcular stats para sessões antigas ── */}
-      {/* Banner para sessões com dados potencialmente desatualizados */}
-      {(liveStats?.matchRate ?? 0) < 85 && session?.status === 'completed' && (
-        <div className="flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3 mb-1">
-          <div className="flex items-center gap-2">
-            <RefreshCw className="w-3.5 h-3.5 text-yellow-400" />
-            <p className="text-xs text-yellow-400">
-              Taxa de matching baixa — pode ser uma sessão antiga com dados desatualizados.
-            </p>
-          </div>
-          <Button size="sm" variant="outline"
-            className="h-7 text-xs gap-1.5 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 shrink-0"
-            onClick={() => recalcMutation.mutate({ id })}
-            disabled={recalcMutation.isPending}
-          >
-            <RefreshCw className={`w-3 h-3 ${recalcMutation.isPending ? 'animate-spin' : ''}`} />
-            {recalcMutation.isPending ? 'Recalculando...' : 'Recalcular agora'}
-          </Button>
-        </div>
+      {/* Banner para sessões com dados desatualizados */}
+      {session?.status === 'completed' && allBank.length > 0 && (
+        (() => {
+          // Detecta sessão com double-count: total de bank_txs muito diferente do header
+          // Use the count from the session header text (from data.bankTxs array length as reference)
+          const headerBankCount = (data as any)?.bankTxs?.length ?? allBank.length;
+          const isCorrupted = allBank.length > headerBankCount * 1.05; // >5% a mais = suspeito
+          const isLowRate = (liveStats?.matchRate ?? 100) < 85;
+          if (!isCorrupted && !isLowRate) return null;
+          return (
+            <div className="flex items-center justify-between bg-amber-500/8 border border-amber-500/25 rounded-xl px-4 py-3 mb-1">
+              <div className="flex items-center gap-2.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <p className="text-xs text-amber-400">
+                  {isCorrupted
+                    ? `Sessão com dados duplicados detectados (${allBank.length} txs vs ${headerBankCount} esperadas). Clique para corrigir.`
+                    : 'Taxa de matching baixa — esta sessão pode ter dados desatualizados.'}
+                </p>
+              </div>
+              <Button size="sm" variant="outline"
+                className="h-7 text-xs gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 shrink-0 ml-3"
+                onClick={() => recalcMutation.mutate({ id })}
+                disabled={recalcMutation.isPending}
+              >
+                <RefreshCw className={`w-3 h-3 ${recalcMutation.isPending ? 'animate-spin' : ''}`} />
+                {recalcMutation.isPending ? 'Corrigindo...' : 'Corrigir sessão'}
+              </Button>
+            </div>
+          );
+        })()
       )}
 
       {/* ── KPIs ── */}

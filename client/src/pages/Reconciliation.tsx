@@ -603,9 +603,14 @@ export default function Reconciliation() {
                       <td className="px-4 py-3 font-medium">{formatDate(sess.referenceDate)}</td>
                       <td className="px-4 py-3 text-emerald-400 font-semibold">{sess.matchedCount}</td>
                       <td className="px-4 py-3">
-                        <span className={cn("font-semibold", (sess.pendingCount ?? sess.divergentCount ?? 0) > 0 ? "text-yellow-400" : "text-emerald-400")}>
-                          {sess.pendingCount ?? sess.divergentCount ?? 0}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("font-semibold", (sess.pendingCount ?? 0) > 0 ? "text-yellow-400" : "text-emerald-400")}>
+                            {sess.pendingCount ?? sess.divergentCount ?? 0}
+                          </span>
+                          {sess.divergentCount > (sess.pendingCount ?? 0) * 3 && sess.pendingCount !== undefined && (
+                            <span title="Sessão pode ter dados duplicados — abra para corrigir" className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-1 cursor-help">fix</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-blue-400">{formatCurrency(sess.totalBankCredits ?? 0)}</td>
                       <td className="px-4 py-3 font-mono text-red-400">{formatCurrency(sess.totalBankDebits ?? 0)}</td>
