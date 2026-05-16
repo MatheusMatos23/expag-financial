@@ -187,10 +187,10 @@ export default function Revenues() {
               {REVENUE_TYPES.map(t => <SelectItem key={t} value={t} className="text-xs">{TYPE_LABELS[t]}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}>
             <RefreshCw className="w-3.5 h-3.5" /> Atualizar
           </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
               <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Receita</Button>
             </DialogTrigger>

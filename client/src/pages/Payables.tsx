@@ -195,10 +195,10 @@ export default function Payables() {
               <SelectItem value="pago" className="text-xs">Pago</SelectItem>
             </SelectContent>
           </Select>
-          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}>
             <RefreshCw className="w-3.5 h-3.5" /> Atualizar
           </Button>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
           <DialogTrigger asChild>
               <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Conta</Button>
             </DialogTrigger>

@@ -167,8 +167,8 @@ export default function Expenses() {
           <p className="text-sm text-muted-foreground mt-1">Categoria 2 · Mapeamento de despesas por categoria</p>
         </div>
         <Dialog open={open} onOpenChange={v => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
+<Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}><RefreshCw className="w-3.5 h-3.5" /> Atualizar</Button>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}><RefreshCw className="w-3.5 h-3.5" /> Atualizar</Button>
             <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Despesa</Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
