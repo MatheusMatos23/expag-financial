@@ -11,6 +11,27 @@ import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+/**
+ * Converte qualquer valor de data para o formato AAAA-MM-DD aceito pelo MySQL.
+ * O driver pode devolver datas como objeto Date — e String(Date) produz
+ * "Fri Apr 17 2026..." que NÃO é uma data válida para o banco. Este helper
+ * trata objeto Date, string ISO e outros formatos com segurança.
+ */
+export function toMysqlDate(raw: any): string {
+  if (raw instanceof Date) {
+    return isNaN(raw.getTime())
+      ? new Date().toISOString().slice(0, 10)
+      : raw.toISOString().slice(0, 10);
+  }
+  const s = String(raw ?? "");
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  return isNaN(parsed.getTime())
+    ? new Date().toISOString().slice(0, 10)
+    : parsed.toISOString().slice(0, 10);
+}
+
+
 // ── CACHE: evita recomputar queries caras dentro do mesmo processo ────────────
 // TTL: 30s para dashboards, 5min para agregações históricas
 const _cache = new Map<string, { data: any; expiresAt: number }>();
@@ -614,7 +635,7 @@ export async function moveDivergencesToRevenue(
 
   for (const div of divs) {
     const revId = await createRevenue({
-      referenceDate: String(div.divergenceDate),
+      referenceDate: toMysqlDate(div.divergenceDate),
       type: data.type,
       description: data.description ?? div.bankDescription ?? div.apiDescription ?? undefined,
       amount: String(div.amount),
@@ -651,7 +672,7 @@ export async function moveDivergencesToExpense(
 
   for (const div of divs) {
     const expId = await createExpense({
-      referenceDate: String(div.divergenceDate),
+      referenceDate: toMysqlDate(div.divergenceDate),
       category: data.category,
       subcategory: data.subcategory,
       description: data.description ?? div.bankDescription ?? div.apiDescription ?? undefined,
@@ -1225,7 +1246,8 @@ export async function resolveNdi(id: number, data: {
   // para que o par banco↔API fique conciliado.
   // A transação de bank_transactions (NDI) já existe — criamos o par na api_transactions.
   if (div.sessionId) {
-    const dateStr = String(div.divergenceDate).slice(0, 10).replace(/\//g, '-');
+    // Converte a data para AAAA-MM-DD aceito pelo MySQL (trata objeto Date)
+    const dateStr = toMysqlDate(div.divergenceDate);
     await db.execute(sql`
       INSERT INTO api_transactions
         (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus, matchType)
