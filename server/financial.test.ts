@@ -5,7 +5,25 @@ import type { TrpcContext } from "./_core/context";
 // ─── MOCKS ────────────────────────────────────────────────────────────────────
 // Mapeados exatamente com os exports de server/db.ts
 vi.mock("./db", () => ({
-  getDb: vi.fn().mockResolvedValue({}),
+  getDb: vi.fn().mockResolvedValue((() => {
+    // Query builder encadeável — qualquer cadeia resolve para []
+    const chainable: any = new Proxy(Promise.resolve([]), {
+      get(target, prop) {
+        if (prop === "then" || prop === "catch" || prop === "finally") {
+          return (target as any)[prop].bind(target);
+        }
+        // Qualquer método (.from, .where, .limit, .set, .values...) retorna o próprio chainable
+        return () => chainable;
+      },
+    });
+    return {
+      select: () => chainable,
+      update: () => chainable,
+      insert: () => chainable,
+      delete: () => chainable,
+      execute: () => Promise.resolve([[]]),
+    };
+  })()),
   upsertUser: vi.fn().mockResolvedValue(undefined),
   getUserByOpenId: vi.fn().mockResolvedValue(undefined),
   createReconciliationSession: vi.fn().mockResolvedValue(1),

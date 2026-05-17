@@ -11,7 +11,10 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit push --force",
-    "seed": "tsx --env-file=.env server/seed.ts"
+    "seed": "tsx --env-file=.env server/seed.ts",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "ci": "npm run check && npm test && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
