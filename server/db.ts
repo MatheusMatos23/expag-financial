@@ -118,7 +118,30 @@ export async function createReconciliationSession(data: {
 export async function getReconciliationSessions(limit = 20) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(reconciliationSessions).orderBy(desc(reconciliationSessions.createdAt)).limit(limit);
+  const sessions = await db.select().from(reconciliationSessions)
+    .orderBy(desc(reconciliationSessions.createdAt)).limit(limit);
+
+  // Anexa o total real de transações de banco a cada sessão.
+  // Isso garante que o cálculo de taxa de conciliação use o MESMO
+  // denominador de getSessionStats (total de bank_transactions),
+  // mantendo consistência entre Dashboard e página de Conciliação.
+  if (sessions.length === 0) return sessions;
+
+  const counts = await db.execute(sql`
+    SELECT sessionId, COUNT(*) as cnt
+    FROM bank_transactions
+    WHERE sessionId IN (${sql.join(sessions.map(s => sql`${s.id}`), sql`, `)})
+    GROUP BY sessionId
+  `);
+  const countMap = new Map<number, number>();
+  for (const row of ((counts as any)[0] ?? [])) {
+    countMap.set(Number(row.sessionId), parseInt(String(row.cnt ?? 0)));
+  }
+
+  return sessions.map(s => ({
+    ...s,
+    totalTransactions: countMap.get(s.id) ?? ((s.matchedCount ?? 0) + (s.divergentCount ?? 0)),
+  }));
 }
 
 export async function getReconciliationSessionById(id: number) {

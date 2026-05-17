@@ -153,9 +153,11 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   if (!data) return <div className="text-center py-12 text-muted-foreground text-sm">Sessão não encontrada.</div>;
 
   const { session: sess, bankTxs, apiTxs, divs } = data as any;
-  // matchRate calculado sobre pendingCount real (não divergentCount inflado)
-  // session.pendingCount = divergências reais pendentes na tabela
-  const realTotal = sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0);
+  // matchRate — fórmula ÚNICA do sistema: conciliados / total real de transações de banco.
+  // Mesmo denominador usado em getSessionStats e na lista do Dashboard.
+  const realTotal = (bankTxs?.length ?? 0) > 0
+    ? bankTxs.length
+    : sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0);
   const matchRate = realTotal > 0
     ? Math.round((sess.matchedCount / realTotal) * 100)
     : 0;

@@ -106831,7 +106831,22 @@ async function createReconciliationSession(data) {
 async function getReconciliationSessions(limit = 20) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(reconciliationSessions).orderBy(desc(reconciliationSessions.createdAt)).limit(limit);
+  const sessions = await db.select().from(reconciliationSessions).orderBy(desc(reconciliationSessions.createdAt)).limit(limit);
+  if (sessions.length === 0) return sessions;
+  const counts = await db.execute(sql`
+    SELECT sessionId, COUNT(*) as cnt
+    FROM bank_transactions
+    WHERE sessionId IN (${sql.join(sessions.map((s) => sql`${s.id}`), sql`, `)})
+    GROUP BY sessionId
+  `);
+  const countMap = /* @__PURE__ */ new Map();
+  for (const row of counts[0] ?? []) {
+    countMap.set(Number(row.sessionId), parseInt(String(row.cnt ?? 0)));
+  }
+  return sessions.map((s) => ({
+    ...s,
+    totalTransactions: countMap.get(s.id) ?? (s.matchedCount ?? 0) + (s.divergentCount ?? 0)
+  }));
 }
 async function getReconciliationSessionById(id) {
   const db = await getDb();

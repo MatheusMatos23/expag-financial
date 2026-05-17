@@ -373,7 +373,8 @@ export default function Dashboard() {
           </div>
           <div className="space-y-2">
             {sessionList.slice(0,4).map((s: any) => {
-              const t = (s.matchedCount??0) + (s.divergentCount??0);
+              // Denominador consistente com getSessionStats: total real de transações de banco
+              const t = s.totalTransactions ?? ((s.matchedCount??0) + (s.divergentCount??0));
               const r = t > 0 ? Math.round(((s.matchedCount??0)/t)*100) : 0;
               return (
                 <div key={s.id} className="flex items-center gap-2 cursor-pointer hover:bg-accent/10 rounded px-1 py-1 transition-colors" onClick={() => navigate(`/conciliacao/${s.id}`)}>
