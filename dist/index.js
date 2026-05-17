@@ -107044,14 +107044,15 @@ async function createDivergence(data) {
       sessionId, divergenceDate, bankName, clientId, clientName,
       divergenceType, amount, origin, category, priority, status,
       bankDescription, apiDescription, externalId, bankAmount, apiAmount, transactionType,
-      observation
+      observation, bankTransactionId, apiTransactionId
     ) VALUES (
       ${data.sessionId}, ${data.divergenceDate}, ${data.bankName || null}, ${data.clientId || null},
       ${data.clientName || null}, ${data.divergenceType}, ${data.amount}, ${data.origin || null},
       ${data.category}, ${data.priority || "medium"}, 'pendente',
       ${data.bankDescription || null}, ${data.apiDescription || null},
       ${data.externalId || null}, ${data.bankAmount || null}, ${data.apiAmount || null},
-      ${data.transactionType || null}, ${data.observation || null}
+      ${data.transactionType || null}, ${data.observation || null},
+      ${data.bankTransactionId ?? null}, ${data.apiTransactionId ?? null}
     )
   `);
   return result[0]?.insertId ?? 0;
@@ -108348,10 +108349,22 @@ async function postCounterpartEntry(params) {
   const sessionId = div.sessionId;
   const txType = div.transactionType === "debit" ? "debit" : "credit";
   let newTransactionId;
+  const divAmount = parseFloat(String(div.bankAmount ?? div.apiAmount ?? div.amount ?? 0));
   if (params.side === "api") {
-    const bankTxId = div.bankTransactionId;
+    let bankTxId = div.bankTransactionId;
     if (!bankTxId) {
-      throw new Error("Esta diverg\xEAncia n\xE3o tem transa\xE7\xE3o banc\xE1ria vinculada para casar.");
+      const found = await db.execute(sql`
+        SELECT id FROM bank_transactions
+        WHERE sessionId = ${sessionId}
+          AND type = ${txType}
+          AND ABS(amount - ${divAmount}) < 0.01
+          AND matchStatus IN ('pending','divergent')
+        ORDER BY id LIMIT 1
+      `);
+      bankTxId = Number(found[0]?.[0]?.id ?? 0) || null;
+    }
+    if (!bankTxId) {
+      throw new Error("N\xE3o foi poss\xEDvel localizar a transa\xE7\xE3o banc\xE1ria correspondente a esta diverg\xEAncia.");
     }
     const res = await db.insert(apiTransactions).values({
       sessionId,
@@ -108372,9 +108385,20 @@ async function postCounterpartEntry(params) {
       WHERE id = ${bankTxId}
     `);
   } else {
-    const apiTxId = div.apiTransactionId;
+    let apiTxId = div.apiTransactionId;
     if (!apiTxId) {
-      throw new Error("Esta diverg\xEAncia n\xE3o tem transa\xE7\xE3o de API vinculada para casar.");
+      const found = await db.execute(sql`
+        SELECT id FROM api_transactions
+        WHERE sessionId = ${sessionId}
+          AND type = ${txType}
+          AND ABS(amount - ${divAmount}) < 0.01
+          AND matchStatus IN ('pending','divergent')
+        ORDER BY id LIMIT 1
+      `);
+      apiTxId = Number(found[0]?.[0]?.id ?? 0) || null;
+    }
+    if (!apiTxId) {
+      throw new Error("N\xE3o foi poss\xEDvel localizar a transa\xE7\xE3o de API correspondente a esta diverg\xEAncia.");
     }
     const res = await db.insert(bankTransactions).values({
       sessionId,

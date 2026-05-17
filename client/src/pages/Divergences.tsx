@@ -233,8 +233,8 @@ function PostCounterpartModal({ div: d, onConfirm, onClose, isLoading }: {
   onClose: () => void;
   isLoading: boolean;
 }) {
-  // Lado que falta: se tem transação no banco, falta na API; e vice-versa
-  const side: "bank" | "api" = d.bankTransactionId ? "api" : "bank";
+  // Lado que falta: bank_surplus = existe no banco, falta na API; bank_shortage = o contrário
+  const side: "bank" | "api" = d.divergenceType === "bank_surplus" ? "api" : "bank";
   const sideLabel = side === "api" ? "API Expag" : "Banco";
 
   // Pré-preenche com os dados conhecidos da divergência (o valor é o mesmo)
@@ -269,7 +269,7 @@ function PostCounterpartModal({ div: d, onConfirm, onClose, isLoading }: {
           <div className="bg-primary/8 border border-primary/20 rounded-lg p-3">
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               Esta divergência tem a transação registrada
-              {" "}<span className="text-foreground font-medium">{d.bankTransactionId ? "no Banco" : "na API"}</span>,
+              {" "}<span className="text-foreground font-medium">{d.divergenceType === "bank_surplus" ? "no Banco" : "na API"}</span>,
               mas não há a contrapartida {" "}<span className="text-foreground font-medium">{sideLabel}</span>.
               Informe os dados da transação que faltou — ela será criada e conciliada com a existente.
             </p>
@@ -527,15 +527,15 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
               <TrendingDown className="w-3.5 h-3.5" /> Mover → Despesa
             </Button>
           </div>
-          {/* Lançar contrapartida — só quando falta um dos lados */}
-          {((d.bankTransactionId && !d.apiTransactionId) || (!d.bankTransactionId && d.apiTransactionId)) && (
+          {/* Lançar contrapartida — quando falta um dos lados (bank_surplus = falta API, bank_shortage = falta Banco) */}
+          {(d.divergenceType === "bank_surplus" || d.divergenceType === "bank_shortage") && (
             <Button
               variant="outline"
               className="w-full text-xs border-primary/30 text-primary hover:bg-primary/10 gap-1.5"
               onClick={() => onPostCounterpart()}
             >
               <PlusCircle className="w-3.5 h-3.5" />
-              Lançar transação que faltou ({d.bankTransactionId ? "na API" : "no Banco"})
+              Lançar transação que faltou ({d.divergenceType === "bank_surplus" ? "na API" : "no Banco"})
             </Button>
           )}
           <div className="flex gap-2">
@@ -1190,7 +1190,7 @@ export default function Divergences() {
           onClose={() => setCounterpartDiv(null)}
           onConfirm={(data) => counterpartMutation.mutate({
             divergenceId: counterpartDiv.id,
-            side: counterpartDiv.bankTransactionId ? "api" : "bank",
+            side: counterpartDiv.divergenceType === "bank_surplus" ? "api" : "bank",
             ...data,
           })}
         />

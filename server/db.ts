@@ -418,14 +418,15 @@ export async function createDivergence(data: {
       sessionId, divergenceDate, bankName, clientId, clientName,
       divergenceType, amount, origin, category, priority, status,
       bankDescription, apiDescription, externalId, bankAmount, apiAmount, transactionType,
-      observation
+      observation, bankTransactionId, apiTransactionId
     ) VALUES (
       ${data.sessionId}, ${data.divergenceDate}, ${data.bankName || null}, ${data.clientId || null},
       ${data.clientName || null}, ${data.divergenceType}, ${data.amount}, ${data.origin || null},
       ${data.category}, ${data.priority || 'medium'}, 'pendente',
       ${data.bankDescription || null}, ${data.apiDescription || null},
       ${data.externalId || null}, ${data.bankAmount || null}, ${data.apiAmount || null},
-      ${data.transactionType || null}, ${data.observation || null}
+      ${data.transactionType || null}, ${data.observation || null},
+      ${data.bankTransactionId ?? null}, ${data.apiTransactionId ?? null}
     )
   `);
   return (result as any)[0]?.insertId ?? 0;
@@ -2130,11 +2131,26 @@ export async function postCounterpartEntry(params: {
 
   let newTransactionId: number | undefined;
 
+  // Valor da divergência — usado no fallback de busca da transação original
+  const divAmount = parseFloat(String((div as any).bankAmount ?? (div as any).apiAmount ?? div.amount ?? 0));
+
   if (params.side === "api") {
-    // Falta a transação na API → cria do lado da API e casa com a do banco
-    const bankTxId = div.bankTransactionId;
+    // Falta a transação na API → cria do lado da API e casa com a do banco.
+    // 1ª opção: ID vinculado na divergência. Fallback: busca por valor+tipo na sessão.
+    let bankTxId = div.bankTransactionId;
     if (!bankTxId) {
-      throw new Error("Esta divergência não tem transação bancária vinculada para casar.");
+      const found = await db.execute(sql`
+        SELECT id FROM bank_transactions
+        WHERE sessionId = ${sessionId}
+          AND type = ${txType}
+          AND ABS(amount - ${divAmount}) < 0.01
+          AND matchStatus IN ('pending','divergent')
+        ORDER BY id LIMIT 1
+      `);
+      bankTxId = Number((found as any)[0]?.[0]?.id ?? 0) || null;
+    }
+    if (!bankTxId) {
+      throw new Error("Não foi possível localizar a transação bancária correspondente a esta divergência.");
     }
     const res = await db.insert(apiTransactions).values({
       sessionId,
@@ -2158,9 +2174,20 @@ export async function postCounterpartEntry(params: {
     `);
   } else {
     // Falta a transação no banco → cria do lado do banco e casa com a da API
-    const apiTxId = div.apiTransactionId;
+    let apiTxId = div.apiTransactionId;
     if (!apiTxId) {
-      throw new Error("Esta divergência não tem transação de API vinculada para casar.");
+      const found = await db.execute(sql`
+        SELECT id FROM api_transactions
+        WHERE sessionId = ${sessionId}
+          AND type = ${txType}
+          AND ABS(amount - ${divAmount}) < 0.01
+          AND matchStatus IN ('pending','divergent')
+        ORDER BY id LIMIT 1
+      `);
+      apiTxId = Number((found as any)[0]?.[0]?.id ?? 0) || null;
+    }
+    if (!apiTxId) {
+      throw new Error("Não foi possível localizar a transação de API correspondente a esta divergência.");
     }
     const res = await db.insert(bankTransactions).values({
       sessionId,
