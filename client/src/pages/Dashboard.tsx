@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useI18n } from "@/i18n/I18nContext";
 import { formatCurrency } from "@/lib/utils";
 import { useLocation } from "wouter";
 import {
@@ -14,8 +15,8 @@ import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
 
 const TOOLTIP = {
-  background: "#0d1528", border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "10px", fontSize: "11px", color: "#e8edf5",
+  background: "var(--popover)", border: "1px solid var(--border)",
+  borderRadius: "10px", fontSize: "11px", color: "var(--foreground)",
 };
 const BANK_COLORS = ["#10b981","#f59e0b","#38bdf8","#818cf8","#f87171","#fb923c"];
 
@@ -67,6 +68,7 @@ function KpiCard({ label, value, sub, color, icon: Icon, onClick }: {
 const fmtS = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`; if (Math.abs(v) >= 1_000) return `R$ ${(v/1_000).toFixed(0)}k`; return formatCurrency(v); };
 
 export default function Dashboard() {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const { dateFrom, dateTo } = get90DayRange();
 
@@ -144,8 +146,8 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Visão geral — últimos 90 dias</p>
+          <h1 className="text-2xl font-bold text-foreground">{t("dashboard.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{t("dashboard.subtitle")}</p>
         </div>
         <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => { refetchCtrl(); refetchSessions(); }}>
           <RefreshCw className="w-3.5 h-3.5" /> Atualizar

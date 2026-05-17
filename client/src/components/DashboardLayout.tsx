@@ -4,6 +4,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -27,10 +29,13 @@ import {
   AlertCircle, AlertTriangle, ArrowLeftRight, BadgeDollarSign, BarChart3,
   BookOpen, Building2, ChevronRight, CreditCard, Eye, EyeOff, FileText,
   LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, TrendingUp, Wallet, Users, ScrollText,
+  Sun, Moon, Languages, Check,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ExpagLogo } from "./ExpagLogo";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useI18n } from "@/i18n/I18nContext";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 import { trpc } from "@/lib/trpc";
@@ -163,7 +168,7 @@ function AuthScreen() {
           <div className="space-y-5">
             <div className="inline-flex items-center gap-2 bg-[rgba(79,110,247,0.1)] border border-[rgba(79,110,247,0.2)] rounded-full px-3 py-1">
               <div className="w-1.5 h-1.5 rounded-full bg-[#4f6ef7] animate-pulse" />
-              <span className="text-[10px] font-semibold text-[#7b97f9] tracking-wide">Plataforma Institucional</span>
+              <span className="text-[10px] font-semibold text-primary tracking-wide">Plataforma Institucional</span>
             </div>
             <h2 className="text-[2.1rem] xl:text-[2.5rem] font-bold text-white leading-[1.1] tracking-[-0.03em]">
               Gestão financeira<br />
@@ -182,7 +187,7 @@ function AuthScreen() {
               <div key={label} className="flex items-center gap-3.5 group">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors"
                   style={{ background: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.18)" }}>
-                  <Icon className="w-3.5 h-3.5 text-[#7b97f9]" />
+                  <Icon className="w-3.5 h-3.5 text-primary" />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-white/75 leading-tight">{label}</p>
@@ -229,16 +234,16 @@ function AuthScreen() {
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center"
                   style={{ background: "rgba(79,110,247,0.15)", border: "1px solid rgba(79,110,247,0.25)" }}>
-                  <Lock className="w-3.5 h-3.5 text-[#7b97f9]" />
+                  <Lock className="w-3.5 h-3.5 text-primary" />
                 </div>
-                <span className="text-[10px] font-semibold text-[#4d6490] tracking-[0.1em] uppercase">
+                <span className="text-[10px] font-semibold text-muted-foreground tracking-[0.1em] uppercase">
                   {isSetup ? "Configuração inicial" : "Autenticação"}
                 </span>
               </div>
               <h1 className="text-xl font-bold tracking-tight text-[#eef1f8]">
                 {isSetup ? "Criar administrador" : "Acessar sistema"}
               </h1>
-              <p className="text-[13px] text-[#4d6490] mt-1.5">
+              <p className="text-[13px] text-muted-foreground mt-1.5">
                 {isSetup
                   ? "Configure o acesso inicial ao Expag Financial."
                   : "Entre com suas credenciais institucionais."}
@@ -249,7 +254,7 @@ function AuthScreen() {
             <form onSubmit={isSetup ? handleSetup : handleLogin} className="space-y-4">
               {isSetup && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="name" className="text-[11px] font-semibold text-[#4d6490] uppercase tracking-wider">
+                  <Label htmlFor="name" className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                     Nome completo
                   </Label>
                   <Input id="name" type="text" value={name} onChange={e => setName(e.target.value)}
@@ -261,11 +266,11 @@ function AuthScreen() {
               )}
 
               <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-[11px] font-semibold text-[#4d6490] uppercase tracking-wider">
+                <Label htmlFor="email" className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Email
                 </Label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#2d4166] pointer-events-none" />
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
                   <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)}
                     placeholder="admin@expag.com.br"
                     className="pl-10 h-11 text-sm"
@@ -275,11 +280,11 @@ function AuthScreen() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-[11px] font-semibold text-[#4d6490] uppercase tracking-wider">
-                  Senha {isSetup && <span className="text-[#2d4166] font-normal normal-case tracking-normal">(mín. 8 caracteres)</span>}
+                <Label htmlFor="password" className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Senha {isSetup && <span className="text-muted-foreground/60 font-normal normal-case tracking-normal">(mín. 8 caracteres)</span>}
                 </Label>
                 <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#2d4166] pointer-events-none" />
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
                   <Input id="password" type={showPass ? "text" : "password"}
                     value={password} onChange={e => setPassword(e.target.value)}
                     placeholder={isSetup ? "Crie uma senha segura" : "••••••••"}
@@ -287,7 +292,7 @@ function AuthScreen() {
                     style={{ background: "rgba(5,8,16,0.6)", border: "1px solid rgba(22,31,58,0.9)", color: "#eef1f8" }}
                     required autoComplete={isSetup ? "new-password" : "current-password"} />
                   <button type="button" onClick={() => setShowPass(v => !v)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#2d4166] hover:text-[#4d6490] transition-colors">
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
                     {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -323,7 +328,7 @@ function AuthScreen() {
           {/* Dev bypass */}
           {import.meta.env.VITE_APP_ID === "local-dev" && (
             <div className="mt-4">
-              <Button variant="ghost" size="sm" className="w-full text-xs text-[#2d4166] hover:text-[#4d6490]"
+              <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground/60 hover:text-muted-foreground"
                 onClick={() => { window.location.href = "/api/dev-login"; }}>
                 Entrar como dev local
               </Button>
@@ -331,7 +336,7 @@ function AuthScreen() {
           )}
 
           {/* Footer */}
-          <p className="text-center text-[10px] text-[#1e2f50] mt-6 tracking-wide">
+          <p className="text-center text-[10px] text-muted-foreground/50 mt-6 tracking-wide">
             Expag Financial System · Uso exclusivo interno
           </p>
         </div>
@@ -342,39 +347,39 @@ function AuthScreen() {
 
 const menuGroups = [
   {
-    label: "Visão Geral",
+    labelKey: "nav.overview" as const,
     items: [
-      { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-      { icon: AlertTriangle, label: "Alertas", path: "/alertas" },
-      { icon: Users, label: "Usuários", path: "/usuarios" },
-      { icon: ScrollText, label: "Auditoria", path: "/auditoria" },
+      { icon: LayoutDashboard, labelKey: "nav.dashboard" as const, path: "/" },
+      { icon: AlertTriangle, labelKey: "nav.alerts" as const, path: "/alertas" },
+      { icon: Users, labelKey: "nav.users" as const, path: "/usuarios" },
+      { icon: ScrollText, labelKey: "nav.audit" as const, path: "/auditoria" },
     ],
   },
   {
-    label: "Camada 1 · Conciliação",
+    labelKey: "nav.layer1" as const,
     items: [
-      { icon: ArrowLeftRight, label: "Conciliações", path: "/conciliacao" },
-      { icon: FileText, label: "Divergências", path: "/divergencias" },
-      { icon: AlertTriangle, label: "Não Identificados (NDI)", path: "/ndi" },
-      { icon: Wallet, label: "Saldo Gerencial", path: "/saldo-gerencial" },
+      { icon: ArrowLeftRight, labelKey: "nav.reconciliation" as const, path: "/conciliacao" },
+      { icon: FileText, labelKey: "nav.divergences" as const, path: "/divergencias" },
+      { icon: AlertTriangle, labelKey: "nav.ndi" as const, path: "/ndi" },
+      { icon: Wallet, labelKey: "nav.managerialBalance" as const, path: "/saldo-gerencial" },
     ],
   },
   {
-    label: "Camada 2 · Controladoria",
+    labelKey: "nav.layer2" as const,
     items: [
-      { icon: LayoutDashboard, label: "Dashboard Controladoria", path: "/controladoria" },
-      { icon: TrendingUp, label: "Receitas", path: "/receitas" },
-      { icon: Receipt, label: "Despesas", path: "/despesas" },
-      { icon: BadgeDollarSign, label: "Contas a Pagar", path: "/contas-a-pagar" },
-      { icon: CreditCard, label: "Carteira de Crédito", path: "/carteira-credito" },
+      { icon: LayoutDashboard, labelKey: "nav.controllership" as const, path: "/controladoria" },
+      { icon: TrendingUp, labelKey: "nav.revenues" as const, path: "/receitas" },
+      { icon: Receipt, labelKey: "nav.expenses" as const, path: "/despesas" },
+      { icon: BadgeDollarSign, labelKey: "nav.payables" as const, path: "/contas-a-pagar" },
+      { icon: CreditCard, labelKey: "nav.creditPortfolio" as const, path: "/carteira-credito" },
     ],
   },
   {
-    label: "Camada 3 · Contabilidade",
+    labelKey: "nav.layer3" as const,
     items: [
-      { icon: BarChart3, label: "DRE", path: "/dre" },
-      { icon: BookOpen, label: "Fluxo de Caixa", path: "/fluxo-caixa" },
-      { icon: Building2, label: "Centros de Custo", path: "/centros-custo" },
+      { icon: BarChart3, labelKey: "nav.dre" as const, path: "/dre" },
+      { icon: BookOpen, labelKey: "nav.cashFlow" as const, path: "/fluxo-caixa" },
+      { icon: Building2, labelKey: "nav.costCenters" as const, path: "/centros-custo" },
     ],
   },
 ];
@@ -414,6 +419,8 @@ function DashboardLayoutContent({
   children, setSidebarWidth,
 }: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const { language, setLanguage, t } = useI18n();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -449,7 +456,9 @@ function DashboardLayoutContent({
     };
   }, [isResizing, setSidebarWidth]);
 
-  const currentLabel = menuGroups.flatMap(g => g.items).find(i => i.path === location)?.label ?? "Dashboard";
+  const allNavItems = menuGroups.flatMap(g => g.items as Array<{ icon: any; labelKey: any; path: string }>);
+  const currentItem = allNavItems.find(i => i.path === location);
+  const currentLabel = currentItem ? t(currentItem.labelKey) : t("nav.dashboard");
 
   return (
     <>
@@ -481,10 +490,10 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0 py-2">
             {menuGroups.map((group) => (
-              <SidebarGroup key={group.label} className="px-2 py-0.5">
+              <SidebarGroup key={group.labelKey} className="px-2 py-0.5">
                 {!isCollapsed && (
                   <SidebarGroupLabel className="text-[9px] font-700 uppercase tracking-[0.1em] text-[#273b5c] px-2 mb-0.5 mt-1">
-                    {group.label}
+                    {t(group.labelKey)}
                   </SidebarGroupLabel>
                 )}
                 <SidebarMenu>
@@ -495,20 +504,20 @@ function DashboardLayoutContent({
                         <SidebarMenuButton
                           isActive={isActive}
                           onClick={() => setLocation(item.path)}
-                          tooltip={item.label}
+                          tooltip={t(item.labelKey)}
                           className={cn(
                             "h-8 transition-all duration-100 rounded-lg relative overflow-hidden",
                             "font-normal tracking-tight",
                             isActive
                               ? "bg-[rgba(79,110,247,0.12)] text-[#eef1f8] shadow-[inset_0_0_0_1px_rgba(79,110,247,0.2)]"
-                              : "text-[#4d6490] hover:text-[#9badd4] hover:bg-[rgba(10,18,32,0.9)]"
+                              : "text-muted-foreground hover:text-[#9badd4] hover:bg-[rgba(10,18,32,0.9)]"
                           )}
                         >
                           {isActive && (
                             <span className="absolute left-0 top-[25%] bottom-[25%] w-[2px] bg-[#4f6ef7] rounded-r-full shadow-[0_0_8px_rgba(79,110,247,0.9)]" />
                           )}
-                          <item.icon className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-[#7b97f9]" : "")} />
-                          <span className="text-[13px]">{item.label}</span>
+                          <item.icon className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-primary" : "")} />
+                          <span className="text-[13px]">{t(item.labelKey)}</span>
                           {item.path === '/alertas' && alertCount > 0 && !isCollapsed && (
                             <span className="ml-auto text-[10px] bg-red-500/15 text-red-400 border border-red-500/25 rounded-full px-1.5 min-w-[18px] text-center font-semibold leading-[18px]">
                               {alertCount}
@@ -543,10 +552,57 @@ function DashboardLayoutContent({
                   )}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sair</span>
+              <DropdownMenuContent align="end" side="top" className="w-56">
+                {/* Cabeçalho do usuário */}
+                <div className="px-2 py-2">
+                  <p className="text-xs font-semibold text-foreground truncate">{user?.name || "-"}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{user?.email || "-"}</p>
+                </div>
+                <DropdownMenuSeparator />
+
+                {/* Tema */}
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  {t("common.theme")}
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => { if (theme !== "light") toggleTheme(); }}
+                  className="cursor-pointer gap-2"
+                >
+                  <Sun className="h-4 w-4" />
+                  <span className="flex-1">{t("common.themeLight")}</span>
+                  {theme === "light" && <Check className="h-3.5 w-3.5 text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => { if (theme !== "dark") toggleTheme(); }}
+                  className="cursor-pointer gap-2"
+                >
+                  <Moon className="h-4 w-4" />
+                  <span className="flex-1">{t("common.themeDark")}</span>
+                  {theme === "dark" && <Check className="h-3.5 w-3.5 text-primary" />}
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                {/* Idioma */}
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  {t("common.language")}
+                </DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => setLanguage("pt")} className="cursor-pointer gap-2">
+                  <span className="text-base leading-none">🇧🇷</span>
+                  <span className="flex-1">Português</span>
+                  {language === "pt" && <Check className="h-3.5 w-3.5 text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLanguage("en")} className="cursor-pointer gap-2">
+                  <span className="text-base leading-none">🇺🇸</span>
+                  <span className="flex-1">English</span>
+                  {language === "en" && <Check className="h-3.5 w-3.5 text-primary" />}
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive gap-2">
+                  <LogOut className="h-4 w-4" />
+                  <span>{t("common.logout")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

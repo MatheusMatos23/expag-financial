@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useI18n } from "@/i18n/I18nContext";
 
 // ── Metadados de categorias ───────────────────────────────────────────────────
 const CATEGORY_META: Record<string, { label: string; cls: string; icon: any }> = {
@@ -69,6 +70,7 @@ const CATEGORY_TABS = [
 ];
 
 export default function AuditLog() {
+  const { t } = useI18n();
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -121,8 +123,8 @@ export default function AuditLog() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="page-title">Auditoria</h1>
-          <p className="page-subtitle">Registro completo de todas as ações realizadas no sistema</p>
+          <h1 className="page-title">{t("audit.title")}</h1>
+          <p className="page-subtitle">{t("audit.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => refetch()}>
@@ -138,7 +140,7 @@ export default function AuditLog() {
       <div className="grid grid-cols-3 gap-3">
         <div className="kpi-accent card-premium p-4 group">
           <div className="flex items-start justify-between">
-            <p className="text-[9px] font-semibold text-[#3a5280] uppercase tracking-[0.08em]">Total de registros</p>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-[0.08em]">Total de registros</p>
             <ScrollText className="w-3.5 h-3.5 text-sky-300 opacity-60 group-hover:opacity-100 transition-opacity" />
           </div>
           <p className="text-2xl font-bold font-mono mt-2 tracking-tight text-foreground">
@@ -147,7 +149,7 @@ export default function AuditLog() {
         </div>
         <div className="kpi-accent card-premium p-4 group">
           <div className="flex items-start justify-between">
-            <p className="text-[9px] font-semibold text-[#3a5280] uppercase tracking-[0.08em]">Ações hoje</p>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-[0.08em]">Ações hoje</p>
             <Activity className="w-3.5 h-3.5 text-emerald-300 opacity-60 group-hover:opacity-100 transition-opacity" />
           </div>
           <p className="text-2xl font-bold font-mono mt-2 tracking-tight text-emerald-300">
@@ -156,7 +158,7 @@ export default function AuditLog() {
         </div>
         <div className="kpi-accent card-premium p-4 group">
           <div className="flex items-start justify-between">
-            <p className="text-[9px] font-semibold text-[#3a5280] uppercase tracking-[0.08em]">Categorias ativas</p>
+            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-[0.08em]">Categorias ativas</p>
             <Filter className="w-3.5 h-3.5 text-violet-300 opacity-60 group-hover:opacity-100 transition-opacity" />
           </div>
           <p className="text-2xl font-bold font-mono mt-2 tracking-tight text-violet-300">

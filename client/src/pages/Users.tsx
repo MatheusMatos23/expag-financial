@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useI18n } from "@/i18n/I18nContext";
 
 const ROLE_META: Record<string, { label: string; cls: string; icon: any }> = {
   admin: { label: "Administrador", cls: "text-violet-300 bg-violet-500/12 border-violet-500/25", icon: ShieldCheck },
@@ -38,6 +39,7 @@ function Avatar({ name, email, size = 32 }: { name?: string; email?: string; siz
 }
 
 export default function Users() {
+  const { t } = useI18n();
   const { user: me } = useAuth();
   const isAdmin = me?.role === "admin";
 
@@ -92,8 +94,8 @@ export default function Users() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="page-title">Usuários</h1>
-          <p className="page-subtitle">Controle de acesso, perfis e credenciais do sistema</p>
+          <h1 className="page-title">{t("users.title")}</h1>
+          <p className="page-subtitle">{t("users.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={refreshAll}>
@@ -118,7 +120,7 @@ export default function Users() {
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="kpi-accent card-premium p-4 group">
             <div className="flex items-start justify-between">
-              <p className="text-[9px] font-semibold text-[#3a5280] uppercase tracking-[0.08em]">{label}</p>
+              <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-[0.08em]">{label}</p>
               <Icon className={cn("w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition-opacity", color)} />
             </div>
             <p className={cn("text-2xl font-bold font-mono mt-2 tracking-tight", color)}>{value}</p>
@@ -144,10 +146,10 @@ export default function Users() {
         ) : (
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-border/60 bg-[rgba(11,18,40,0.5)]">
+              <tr className="border-b border-border/60 bg-muted/40">
                 {["Usuário", "Perfil", "Último acesso", "Cadastro", "Método", ""].map((h, i) => (
                   <th key={i} className={cn(
-                    "text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.07em] text-[#3a5280]",
+                    "text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground",
                     i === 5 && "text-right"
                   )}>{h}</th>
                 ))}
@@ -159,7 +161,7 @@ export default function Users() {
                 const RoleIcon = meta.icon;
                 const isSelf = u.id === me?.id;
                 return (
-                  <tr key={u.id} className="border-b border-border/40 hover:bg-[rgba(79,110,247,0.04)] transition-colors">
+                  <tr key={u.id} className="border-b border-border/40 hover:bg-primary/5 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
                         <Avatar name={u.name} email={u.email} size={32} />
@@ -180,7 +182,7 @@ export default function Users() {
                           disabled={roleMut.isPending}
                           className={cn(
                             "text-[10px] px-2 py-1 rounded-md border font-semibold cursor-pointer outline-none",
-                            "bg-[rgba(5,8,16,0.6)]", meta.cls
+                            "bg-input", meta.cls
                           )}
                         >
                           <option value="admin">Administrador</option>

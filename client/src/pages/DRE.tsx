@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const TOOLTIP = { background:"#0d1528", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"8px", fontSize:"11px", color:"#e8edf5" };
+const TOOLTIP = { background:"var(--popover)", border:"1px solid var(--border)", borderRadius:"8px", fontSize:"11px", color:"var(--foreground)" };
 
 
 const fmtS = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_000_000).toFixed(1)}M`; if (Math.abs(v) >= 1_000) return `R$ ${(v/1_000).toFixed(0)}k`; return formatCurrency(v); };

@@ -47,65 +47,110 @@
   --radius: 0.75rem;
 
   /* ═══════════════════════════════════════════════════════
-     EXPAG — PREMIUM FINTECH DESIGN SYSTEM
-     Filosofia: escuridão profunda + acentos luminosos precisos
-     Inspiração: Bloomberg Terminal meets Linear meets Stripe
+     EXPAG — TEMA CLARO (light) — padrão profissional fintech
+     Superfícies claras, texto de alto contraste
      ═══════════════════════════════════════════════════════ */
 
-  /* Core surfaces */
-  --background:    #050810;   /* quase preto com toque índigo */
-  --card:          #0a0f1e;   /* cards: levemente acima do fundo */
-  --popover:       #0d1426;
-  --card-foreground: #eef1f8;
-  --popover-foreground: #eef1f8;
+  --background:    #f5f7fb;
+  --card:          #ffffff;
+  --popover:       #ffffff;
+  --card-foreground: #0f1729;
+  --popover-foreground: #0f1729;
+  --foreground:    #0f1729;
 
-  /* Text */
-  --foreground:    #eef1f8;   /* branco frio de alta legibilidade */
-
-  /* Primary — azul índigo saturado, marca Expag */
-  --primary:       #4f6ef7;   /* azul elétrico refinado */
+  --primary:       #3b5ae0;
   --primary-foreground: #ffffff;
 
-  /* Secondary */
-  --secondary:     #0f1a35;
-  --secondary-foreground: #9badd4;
+  --secondary:     #eef1f8;
+  --secondary-foreground: #334066;
 
-  /* Muted */
-  --muted:         #0c1428;
-  --muted-foreground: #4d6490;
+  --muted:         #eef1f7;
+  --muted-foreground: #5a6b8c;
 
-  /* Accent */
-  --accent:        #111d3a;
-  --accent-foreground: #eef1f8;
+  --accent:        #e8edf8;
+  --accent-foreground: #0f1729;
 
-  /* Destructive */
-  --destructive:   #e84040;
+  --destructive:   #dc2626;
   --destructive-foreground: #ffffff;
 
-  /* Borders — super sutis */
-  --border:        #161f3a;
-  --input:         #0c1428;
-  --ring:          #4f6ef7;
+  --border:        #e2e7f0;
+  --input:         #ffffff;
+  --ring:          #3b5ae0;
 
-  /* Charts */
-  --chart-1:       #4f6ef7;
-  --chart-2:       #06d6a0;
-  --chart-3:       #ffd166;
-  --chart-4:       #ef476f;
-  --chart-5:       #a78bfa;
+  --chart-1:       #3b5ae0;
+  --chart-2:       #059669;
+  --chart-3:       #d97706;
+  --chart-4:       #dc2626;
+  --chart-5:       #7c3aed;
 
-  /* Sidebar — mais escuro que o fundo para hierarquia */
-  --sidebar:              #030509;
-  --sidebar-foreground:   #7d99c8;
-  --sidebar-primary:      #4f6ef7;
+  --sidebar:              #ffffff;
+  --sidebar-foreground:   #5a6b8c;
+  --sidebar-primary:      #3b5ae0;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent:       #0a1220;
-  --sidebar-accent-foreground: #eef1f8;
-  --sidebar-border:       #0f1930;
-  --sidebar-ring:         #4f6ef7;
+  --sidebar-accent:       #f0f3fa;
+  --sidebar-accent-foreground: #0f1729;
+  --sidebar-border:       #e8ecf3;
+  --sidebar-ring:         #3b5ae0;
+
+  /* Tokens semânticos — valores financeiros (claro) */
+  --positive: #059669;
+  --negative: #dc2626;
+  --neutral:  #3b5ae0;
+  --warning:  #d97706;
 }
 
-.dark {}
+/* ═══════════════════════════════════════════════════════
+   EXPAG — TEMA ESCURO (dark) — Bloomberg meets Linear
+   Contraste elevado: labels legíveis, dados nítidos
+   ═══════════════════════════════════════════════════════ */
+.dark {
+  --background:    #070b16;
+  --card:          #0e1424;
+  --popover:       #111829;
+  --card-foreground: #f0f3fa;
+  --popover-foreground: #f0f3fa;
+  --foreground:    #f0f3fa;
+
+  --primary:       #5b7cfa;
+  --primary-foreground: #ffffff;
+
+  --secondary:     #16203c;
+  --secondary-foreground: #b3c2e0;
+
+  --muted:         #131c33;
+  --muted-foreground: #8295b8;   /* ANTES #4d6490 — agora legível */
+
+  --accent:        #1a2647;
+  --accent-foreground: #f0f3fa;
+
+  --destructive:   #f04444;
+  --destructive-foreground: #ffffff;
+
+  --border:        #1f2a45;      /* ANTES #161f3a — mais visível */
+  --input:         #131c33;
+  --ring:          #5b7cfa;
+
+  --chart-1:       #5b7cfa;
+  --chart-2:       #10d49a;
+  --chart-3:       #fbbf24;
+  --chart-4:       #f87171;
+  --chart-5:       #a78bfa;
+
+  --sidebar:              #060912;
+  --sidebar-foreground:   #8295b8;   /* mais legível */
+  --sidebar-primary:      #5b7cfa;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent:       #111a2e;
+  --sidebar-accent-foreground: #f0f3fa;
+  --sidebar-border:       #16213c;
+  --sidebar-ring:         #5b7cfa;
+
+  /* Tokens semânticos — valores financeiros (escuro) */
+  --positive: #10d49a;
+  --negative: #f87171;
+  --neutral:  #7b97f9;
+  --warning:  #fbbf24;
+}
 
 /* ─── BASE ───────────────────────────────────────────────────────────────── */
 @layer base {
@@ -149,7 +194,7 @@
   /* ── Seleção de texto ── */
   ::selection {
     background: rgba(79, 110, 247, 0.3);
-    color: #eef1f8;
+    color: var(--foreground);
   }
 
   /* ── Foco acessível ── */
@@ -195,17 +240,17 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: linear-gradient(135deg, rgba(79,110,247,0.04) 0%, transparent 60%);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 5%, transparent) 0%, transparent 60%);
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.25s;
   }
   .card-premium:hover {
-    border-color: rgba(79,110,247,0.25);
+    border-color: color-mix(in srgb, var(--primary) 27%, transparent);
     box-shadow:
-      0 0 0 1px rgba(79,110,247,0.06),
+      0 0 0 1px color-mix(in srgb, var(--primary) 7%, transparent),
       0 4px 24px rgba(0,0,0,0.4),
-      0 1px 4px rgba(79,110,247,0.08);
+      0 1px 4px color-mix(in srgb, var(--primary) 9%, transparent);
     transform: translateY(-1px);
   }
   .card-premium:hover::before { opacity: 1; }
@@ -220,7 +265,7 @@
     position: absolute;
     top: 0; left: 12%; right: 12%;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(79,110,247,0.6), transparent);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--primary) 60%, transparent), transparent);
     border-radius: 99px;
     opacity: 0;
     transition: opacity 0.3s;
@@ -261,9 +306,9 @@
   }
   .badge-info {
     @apply inline-flex items-center gap-1;
-    background: rgba(79,110,247,0.12);
-    color: #7b97f9;
-    border: 1px solid rgba(79,110,247,0.25);
+    background: color-mix(in srgb, var(--primary) 13%, transparent);
+    color: var(--neutral);
+    border: 1px solid color-mix(in srgb, var(--primary) 27%, transparent);
     font-size: 0.6875rem;
     font-weight: 600;
     padding: 0.1875rem 0.5rem;
@@ -283,7 +328,7 @@
   /* ── Valor positivo/negativo/neutro ── */
   .value-positive { color: #06d6a0; font-weight: 600; font-variant-numeric: tabular-nums; }
   .value-negative { color: #e84040; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .value-neutral  { color: #7b97f9; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .value-neutral  { color: var(--neutral); font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* ── Separador com gradiente ── */
   .divider-gradient {
@@ -296,55 +341,55 @@
     font-size: 1.5rem;
     font-weight: 700;
     letter-spacing: -0.03em;
-    color: #eef1f8;
+    color: var(--foreground);
     line-height: 1.15;
   }
   .page-subtitle {
     font-size: 0.8125rem;
-    color: #4d6490;
+    color: var(--muted-foreground);
     margin-top: 0.25rem;
     letter-spacing: -0.005em;
   }
 
   /* ── Tabela premium ── */
-  .table-row-hover:hover td { background: rgba(79,110,247,0.04); }
+  .table-row-hover:hover td { background: color-mix(in srgb, var(--primary) 5%, transparent); }
   .table-head th {
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #4d6490;
+    color: var(--muted-foreground);
   }
 
   /* ── Input premium ── */
   .input-premium {
-    background: rgba(11,20,44,0.8);
-    border: 1px solid rgba(22,31,58,0.9);
-    color: #eef1f8;
+    background: var(--input);
+    border: 1px solid var(--border);
+    color: var(--foreground);
     border-radius: 0.5rem;
     font-size: 0.8125rem;
     transition: border-color 0.15s, box-shadow 0.15s;
     backdrop-filter: blur(4px);
   }
-  .input-premium::placeholder { color: #2d4166; }
+  .input-premium::placeholder { color: var(--muted-foreground); }
   .input-premium:focus {
-    border-color: rgba(79,110,247,0.5);
-    box-shadow: 0 0 0 3px rgba(79,110,247,0.1);
+    border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 11%, transparent);
   }
 
   /* ── Button premium ── */
   .btn-primary-premium {
     background: linear-gradient(135deg, #4f6ef7 0%, #3b5ae0 100%);
     color: white;
-    border: 1px solid rgba(79,110,247,0.6);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px rgba(79,110,247,0.1) inset;
+    border: 1px solid color-mix(in srgb, var(--primary) 60%, transparent);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px color-mix(in srgb, var(--primary) 11%, transparent) inset;
     transition: all 0.15s;
     font-weight: 500;
     letter-spacing: -0.01em;
   }
   .btn-primary-premium:hover:not(:disabled) {
     background: linear-gradient(135deg, #6480f9 0%, #4f6ef7 100%);
-    box-shadow: 0 4px 12px rgba(79,110,247,0.35), 0 1px 3px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 35%, transparent), 0 1px 3px rgba(0,0,0,0.3);
     transform: translateY(-1px);
   }
   .btn-primary-premium:active:not(:disabled) {
@@ -354,9 +399,9 @@
 
   /* ── Glass card (para modais e overlays) ── */
   .glass {
-    background: rgba(10,15,30,0.85);
+    background: color-mix(in srgb, var(--card) 92%, transparent);
     backdrop-filter: blur(20px) saturate(1.2);
-    border: 1px solid rgba(22,31,58,0.8);
+    border: 1px solid var(--border);
   }
 
   /* ── Stat chip inline ── */
@@ -372,7 +417,7 @@
   }
   .stat-chip-up   { background: rgba(6,214,160,0.1); color: #06d6a0; }
   .stat-chip-down { background: rgba(232,64,64,0.1);  color: #e84040; }
-  .stat-chip-flat { background: rgba(79,110,247,0.1); color: #7b97f9; }
+  .stat-chip-flat { background: color-mix(in srgb, var(--primary) 11%, transparent); color: var(--neutral); }
 
   /* ── Tooltip estilizado ── */
   .recharts-tooltip-wrapper { filter: drop-shadow(0 8px 24px rgba(0,0,0,0.5)); }
@@ -386,7 +431,7 @@
     border-radius: 0.5rem;
     font-size: 0.8125rem;
     font-weight: 450;
-    color: #4d6490;
+    color: var(--muted-foreground);
     transition: all 0.12s;
     cursor: pointer;
     letter-spacing: -0.01em;
@@ -397,8 +442,8 @@
     color: #9badd4;
   }
   .sidebar-nav-item.active {
-    background: rgba(79,110,247,0.1);
-    color: #eef1f8;
+    background: color-mix(in srgb, var(--primary) 11%, transparent);
+    color: var(--foreground);
   }
   .sidebar-nav-item.active::before {
     content: '';
@@ -407,7 +452,7 @@
     width: 2px;
     background: #4f6ef7;
     border-radius: 0 2px 2px 0;
-    box-shadow: 0 0 6px rgba(79,110,247,0.8);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 80%, transparent);
   }
 
   /* ── Number ticker animation ── */
@@ -439,7 +484,7 @@
   /* ── Progress bar premium ── */
   .progress-bar {
     height: 3px;
-    background: rgba(22,31,58,0.8);
+    background: var(--muted);
     border-radius: 99px;
     overflow: hidden;
   }
@@ -489,16 +534,16 @@ main, [data-content] {
 /* Botões shadcn — override para look premium */
 button[class*="bg-primary"] {
   background: linear-gradient(135deg, #4f6ef7 0%, #3b5ae0 100%) !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.25), 0 0 0 1px rgba(79,110,247,0.15) inset;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25), 0 0 0 1px color-mix(in srgb, var(--primary) 16%, transparent) inset;
 }
 button[class*="bg-primary"]:hover:not(:disabled) {
   background: linear-gradient(135deg, #6480f9 0%, #4f6ef7 100%) !important;
-  box-shadow: 0 4px 12px rgba(79,110,247,0.3);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 
 /* Cards padrão — border mais sutil */
 [class*="bg-card"][class*="border-border"] {
-  border-color: rgba(22,31,58,0.9) !important;
+  border-color: var(--border) !important;
 }
 
 /* Number inputs alinhados */
@@ -523,7 +568,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   }
   .empty-state-icon {
     width: 2.5rem; height: 2.5rem;
-    color: #2d4166;
+    color: var(--muted-foreground);
     margin-bottom: 0.75rem;
   }
 
@@ -537,7 +582,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   .section-title {
     font-size: 0.9375rem;
     font-weight: 600;
-    color: #eef1f8;
+    color: var(--foreground);
     letter-spacing: -0.01em;
   }
 
@@ -547,10 +592,10 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
     align-items: center;
     gap: 0.25rem;
     font-size: 0.75rem;
-    color: #4d6490;
+    color: var(--muted-foreground);
     transition: color 0.15s;
   }
-  .link-subtle:hover { color: #7b97f9; }
+  .link-subtle:hover { color: var(--neutral); }
 
   /* Hover lift sutil para itens clicáveis */
   .hover-lift {
@@ -579,25 +624,25 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #2d4166;
+    color: var(--muted-foreground);
   }
 
   /* Dialog content premium */
   [role="dialog"] {
-    border-color: rgba(79,110,247,0.15) !important;
+    border-color: color-mix(in srgb, var(--primary) 16%, transparent) !important;
   }
 
   /* Toast premium */
   [data-sonner-toast] {
-    background: rgba(10,15,30,0.95) !important;
-    border: 1px solid rgba(79,110,247,0.2) !important;
+    background: var(--popover) !important;
+    border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent) !important;
     backdrop-filter: blur(12px);
   }
 
   /* Select dropdown premium */
   [role="listbox"], [data-radix-select-content] {
-    background: #0d1426 !important;
-    border: 1px solid rgba(79,110,247,0.18) !important;
+    background: var(--popover) !important;
+    border: 1px solid color-mix(in srgb, var(--primary) 19%, transparent) !important;
   }
 
   /* Tabs underline animado */
@@ -611,6 +656,6 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
     height: 2px;
     background: #4f6ef7;
     border-radius: 2px 2px 0 0;
-    box-shadow: 0 0 8px rgba(79,110,247,0.6);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 60%, transparent);
   }
 }

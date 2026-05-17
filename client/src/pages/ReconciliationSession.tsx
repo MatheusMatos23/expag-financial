@@ -21,8 +21,8 @@ import {
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 const TOOLTIP_STYLE = {
-  background: "#0d1528", border: "1px solid #1a2d50",
-  borderRadius: "8px", fontSize: "11px", color: "#e8edf5",
+  background: "var(--popover)", border: "1px solid #1a2d50",
+  borderRadius: "8px", fontSize: "11px", color: "var(--foreground)",
 };
 
 // ─── BADGES ───────────────────────────────────────────────────────────────────

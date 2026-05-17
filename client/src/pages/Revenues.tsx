@@ -32,7 +32,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 const BAR_COLORS = ["#10b981","#38bdf8","#818cf8","#f59e0b","#fb923c","#e879f9","#2dd4bf","#60a5fa","#a78bfa","#94a3b8"];
 const STATUS_LIST = ["previsto", "realizado", "cancelado"];
-const TOOLTIP_STYLE = { background:"#0d1528", border:"1px solid #1a2d50", borderRadius:"8px", fontSize:"11px", color:"#e8edf5" };
+const TOOLTIP_STYLE = { background:"var(--popover)", border:"1px solid var(--border)", borderRadius:"8px", fontSize:"11px", color:"var(--foreground)" };
 
 const DEFAULT_FORM = {
   referenceDate: new Date().toISOString().split("T")[0],
