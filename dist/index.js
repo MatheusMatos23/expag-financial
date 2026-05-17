@@ -108339,6 +108339,70 @@ async function clearOperationalData() {
   _cache.clear();
   return { clearedTables, totalRows };
 }
+async function postCounterpartEntry(params) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const divRows = await db.select().from(divergences).where(eq(divergences.id, params.divergenceId)).limit(1);
+  const div = divRows[0];
+  if (!div) throw new Error("Diverg\xEAncia n\xE3o encontrada.");
+  const sessionId = div.sessionId;
+  const txType = div.transactionType === "debit" ? "debit" : "credit";
+  let newTransactionId;
+  if (params.side === "api") {
+    const bankTxId = div.bankTransactionId;
+    if (!bankTxId) {
+      throw new Error("Esta diverg\xEAncia n\xE3o tem transa\xE7\xE3o banc\xE1ria vinculada para casar.");
+    }
+    const res = await db.insert(apiTransactions).values({
+      sessionId,
+      type: txType,
+      transactionDate: params.transactionDate,
+      description: params.description,
+      amount: params.amount.toFixed(2),
+      channel: params.channel ?? "MANUAL",
+      clientName: params.clientName ?? null,
+      matchStatus: "manual",
+      matchType: "manual",
+      matchedBankTransactionId: bankTxId
+    });
+    newTransactionId = Number(res.insertId ?? res[0]?.insertId);
+    await db.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'manual', matchType = 'manual', matchedApiTransactionId = ${newTransactionId}
+      WHERE id = ${bankTxId}
+    `);
+  } else {
+    const apiTxId = div.apiTransactionId;
+    if (!apiTxId) {
+      throw new Error("Esta diverg\xEAncia n\xE3o tem transa\xE7\xE3o de API vinculada para casar.");
+    }
+    const res = await db.insert(bankTransactions).values({
+      sessionId,
+      type: txType,
+      transactionDate: params.transactionDate,
+      description: params.description,
+      amount: params.amount.toFixed(2),
+      channel: params.channel ?? "MANUAL",
+      bankName: params.bankName ?? div.bankName ?? null,
+      matchStatus: "manual",
+      matchType: "manual",
+      matchedApiTransactionId: apiTxId
+    });
+    newTransactionId = Number(res.insertId ?? res[0]?.insertId);
+    await db.execute(sql`
+      UPDATE api_transactions
+      SET matchStatus = 'manual', matchType = 'manual', matchedBankTransactionId = ${newTransactionId}
+      WHERE id = ${apiTxId}
+    `);
+  }
+  await db.update(divergences).set({
+    status: "regularizado",
+    actionTaken: `Contrapartida lan\xE7ada manualmente por ${params.createdByName} no lado ${params.side === "api" ? "API" : "Banco"}: ${params.description}`,
+    responsible: params.createdByName
+  }).where(eq(divergences.id, params.divergenceId));
+  _cache.clear();
+  return { success: true, newTransactionId, sessionId };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -128229,6 +128293,46 @@ var reconciliationRouter = router({
       entityId: input.ids.join(","),
       summary: `Conciliou manualmente ${input.ids.length} diverg\xEAncia(s)`,
       metadata: { ids: input.ids, note: input.note }
+    });
+    return result;
+  }),
+  // ── Lançar contrapartida: cria a transação que faltava e concilia ──────────
+  postCounterpart: protectedProcedure.input(external_exports.object({
+    divergenceId: external_exports.number(),
+    side: external_exports.enum(["bank", "api"]),
+    amount: external_exports.number().positive("O valor deve ser maior que zero."),
+    transactionDate: external_exports.string().min(1, "Informe a data."),
+    description: external_exports.string().min(1, "Informe uma descri\xE7\xE3o."),
+    channel: external_exports.string().optional(),
+    bankName: external_exports.string().optional(),
+    clientName: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const result = await postCounterpartEntry({
+      divergenceId: input.divergenceId,
+      side: input.side,
+      amount: input.amount,
+      transactionDate: input.transactionDate,
+      description: input.description,
+      channel: input.channel,
+      bankName: input.bankName,
+      clientName: input.clientName,
+      createdByName: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+    });
+    if (result.sessionId) {
+      await updateSessionPendingCount(result.sessionId);
+    }
+    await audit(ctx, {
+      action: "divergence.post_counterpart",
+      category: "divergencia",
+      entityType: "divergence",
+      entityId: input.divergenceId,
+      summary: `Lan\xE7ou contrapartida manual (${input.side === "api" ? "API" : "Banco"}) de R$ ${input.amount.toFixed(2)} para a diverg\xEAncia #${input.divergenceId}`,
+      metadata: {
+        side: input.side,
+        amount: input.amount,
+        transactionDate: input.transactionDate,
+        description: input.description
+      }
     });
     return result;
   }),

@@ -5,7 +5,7 @@ import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
   Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare,
-  Tag, Wrench, RefreshCw, Download
+  Tag, Wrench, RefreshCw, Download, PlusCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -226,12 +226,131 @@ function MoveToExpenseModal({ ids, total, onConfirm, onClose, isLoading }: {
 }
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
-function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue, onMoveToExpense }: {
+// ── Modal: Lançar contrapartida (transação que faltou) ────────────────────────
+function PostCounterpartModal({ div: d, onConfirm, onClose, isLoading }: {
+  div: any;
+  onConfirm: (data: { amount: number; transactionDate: string; description: string; channel?: string; bankName?: string; clientName?: string }) => void;
+  onClose: () => void;
+  isLoading: boolean;
+}) {
+  // Lado que falta: se tem transação no banco, falta na API; e vice-versa
+  const side: "bank" | "api" = d.bankTransactionId ? "api" : "bank";
+  const sideLabel = side === "api" ? "API Expag" : "Banco";
+
+  // Pré-preenche com os dados conhecidos da divergência (o valor é o mesmo)
+  const knownAmount = parseFloat(String(d.bankAmount ?? d.apiAmount ?? d.amount ?? 0));
+  const [amount, setAmount] = useState(knownAmount > 0 ? String(knownAmount.toFixed(2)) : "");
+  const [date, setDate] = useState(
+    d.transactionDate ? String(d.transactionDate).slice(0, 10)
+      : d.divergenceDate ? String(d.divergenceDate).slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
+  );
+  const [description, setDescription] = useState(d.bankDescription ?? d.apiDescription ?? "");
+  const [channel, setChannel] = useState(d.channel ?? "");
+  const [extra, setExtra] = useState(side === "api" ? (d.clientName ?? "") : (d.bankName ?? ""));
+
+  const amountNum = parseFloat(amount.replace(",", "."));
+  const valid = amountNum > 0 && date && description.trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+          <h3 className="font-bold text-foreground flex items-center gap-2">
+            <PlusCircle className="w-4 h-4 text-primary" />
+            Lançar transação que faltou
+          </h3>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="bg-primary/8 border border-primary/20 rounded-lg p-3">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Esta divergência tem a transação registrada
+              {" "}<span className="text-foreground font-medium">{d.bankTransactionId ? "no Banco" : "na API"}</span>,
+              mas não há a contrapartida {" "}<span className="text-foreground font-medium">{sideLabel}</span>.
+              Informe os dados da transação que faltou — ela será criada e conciliada com a existente.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Lançar em
+            </Label>
+            <div className="text-sm font-semibold text-foreground bg-muted/40 border border-border rounded-md px-3 py-2">
+              {sideLabel}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Valor (R$)</Label>
+            <Input value={amount} onChange={e => setAmount(e.target.value)}
+              placeholder="0,00" className="h-10 text-sm" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Data</Label>
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-10 text-sm" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Descrição</Label>
+            <Input value={description} onChange={e => setDescription(e.target.value)}
+              placeholder="Descrição da transação" className="h-10 text-sm" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Canal</Label>
+              <Input value={channel} onChange={e => setChannel(e.target.value)}
+                placeholder="PIX, TED..." className="h-10 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                {side === "api" ? "Cliente" : "Banco"}
+              </Label>
+              <Input value={extra} onChange={e => setExtra(e.target.value)}
+                placeholder={side === "api" ? "Nome do cliente" : "Nome do banco"}
+                className="h-10 text-sm" />
+            </div>
+          </div>
+
+          <div className="bg-amber-500/8 border border-amber-500/20 rounded-lg p-2.5">
+            <p className="text-[10px] text-amber-400 leading-relaxed">
+              Use apenas para transações que realmente aconteceram. O lançamento fica
+              registrado na auditoria com seu nome.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2 px-5 py-3.5 border-t border-border">
+          <Button variant="outline" className="flex-1 text-xs" onClick={onClose}>Cancelar</Button>
+          <Button className="flex-1 text-xs" disabled={!valid || isLoading}
+            onClick={() => onConfirm({
+              amount: amountNum,
+              transactionDate: date,
+              description: description.trim(),
+              channel: channel.trim() || undefined,
+              bankName: side === "bank" ? (extra.trim() || undefined) : undefined,
+              clientName: side === "api" ? (extra.trim() || undefined) : undefined,
+            })}>
+            {isLoading ? "Lançando..." : "Lançar e Conciliar"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue, onMoveToExpense, onPostCounterpart }: {
   div: any; onClose: () => void;
   onUpdate: (data: any) => void;
   onDelete: () => void;
   onMoveToRevenue: () => void;
   onMoveToExpense: () => void;
+  onPostCounterpart: () => void;
 }) {
   const [status, setStatus] = useState(d.status ?? "pendente");
   const [responsible, setResponsible] = useState(d.responsible ?? "");
@@ -408,6 +527,17 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
               <TrendingDown className="w-3.5 h-3.5" /> Mover → Despesa
             </Button>
           </div>
+          {/* Lançar contrapartida — só quando falta um dos lados */}
+          {((d.bankTransactionId && !d.apiTransactionId) || (!d.bankTransactionId && d.apiTransactionId)) && (
+            <Button
+              variant="outline"
+              className="w-full text-xs border-primary/30 text-primary hover:bg-primary/10 gap-1.5"
+              onClick={() => onPostCounterpart()}
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              Lançar transação que faltou ({d.bankTransactionId ? "na API" : "no Banco"})
+            </Button>
+          )}
           <div className="flex gap-2">
             <Button className="flex-1 text-xs"
               onClick={() => onUpdate({ status, responsible, observation, actionTaken: action, slaDeadline: sla, priority })}>
@@ -438,6 +568,7 @@ export default function Divergences() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [moveToRevenueOpen, setMoveToRevenueOpen] = useState(false);
   const [moveToExpenseOpen, setMoveToExpenseOpen] = useState(false);
+  const [counterpartDiv, setCounterpartDiv] = useState<any>(null);
 
   const { data: divergences, refetch, isLoading } = trpc.reconciliation.getDivergences.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -503,6 +634,16 @@ export default function Divergences() {
     onSuccess: (r) => {
       toast.success(`${r.count} divergência${r.count !== 1 ? "s" : ""} conciliada${r.count !== 1 ? "s" : ""} manualmente!`);
       setSelectedIds(new Set()); setReconcileOpen(false); setReconcileNote(""); refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const counterpartMutation = trpc.reconciliation.postCounterpart.useMutation({
+    onSuccess: () => {
+      toast.success("Transação lançada e conciliada com sucesso.");
+      setCounterpartDiv(null);
+      setSelected(null);
+      refetch();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -1037,6 +1178,21 @@ export default function Divergences() {
             setSelected(null);
             setMoveToExpenseOpen(true);
           }}
+          onPostCounterpart={() => setCounterpartDiv(selected)}
+        />
+      )}
+
+      {/* Modal: lançar contrapartida */}
+      {counterpartDiv && (
+        <PostCounterpartModal
+          div={counterpartDiv}
+          isLoading={counterpartMutation.isPending}
+          onClose={() => setCounterpartDiv(null)}
+          onConfirm={(data) => counterpartMutation.mutate({
+            divergenceId: counterpartDiv.id,
+            side: counterpartDiv.bankTransactionId ? "api" : "bank",
+            ...data,
+          })}
         />
       )}
     </div>

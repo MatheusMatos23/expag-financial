@@ -2089,3 +2089,112 @@ export async function clearOperationalData(): Promise<{ clearedTables: string[];
 
   return { clearedTables, totalRows };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── LANÇAMENTO MANUAL DE CONTRAPARTIDA ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Lança manualmente a transação que faltava (a "contrapartida") de uma
+ * divergência, e concilia os dois lados.
+ *
+ * Cenário: existe uma transação no banco SEM par na API (ou vice-versa),
+ * porque o dado não foi importado ou foi lançado depois. O usuário informa
+ * os dados da transação que falta — o sistema cria ela do lado correto e
+ * casa as duas, regularizando a divergência.
+ *
+ * IMPORTANTE: deve ser usado apenas para dados REAIS (a transação realmente
+ * existiu). Toda a ação fica registrada para auditoria.
+ */
+export async function postCounterpartEntry(params: {
+  divergenceId: number;
+  side: "bank" | "api";          // onde lançar a transação que falta
+  amount: number;
+  transactionDate: string;
+  description: string;
+  channel?: string;
+  bankName?: string;             // usado quando side = 'bank'
+  clientName?: string;           // usado quando side = 'api'
+  createdByName: string;
+}): Promise<{ success: boolean; newTransactionId?: number; sessionId?: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Busca a divergência
+  const divRows = await db.select().from(divergences).where(eq(divergences.id, params.divergenceId)).limit(1);
+  const div = divRows[0];
+  if (!div) throw new Error("Divergência não encontrada.");
+
+  const sessionId = div.sessionId;
+  const txType: "credit" | "debit" =
+    (div as any).transactionType === "debit" ? "debit" : "credit";
+
+  let newTransactionId: number | undefined;
+
+  if (params.side === "api") {
+    // Falta a transação na API → cria do lado da API e casa com a do banco
+    const bankTxId = div.bankTransactionId;
+    if (!bankTxId) {
+      throw new Error("Esta divergência não tem transação bancária vinculada para casar.");
+    }
+    const res = await db.insert(apiTransactions).values({
+      sessionId,
+      type: txType,
+      transactionDate: params.transactionDate,
+      description: params.description,
+      amount: params.amount.toFixed(2),
+      channel: params.channel ?? "MANUAL",
+      clientName: params.clientName ?? null,
+      matchStatus: "manual",
+      matchType: "manual",
+      matchedBankTransactionId: bankTxId,
+    } as any);
+    newTransactionId = Number((res as any).insertId ?? (res as any)[0]?.insertId);
+
+    // Casa a transação do banco com a nova transação da API
+    await db.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'manual', matchType = 'manual', matchedApiTransactionId = ${newTransactionId}
+      WHERE id = ${bankTxId}
+    `);
+  } else {
+    // Falta a transação no banco → cria do lado do banco e casa com a da API
+    const apiTxId = div.apiTransactionId;
+    if (!apiTxId) {
+      throw new Error("Esta divergência não tem transação de API vinculada para casar.");
+    }
+    const res = await db.insert(bankTransactions).values({
+      sessionId,
+      type: txType,
+      transactionDate: params.transactionDate,
+      description: params.description,
+      amount: params.amount.toFixed(2),
+      channel: params.channel ?? "MANUAL",
+      bankName: params.bankName ?? div.bankName ?? null,
+      matchStatus: "manual",
+      matchType: "manual",
+      matchedApiTransactionId: apiTxId,
+    } as any);
+    newTransactionId = Number((res as any).insertId ?? (res as any)[0]?.insertId);
+
+    // Casa a transação da API com a nova transação do banco
+    await db.execute(sql`
+      UPDATE api_transactions
+      SET matchStatus = 'manual', matchType = 'manual', matchedBankTransactionId = ${newTransactionId}
+      WHERE id = ${apiTxId}
+    `);
+  }
+
+  // Regulariza a divergência
+  await db.update(divergences)
+    .set({
+      status: "regularizado",
+      actionTaken: `Contrapartida lançada manualmente por ${params.createdByName} no lado ${params.side === "api" ? "API" : "Banco"}: ${params.description}`,
+      responsible: params.createdByName,
+    })
+    .where(eq(divergences.id, params.divergenceId));
+
+  // Limpa o cache para os totais refletirem na hora
+  _cache.clear();
+
+  return { success: true, newTransactionId, sessionId };
+}

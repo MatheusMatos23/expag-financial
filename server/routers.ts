@@ -917,6 +917,46 @@ const reconciliationRouter = router({
       return result;
     }),
 
+  // ── Lançar contrapartida: cria a transação que faltava e concilia ──────────
+  postCounterpart: protectedProcedure
+    .input(z.object({
+      divergenceId: z.number(),
+      side: z.enum(["bank", "api"]),
+      amount: z.number().positive("O valor deve ser maior que zero."),
+      transactionDate: z.string().min(1, "Informe a data."),
+      description: z.string().min(1, "Informe uma descrição."),
+      channel: z.string().optional(),
+      bankName: z.string().optional(),
+      clientName: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.postCounterpartEntry({
+        divergenceId: input.divergenceId,
+        side: input.side,
+        amount: input.amount,
+        transactionDate: input.transactionDate,
+        description: input.description,
+        channel: input.channel,
+        bankName: input.bankName,
+        clientName: input.clientName,
+        createdByName: ctx.user?.name ?? ctx.user?.email ?? "Usuário",
+      });
+      // Recalcula os contadores da sessão para a taxa refletir o lançamento
+      if (result.sessionId) {
+        await updateSessionPendingCount(result.sessionId);
+      }
+      await audit(ctx, {
+        action: "divergence.post_counterpart", category: "divergencia",
+        entityType: "divergence", entityId: input.divergenceId,
+        summary: `Lançou contrapartida manual (${input.side === "api" ? "API" : "Banco"}) de R$ ${input.amount.toFixed(2)} para a divergência #${input.divergenceId}`,
+        metadata: {
+          side: input.side, amount: input.amount,
+          transactionDate: input.transactionDate, description: input.description,
+        },
+      });
+      return result;
+    }),
+
   // ── Saldo diário dos bancos ───────────────────────────────────────────────
   getDailyBankBalances: protectedProcedure
     .query(async () => db.getDailyBankBalances()),
