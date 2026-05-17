@@ -698,6 +698,31 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 :root:not(.dark) .bg-blue-500\/12,
 :root:not(.dark) .bg-blue-500\/10    { background-color: rgba(29,78,216,0.10) !important; }
 
+/* Opacidade /5 (fundos muito sutis) — tema claro precisa de tom mínimo visível */
+:root:not(.dark) .bg-red-500\/5      { background-color: rgba(185,28,28,0.06) !important; }
+:root:not(.dark) .bg-yellow-500\/5   { background-color: rgba(161,98,7,0.07) !important; }
+:root:not(.dark) .bg-blue-500\/5     { background-color: rgba(29,78,216,0.06) !important; }
+:root:not(.dark) .bg-emerald-500\/5  { background-color: rgba(5,150,105,0.07) !important; }
+:root:not(.dark) .bg-amber-500\/8,
+:root:not(.dark) .bg-amber-500\/5    { background-color: rgba(180,83,9,0.08) !important; }
+
+/* Opacidade /20 (botões e chips tonais) — saturação maior no claro */
+:root:not(.dark) .bg-red-500\/20     { background-color: rgba(185,28,28,0.14) !important; }
+:root:not(.dark) .bg-yellow-500\/20  { background-color: rgba(161,98,7,0.16) !important; }
+:root:not(.dark) .bg-blue-500\/20    { background-color: rgba(29,78,216,0.14) !important; }
+:root:not(.dark) .bg-emerald-500\/20 { background-color: rgba(5,150,105,0.14) !important; }
+:root:not(.dark) .bg-orange-500\/20  { background-color: rgba(194,65,12,0.14) !important; }
+:root:not(.dark) .bg-violet-500\/20,
+:root:not(.dark) .bg-purple-500\/20  { background-color: rgba(109,40,217,0.14) !important; }
+
+/* Bordas /20 e /30 adicionais */
+:root:not(.dark) .border-blue-500\/30,
+:root:not(.dark) .border-blue-500\/25,
+:root:not(.dark) .border-blue-500\/20 { border-color: rgba(29,78,216,0.28) !important; }
+:root:not(.dark) .border-red-500\/20  { border-color: rgba(185,28,28,0.25) !important; }
+:root:not(.dark) .border-yellow-500\/20 { border-color: rgba(161,98,7,0.28) !important; }
+:root:not(.dark) .border-emerald-500\/20 { border-color: rgba(5,150,105,0.28) !important; }
+
 /* Bordas tonais — visíveis no tema claro */
 :root:not(.dark) .border-emerald-500\/30,
 :root:not(.dark) .border-emerald-500\/25 { border-color: rgba(5,150,105,0.35) !important; }

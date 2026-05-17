@@ -492,7 +492,7 @@ function DashboardLayoutContent({
             {menuGroups.map((group) => (
               <SidebarGroup key={group.labelKey} className="px-2 py-0.5">
                 {!isCollapsed && (
-                  <SidebarGroupLabel className="text-[9px] font-700 uppercase tracking-[0.1em] text-[#273b5c] px-2 mb-0.5 mt-1">
+                  <SidebarGroupLabel className="!h-auto !mt-3 !mb-1 !opacity-100 text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground/70 px-2">
                     {t(group.labelKey)}
                   </SidebarGroupLabel>
                 )}
@@ -509,12 +509,12 @@ function DashboardLayoutContent({
                             "h-8 transition-all duration-100 rounded-lg relative overflow-hidden",
                             "font-normal tracking-tight",
                             isActive
-                              ? "bg-[rgba(79,110,247,0.12)] text-[#eef1f8] shadow-[inset_0_0_0_1px_rgba(79,110,247,0.2)]"
-                              : "text-muted-foreground hover:text-[#9badd4] hover:bg-[rgba(10,18,32,0.9)]"
+                              ? "bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_20%,transparent)]"
+                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
                           )}
                         >
                           {isActive && (
-                            <span className="absolute left-0 top-[25%] bottom-[25%] w-[2px] bg-[#4f6ef7] rounded-r-full shadow-[0_0_8px_rgba(79,110,247,0.9)]" />
+                            <span className="absolute left-0 top-[25%] bottom-[25%] w-[2px] bg-primary rounded-r-full" />
                           )}
                           <item.icon className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-primary" : "")} />
                           <span className="text-[13px]">{t(item.labelKey)}</span>
