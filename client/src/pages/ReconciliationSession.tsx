@@ -8,10 +8,12 @@ import {
 import { useParams, useLocation } from "wouter";
 import {
   ArrowLeft, CheckCircle, AlertTriangle, Activity, ExternalLink,
-  Hash, Link2, Unlink, TrendingUp, BarChart3, Search, RefreshCw,
+  Hash, Link2, Unlink, TrendingUp, BarChart3, Search, RefreshCw, FileDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
+import { generateReconciliationPdf, downloadPdf, type ReconciliationReportData } from "@/lib/reconciliationReport";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -206,8 +208,10 @@ function PairedTransactionRow({ bank, api }: { bank: any; api?: any }) {
 export default function ReconciliationSession() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const { user: me } = useAuth();
   const [view, setView] = useState<"table" | "pairs">("table");
   const [activeTab, setActiveTab] = useState<"all" | "credits" | "debits" | "matched" | "divergent">("all");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const id = parseInt(params.id ?? "0");
 
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionById.useQuery({ id });
@@ -304,6 +308,51 @@ export default function ReconciliationSession() {
   const liveTotal        = liveStats?.totalCount    ?? allBank.length;
   const totalDiff     = (totalBankCred + totalBankDeb) - (totalApiCred + totalApiDeb);
 
+  // ── Geração do relatório PDF ──
+  const handleGeneratePdf = async () => {
+    setGeneratingPdf(true);
+    try {
+      const openDivs = ((sessionDivs ?? []) as any[])
+        .filter(d => !["regularizado", "reclassificado", "baixado"].includes(d.status));
+
+      const reportData: ReconciliationReportData = {
+        sessionId: session.id,
+        referenceDate: session.referenceDate,
+        status: getStatusLabel(session.status),
+        createdAt: session.createdAt,
+        generatedBy: me?.name ?? me?.email ?? "Usuário",
+        matchRate,
+        totalTransactions: liveTotal,
+        matchedCount: liveMatchedCount,
+        divergentCount: liveDivergentCount,
+        pendingCount: livePendingCount,
+        totalBankCredits: totalBankCred,
+        totalBankDebits: totalBankDeb,
+        totalApiCredits: totalApiCred,
+        totalApiDebits: totalApiDeb,
+        totalDifference: totalDiff,
+        openDivergences: openDivs.map(d => ({
+          id: d.id,
+          type: d.divergenceType ?? "—",
+          description: d.bankDescription ?? "",
+          amount: safeNumber(d.amount),
+          priority: d.priority ?? "medium",
+          bankName: d.bankName ?? undefined,
+        })),
+        matchBreakdown: matchTypeData.map(m => ({ name: m.name, value: m.value })),
+      };
+
+      const bytes = await generateReconciliationPdf(reportData);
+      downloadPdf(bytes, `relatorio-conciliacao-${session.id}`);
+      toast.success("Relatório PDF gerado com sucesso.");
+    } catch (err) {
+      console.error("[PDF] Erro ao gerar relatório:", err);
+      toast.error("Erro ao gerar o relatório PDF.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   // ── Table columns ──
   const columns: ColumnDef<any>[] = [
     {
@@ -385,6 +434,14 @@ export default function ReconciliationSession() {
             ID #{session.id} · {formatDateTime(session.createdAt)}
           </p>
         </div>
+        <button
+          onClick={handleGeneratePdf}
+          disabled={generatingPdf}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-foreground bg-card border border-border rounded-lg hover:bg-accent transition-colors shrink-0 disabled:opacity-60"
+        >
+          <FileDown className="w-3.5 h-3.5" />
+          {generatingPdf ? "Gerando..." : "Relatório PDF"}
+        </button>
         <button
           onClick={() => setLocation("/divergencias")}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors shrink-0"
