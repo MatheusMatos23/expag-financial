@@ -401,7 +401,7 @@ export default function Dashboard() {
                   <p className="text-[10px] text-muted-foreground">Atenção imediata</p>
                 </div>
               </div>
-              <Button size="sm" className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 shrink-0" onClick={() => navigate("/divergencias")}>Analisar</Button>
+              <Button size="sm" className="text-xs bg-red-500 hover:bg-red-600 text-white border-0 shrink-0" onClick={() => navigate("/divergencias")}>Analisar</Button>
             </div>
           )}
           {pendingDivs.length > 0 && (
@@ -413,7 +413,7 @@ export default function Dashboard() {
                   <p className="text-[10px] text-muted-foreground">{pendingDivs.length} pendentes para zerar</p>
                 </div>
               </div>
-              <Button size="sm" className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 shrink-0" onClick={() => navigate("/divergencias")}>Resolver</Button>
+              <Button size="sm" className="text-xs bg-amber-500 hover:bg-amber-600 text-white border-0 shrink-0" onClick={() => navigate("/divergencias")}>Resolver</Button>
             </div>
           )}
           {matchRate < 100 && (
@@ -425,7 +425,7 @@ export default function Dashboard() {
                   <p className="text-[10px] text-muted-foreground">Faltam {100-matchRate}% para fechar</p>
                 </div>
               </div>
-              <Button size="sm" className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0" onClick={() => navigate("/conciliacao")}>Conciliar</Button>
+              <Button size="sm" className="text-xs bg-blue-500 hover:bg-blue-600 text-white border-0 shrink-0" onClick={() => navigate("/conciliacao")}>Conciliar</Button>
             </div>
           )}
         </div>
