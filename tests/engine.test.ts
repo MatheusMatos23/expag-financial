@@ -147,3 +147,25 @@ describe("runReconciliationEngine — robustez", () => {
     expect(r.matches.length).toBeGreaterThan(0);
   });
 });
+
+// ─── ATOMICIDADE ──────────────────────────────────────────────────────────────
+describe("runReconciliationEngine — determinismo (base para atomicidade)", () => {
+  it("produz o mesmo resultado para a mesma entrada", () => {
+    const bank = [tx(1, 100, "2026-01-15"), tx(2, 200, "2026-01-15")];
+    const api  = [tx(101, 100, "2026-01-15"), tx(102, 200, "2026-01-15")];
+    const r1 = runReconciliationEngine(bank, api);
+    const r2 = runReconciliationEngine(bank, api);
+    expect(r1.stats.matched).toBe(r2.stats.matched);
+    expect(r1.matches.length).toBe(r2.matches.length);
+  });
+
+  it("não modifica os arrays de entrada", () => {
+    const bank = [tx(1, 100, "2026-01-15")];
+    const api  = [tx(101, 100, "2026-01-15")];
+    const bankCopy = JSON.stringify(bank);
+    const apiCopy = JSON.stringify(api);
+    runReconciliationEngine(bank, api);
+    expect(JSON.stringify(bank)).toBe(bankCopy);
+    expect(JSON.stringify(api)).toBe(apiCopy);
+  });
+});

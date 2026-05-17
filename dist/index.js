@@ -108645,6 +108645,43 @@ async function deleteReconciliationSession(id) {
   await db.execute(sql`DELETE FROM api_transactions WHERE sessionId = ${id}`);
   await db.execute(sql`DELETE FROM reconciliation_sessions WHERE id = ${id}`);
 }
+async function cleanupFailedSession(id) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`
+      DELETE FROM revenues WHERE divergenceId IN (
+        SELECT id FROM divergences WHERE sessionId = ${id}
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM expenses WHERE divergenceId IN (
+        SELECT id FROM divergences WHERE sessionId = ${id}
+      )
+    `);
+  } catch {
+  }
+  try {
+    await db.execute(sql`DELETE FROM revenues WHERE sessionId = ${id}`);
+  } catch {
+  }
+  try {
+    await db.execute(sql`DELETE FROM expenses WHERE sessionId = ${id}`);
+  } catch {
+  }
+  try {
+    await db.execute(sql`DELETE FROM divergences WHERE sessionId = ${id}`);
+  } catch {
+  }
+  try {
+    await db.execute(sql`DELETE FROM bank_transactions WHERE sessionId = ${id}`);
+  } catch {
+  }
+  try {
+    await db.execute(sql`DELETE FROM api_transactions WHERE sessionId = ${id}`);
+  } catch {
+  }
+}
 async function insertBankTransactions(rows) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -132658,13 +132695,18 @@ var reconciliationRouter = router({
         processingMs
       };
     } catch (err) {
-      await updateReconciliationSession(sessionId, { status: "error" });
+      await cleanupFailedSession(sessionId).catch(() => {
+        console.error(`[RECONCILIATION] Falha ao limpar sess\xE3o ${sessionId} ap\xF3s erro`);
+      });
+      await updateReconciliationSession(sessionId, { status: "error" }).catch(() => {
+      });
+      invalidateReconciliationCache();
       await audit(ctx, {
         action: "reconciliation.error",
         category: "conciliacao",
         entityType: "session",
         entityId: sessionId,
-        summary: `Erro ao processar concilia\xE7\xE3o de ${input.referenceDate}`,
+        summary: `Erro ao processar concilia\xE7\xE3o de ${input.referenceDate} \u2014 dados parciais removidos (rollback)`,
         metadata: { error: String(err) }
       });
       throw err;

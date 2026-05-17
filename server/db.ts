@@ -158,6 +158,36 @@ export async function deleteReconciliationSession(id: number) {
   await db.execute(sql`DELETE FROM reconciliation_sessions WHERE id = ${id}`);
 }
 
+/**
+ * Limpa completamente os dados de uma sessão que falhou no meio do processamento.
+ * Garante atomicidade: ou a conciliação completa com sucesso, ou nada fica no banco.
+ * Diferente de deleteReconciliationSession: preserva o registro da sessão marcado
+ * como 'error' para rastreabilidade, mas remove todas as transações/divergências órfãs.
+ */
+export async function cleanupFailedSession(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    // Remove dados derivados que possam ter sido parcialmente criados
+    await db.execute(sql`
+      DELETE FROM revenues WHERE divergenceId IN (
+        SELECT id FROM divergences WHERE sessionId = ${id}
+      )
+    `);
+    await db.execute(sql`
+      DELETE FROM expenses WHERE divergenceId IN (
+        SELECT id FROM divergences WHERE sessionId = ${id}
+      )
+    `);
+  } catch {}
+  try { await db.execute(sql`DELETE FROM revenues WHERE sessionId = ${id}`); } catch {}
+  try { await db.execute(sql`DELETE FROM expenses WHERE sessionId = ${id}`); } catch {}
+  try { await db.execute(sql`DELETE FROM divergences WHERE sessionId = ${id}`); } catch {}
+  try { await db.execute(sql`DELETE FROM bank_transactions WHERE sessionId = ${id}`); } catch {}
+  try { await db.execute(sql`DELETE FROM api_transactions WHERE sessionId = ${id}`); } catch {}
+  // A sessão em si NÃO é removida — fica como 'error' para auditoria
+}
+
 export async function insertBankTransactions(rows: Array<{
   sessionId: number; type: 'credit' | 'debit'; transactionDate: string;
   description: string; amount: string; channel?: string; bankName?: string; externalId?: string;

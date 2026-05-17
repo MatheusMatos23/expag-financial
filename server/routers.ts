@@ -628,11 +628,17 @@ const reconciliationRouter = router({
         };
 
       } catch (err) {
-        await db.updateReconciliationSession(sessionId, { status: 'error' });
+        // ── ATOMICIDADE: limpa todos os dados parciais para evitar estado inconsistente ──
+        // Conciliação é tudo-ou-nada: se falhou no meio, remove transações/divergências órfãs.
+        await db.cleanupFailedSession(sessionId).catch(() => {
+          console.error(`[RECONCILIATION] Falha ao limpar sessão ${sessionId} após erro`);
+        });
+        await db.updateReconciliationSession(sessionId, { status: 'error' }).catch(() => {});
+        db.invalidateReconciliationCache();
         await audit(ctx, {
           action: "reconciliation.error", category: "conciliacao",
           entityType: "session", entityId: sessionId,
-          summary: `Erro ao processar conciliação de ${input.referenceDate}`,
+          summary: `Erro ao processar conciliação de ${input.referenceDate} — dados parciais removidos (rollback)`,
           metadata: { error: String(err) },
         });
         throw err;
