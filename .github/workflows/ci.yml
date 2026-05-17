@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Qualidade de Código
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Verificação de tipos
+        run: npm run check
+      - name: Testes automatizados
+        run: npm test
+      - name: Build de produção
+        run: npm run build
+        env:
+          NODE_ENV: production
