@@ -3,6 +3,7 @@ import { notifyOwner } from "./notification";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./trpc";
 import { hashPassword, emailToOpenId } from "./localAuth";
 import * as db from "../db";
+import { audit } from "./auditHelper";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -28,7 +29,7 @@ export const systemRouter = router({
       password: z.string().min(8, "Senha precisa de 8+ caracteres"),
       role: z.enum(["admin", "user"]).default("user"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const existing = await db.getUserByEmail(input.email.toLowerCase());
       if (existing) throw new Error("Já existe um usuário com este email.");
       const openId       = emailToOpenId(input.email);
@@ -43,6 +44,11 @@ export const systemRouter = router({
       });
       const user = await db.getUserByOpenId(openId);
       if (user) await db.updateUserPassword(user.id, passwordHash);
+      await audit(ctx, {
+        action: "user.create", category: "usuario",
+        entityType: "user", entityId: user?.id,
+        summary: `Criou o usuário ${input.name} (${input.email}) como ${input.role === "admin" ? "Administrador" : "Operador"}`,
+      });
       return { success: true, id: user?.id };
     }),
 
@@ -60,15 +66,26 @@ export const systemRouter = router({
         if (adminCount <= 1) throw new Error("Não é possível excluir o último administrador.");
       }
       await db.deleteUser(input.id);
+      await audit(ctx, {
+        action: "user.delete", category: "usuario",
+        entityType: "user", entityId: input.id,
+        summary: `Excluiu o usuário ${target?.name ?? target?.email ?? "#" + input.id}`,
+      });
       return { success: true };
     }),
 
   // Alterar senha de qualquer usuário — somente admin
   updateUserPassword: adminProcedure
     .input(z.object({ id: z.number(), password: z.string().min(8, "Senha precisa de 8+ caracteres") }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const hash = await hashPassword(input.password);
       await db.updateUserPassword(input.id, hash);
+      const target = (await db.getUsers()).find(u => u.id === input.id);
+      await audit(ctx, {
+        action: "user.password_reset", category: "usuario",
+        entityType: "user", entityId: input.id,
+        summary: `Alterou a senha do usuário ${target?.name ?? target?.email ?? "#" + input.id}`,
+      });
       return { success: true };
     }),
 
@@ -79,6 +96,11 @@ export const systemRouter = router({
       if (!ctx.user?.id) throw new Error("Sessão inválida.");
       const hash = await hashPassword(input.password);
       await db.updateUserPassword(ctx.user.id, hash);
+      await audit(ctx, {
+        action: "user.own_password_change", category: "usuario",
+        entityType: "user", entityId: ctx.user.id,
+        summary: `Alterou a própria senha`,
+      });
       return { success: true };
     }),
 
@@ -91,14 +113,25 @@ export const systemRouter = router({
         if (adminCount <= 1) throw new Error("Você é o único administrador — não pode rebaixar a si mesmo.");
       }
       await db.updateUserRole(input.id, input.role);
+      const target = (await db.getUsers()).find(u => u.id === input.id);
+      await audit(ctx, {
+        action: "user.role_change", category: "usuario",
+        entityType: "user", entityId: input.id,
+        summary: `Alterou o perfil de ${target?.name ?? target?.email ?? "#" + input.id} para ${input.role === "admin" ? "Administrador" : "Operador"}`,
+      });
       return { success: true };
     }),
 
   // Editar nome do usuário — somente admin
   updateUserProfile: adminProcedure
     .input(z.object({ id: z.number(), name: z.string().min(2, "Nome muito curto") }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await db.updateUserProfile(input.id, input.name.trim());
+      await audit(ctx, {
+        action: "user.update", category: "usuario",
+        entityType: "user", entityId: input.id,
+        summary: `Atualizou o nome do usuário #${input.id} para "${input.name.trim()}"`,
+      });
       return { success: true };
     }),
 });

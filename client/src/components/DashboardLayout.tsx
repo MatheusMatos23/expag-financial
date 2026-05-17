@@ -26,7 +26,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   AlertCircle, AlertTriangle, ArrowLeftRight, BadgeDollarSign, BarChart3,
   BookOpen, Building2, ChevronRight, CreditCard, Eye, EyeOff, FileText,
-  LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, TrendingUp, Wallet, Users,
+  LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, TrendingUp, Wallet, Users, ScrollText,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -347,6 +347,7 @@ const menuGroups = [
       { icon: LayoutDashboard, label: "Dashboard", path: "/" },
       { icon: AlertTriangle, label: "Alertas", path: "/alertas" },
       { icon: Users, label: "Usuários", path: "/usuarios" },
+      { icon: ScrollText, label: "Auditoria", path: "/auditoria" },
     ],
   },
   {

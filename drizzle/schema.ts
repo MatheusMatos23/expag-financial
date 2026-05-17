@@ -460,7 +460,25 @@ export const systemConfig = mysqlTable("system_config", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// ─── AUDIT LOG ────────────────────────────────────────────────────────────────
+export const auditLogs = mysqlTable("audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  userName: varchar("userName", { length: 200 }),
+  userEmail: varchar("userEmail", { length: 200 }),
+  action: varchar("action", { length: 80 }).notNull(),       // ex: "reconciliation.create"
+  category: varchar("category", { length: 50 }).notNull(),   // ex: "conciliacao", "usuario", "divergencia"
+  entityType: varchar("entityType", { length: 50 }),         // ex: "session", "user", "divergence"
+  entityId: varchar("entityId", { length: 100 }),            // id da entidade afetada
+  summary: text("summary").notNull(),                        // descrição legível da ação
+  metadata: text("metadata"),                                // JSON com detalhes extras
+  ipAddress: varchar("ipAddress", { length: 60 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 // ─── TYPES ────────────────────────────────────────────────────────────────────
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type ReconciliationSession = typeof reconciliationSessions.$inferSelect;

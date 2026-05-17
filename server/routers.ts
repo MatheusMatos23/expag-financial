@@ -3,12 +3,13 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { audit } from "./_core/auditHelper";
 import { notifyOwner } from "./_core/notification";
 import * as db from "./db";
 import { processIngestion } from "./modules/ingestion";
 import { runReconciliationEngine } from "./modules/reconciliation/engine";
 import { classifyDivergence } from "./modules/divergence/classifier";
-import { audit } from "./modules/audit/logger";
+import { audit as auditLog } from "./modules/audit/logger";
 import { parseStatement } from "./reconciliation/parsers";
 import { sql } from "drizzle-orm";
 
@@ -44,9 +45,14 @@ const reconciliationRouter = router({
 
   deleteSession: protectedProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await db.deleteReconciliationSession(input.id);
       db.invalidateReconciliationCache(); // limpa cache de saldo por banco
+      await audit(ctx, {
+        action: "reconciliation.delete", category: "conciliacao",
+        entityType: "session", entityId: input.id,
+        summary: `Excluiu a sessão de conciliação #${input.id}`,
+      });
       return { success: true };
     }),
 
@@ -428,7 +434,7 @@ const reconciliationRouter = router({
         referenceDate: input.referenceDate,
       });
 
-      audit({ action: 'reconciliation.start', sessionId, userId: ctx.user.id,
+      auditLog({ action: 'reconciliation.start', sessionId, userId: ctx.user.id,
         metadata: { referenceDate: input.referenceDate } });
 
       try {
@@ -531,7 +537,7 @@ const reconciliationRouter = router({
           totalDivergenceAmount += amount;
           if (classified.priority === 'critical') criticalDivergences++;
 
-          audit({ action: 'divergence.created', sessionId,
+          auditLog({ action: 'divergence.created', sessionId,
             metadata: { type: 'bank_surplus', bankId, amount, category: classified.category, priority: classified.priority } });
         }
 
@@ -562,7 +568,7 @@ const reconciliationRouter = router({
           totalDivergenceAmount += amount;
           if (classified.priority === 'critical') criticalDivergences++;
 
-          audit({ action: 'divergence.created', sessionId,
+          auditLog({ action: 'divergence.created', sessionId,
             metadata: { type: 'bank_shortage', apiId, amount, category: classified.category, priority: classified.priority } });
         }
 
@@ -600,8 +606,12 @@ const reconciliationRouter = router({
         }
 
         const processingMs = Date.now() - t0;
-        audit({ action: 'reconciliation.complete', sessionId, userId: ctx.user.id, durationMs: processingMs,
-          metadata: { ...engineResult.stats, criticalDivergences, totalDivergenceAmount, ingestionSummary: ingested.summary } });
+        await audit(ctx, {
+          action: "reconciliation.create", category: "conciliacao",
+          entityType: "session", entityId: sessionId,
+          summary: `Processou a conciliação de ${input.referenceDate} — ${engineResult.stats.matched} conciliados, ${engineResult.stats.matchRate}% de taxa`,
+          metadata: { ...engineResult.stats, criticalDivergences, totalDivergenceAmount, processingMs },
+        });
 
         return {
           sessionId,
@@ -619,8 +629,12 @@ const reconciliationRouter = router({
 
       } catch (err) {
         await db.updateReconciliationSession(sessionId, { status: 'error' });
-        audit({ action: 'reconciliation.error', sessionId, userId: ctx.user.id,
-          metadata: { error: String(err) } });
+        await audit(ctx, {
+          action: "reconciliation.error", category: "conciliacao",
+          entityType: "session", entityId: sessionId,
+          summary: `Erro ao processar conciliação de ${input.referenceDate}`,
+          metadata: { error: String(err) },
+        });
         throw err;
       }
     }),
@@ -819,6 +833,12 @@ const reconciliationRouter = router({
         ctx.user?.name ?? ctx.user?.email ?? 'Usuário'
       );
       await updateSessionPendingCount(input.sessionId);
+      await audit(ctx, {
+        action: "divergence.manual_reconcile", category: "divergencia",
+        entityType: "divergence", entityId: input.ids.join(","),
+        summary: `Conciliou manualmente ${input.ids.length} divergência(s)`,
+        metadata: { ids: input.ids, note: input.note },
+      });
       return result;
     }),
 
@@ -837,11 +857,18 @@ const reconciliationRouter = router({
       description: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      return db.resolveNdi(input.id, {
+      const r = await db.resolveNdi(input.id, {
         clientName: input.clientName,
         description: input.description ?? '',
         createdByName: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
       });
+      await audit(ctx, {
+        action: "ndi.resolve", category: "ndi",
+        entityType: "divergence", entityId: input.id,
+        summary: `Identificou NDI #${input.id} — cliente: ${input.clientName}`,
+        metadata: { clientName: input.clientName },
+      });
+      return r;
     }),
 
   // ── NDI — Não Identificados ───────────────────────────────────────────────
@@ -874,8 +901,14 @@ const reconciliationRouter = router({
       ids: z.array(z.number()).min(1),
       ndiNote: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await db.markDivergencesAsNdi(input.ids, input.ndiNote);
+      await audit(ctx, {
+        action: "ndi.mark", category: "ndi",
+        entityType: "divergence", entityId: input.ids.join(","),
+        summary: `Marcou ${input.ids.length} divergência(s) como NDI`,
+        metadata: { ids: input.ids },
+      });
       return { success: true };
     }),
 
@@ -930,6 +963,12 @@ const reconciliationRouter = router({
         createdByName: ctx.user?.name ?? 'Sistema',
       });
       await updateSessionPendingCount(input.sessionId);
+      await audit(ctx, {
+        action: "divergence.move_to_revenue", category: "divergencia",
+        entityType: "divergence", entityId: input.ids.join(","),
+        summary: `Moveu ${input.ids.length} divergência(s) para Receitas (${input.type})`,
+        metadata: { ids: input.ids, type: input.type },
+      });
       return { success: true, revenueIds };
     }),
 
@@ -953,6 +992,12 @@ const reconciliationRouter = router({
         createdByName: ctx.user?.name ?? 'Sistema',
       });
       await updateSessionPendingCount(input.sessionId);
+      await audit(ctx, {
+        action: "divergence.move_to_expense", category: "divergencia",
+        entityType: "divergence", entityId: input.ids.join(","),
+        summary: `Moveu ${input.ids.length} divergência(s) para Despesas (${input.category})`,
+        metadata: { ids: input.ids, category: input.category },
+      });
       return { success: true, expenseIds };
     }),
 
@@ -1443,6 +1488,20 @@ const dashboardRouter = router({
     }),
 
 
+
+  // ── Log de Auditoria ──────────────────────────────────────────────────────
+  getAuditLogs: protectedProcedure
+    .input(z.object({
+      category: z.string().optional(),
+      userId: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      limit: z.number().optional(),
+    }))
+    .query(async ({ input }) => db.getAuditLogs(input)),
+
+  getAuditStats: protectedProcedure
+    .query(async () => db.getAuditStats()),
 
   getSystemConfig: protectedProcedure
     .input(z.object({ key: z.string() }))

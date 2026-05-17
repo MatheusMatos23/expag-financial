@@ -5,7 +5,7 @@ import {
   reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances,
   revenues, expenses, payables, creditPortfolio, creditInstallments,
   costCenters, dre, cashFlow, alerts, systemConfig,
-  manualAdjustments,
+  manualAdjustments, auditLogs,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1815,4 +1815,94 @@ export async function createUser(data: {
     lastSignedIn: new Date(),
   });
   return openId;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── AUDIT LOG ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface AuditEntry {
+  userId?: number | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  action: string;
+  category: string;
+  entityType?: string | null;
+  entityId?: string | number | null;
+  summary: string;
+  metadata?: Record<string, any> | null;
+  ipAddress?: string | null;
+}
+
+/**
+ * Registra uma ação no log de auditoria. Nunca lança erro — falha silenciosa
+ * para não interromper a operação principal do usuário.
+ */
+export async function logAudit(entry: AuditEntry): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(auditLogs).values({
+      userId:     entry.userId ?? null,
+      userName:   entry.userName ?? null,
+      userEmail:  entry.userEmail ?? null,
+      action:     entry.action,
+      category:   entry.category,
+      entityType: entry.entityType ?? null,
+      entityId:   entry.entityId != null ? String(entry.entityId) : null,
+      summary:    entry.summary,
+      metadata:   entry.metadata ? JSON.stringify(entry.metadata) : null,
+      ipAddress:  entry.ipAddress ?? null,
+    });
+  } catch (err) {
+    console.error("[AUDIT] Falha ao registrar log:", err);
+  }
+}
+
+export async function getAuditLogs(filters?: {
+  category?: string;
+  userId?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions: any[] = [];
+  if (filters?.category && filters.category !== "all") {
+    conditions.push(eq(auditLogs.category, filters.category));
+  }
+  if (filters?.userId) {
+    conditions.push(eq(auditLogs.userId, filters.userId));
+  }
+  if (filters?.dateFrom) {
+    conditions.push(gte(auditLogs.createdAt, new Date(filters.dateFrom)));
+  }
+  if (filters?.dateTo) {
+    conditions.push(lte(auditLogs.createdAt, new Date(filters.dateTo + "T23:59:59")));
+  }
+  const limit = Math.min(filters?.limit ?? 500, 2000);
+  return db.select().from(auditLogs)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(limit);
+}
+
+export async function getAuditStats() {
+  const db = await getDb();
+  if (!db) return { total: 0, today: 0, byCategory: [] };
+  const today = new Date().toISOString().slice(0, 10);
+  const [totalRes, todayRes, catRes] = await Promise.all([
+    db.execute(sql`SELECT COUNT(*) as cnt FROM audit_logs`),
+    db.execute(sql`SELECT COUNT(*) as cnt FROM audit_logs WHERE DATE(createdAt) = ${today}`),
+    db.execute(sql`SELECT category, COUNT(*) as cnt FROM audit_logs GROUP BY category ORDER BY cnt DESC`),
+  ]);
+  return {
+    total: parseInt(String((totalRes as any)[0]?.[0]?.cnt ?? 0)),
+    today: parseInt(String((todayRes as any)[0]?.[0]?.cnt ?? 0)),
+    byCategory: ((catRes as any)[0] ?? []).map((r: any) => ({
+      category: r.category, count: parseInt(String(r.cnt ?? 0)),
+    })),
+  };
 }

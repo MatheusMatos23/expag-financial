@@ -50699,6 +50699,7 @@ var schema_exports = {};
 __export(schema_exports, {
   alerts: () => alerts,
   apiTransactions: () => apiTransactions,
+  auditLogs: () => auditLogs,
   bankTransactions: () => bankTransactions,
   cashFlow: () => cashFlow,
   costCenters: () => costCenters,
@@ -50715,7 +50716,7 @@ __export(schema_exports, {
   systemConfig: () => systemConfig,
   users: () => users
 });
-var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, dre, cashFlow, alerts, systemConfig;
+var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, dre, cashFlow, alerts, systemConfig, auditLogs;
 var init_schema2 = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -51139,6 +51140,26 @@ var init_schema2 = __esm({
       value: text("value").notNull(),
       description: text("description"),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    auditLogs = mysqlTable("audit_logs", {
+      id: int("id").autoincrement().primaryKey(),
+      userId: int("userId"),
+      userName: varchar("userName", { length: 200 }),
+      userEmail: varchar("userEmail", { length: 200 }),
+      action: varchar("action", { length: 80 }).notNull(),
+      // ex: "reconciliation.create"
+      category: varchar("category", { length: 50 }).notNull(),
+      // ex: "conciliacao", "usuario", "divergencia"
+      entityType: varchar("entityType", { length: 50 }),
+      // ex: "session", "user", "divergence"
+      entityId: varchar("entityId", { length: 100 }),
+      // id da entidade afetada
+      summary: text("summary").notNull(),
+      // descrição legível da ação
+      metadata: text("metadata"),
+      // JSON com detalhes extras
+      ipAddress: varchar("ipAddress", { length: 60 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
     });
   }
 });
@@ -109898,6 +109919,63 @@ async function deleteCashFlow(referenceDate) {
   if (!db) throw new Error("DB unavailable");
   await db.execute(sql`DELETE FROM cash_flow WHERE referenceDate = ${referenceDate}`);
 }
+async function logAudit(entry) {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(auditLogs).values({
+      userId: entry.userId ?? null,
+      userName: entry.userName ?? null,
+      userEmail: entry.userEmail ?? null,
+      action: entry.action,
+      category: entry.category,
+      entityType: entry.entityType ?? null,
+      entityId: entry.entityId != null ? String(entry.entityId) : null,
+      summary: entry.summary,
+      metadata: entry.metadata ? JSON.stringify(entry.metadata) : null,
+      ipAddress: entry.ipAddress ?? null
+    });
+  } catch (err) {
+    console.error("[AUDIT] Falha ao registrar log:", err);
+  }
+}
+async function getAuditLogs(filters) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [];
+  if (filters?.category && filters.category !== "all") {
+    conditions.push(eq(auditLogs.category, filters.category));
+  }
+  if (filters?.userId) {
+    conditions.push(eq(auditLogs.userId, filters.userId));
+  }
+  if (filters?.dateFrom) {
+    conditions.push(gte(auditLogs.createdAt, new Date(filters.dateFrom)));
+  }
+  if (filters?.dateTo) {
+    conditions.push(lte(auditLogs.createdAt, /* @__PURE__ */ new Date(filters.dateTo + "T23:59:59")));
+  }
+  const limit = Math.min(filters?.limit ?? 500, 2e3);
+  return db.select().from(auditLogs).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(auditLogs.createdAt)).limit(limit);
+}
+async function getAuditStats() {
+  const db = await getDb();
+  if (!db) return { total: 0, today: 0, byCategory: [] };
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const [totalRes, todayRes, catRes] = await Promise.all([
+    db.execute(sql`SELECT COUNT(*) as cnt FROM audit_logs`),
+    db.execute(sql`SELECT COUNT(*) as cnt FROM audit_logs WHERE DATE(createdAt) = ${today}`),
+    db.execute(sql`SELECT category, COUNT(*) as cnt FROM audit_logs GROUP BY category ORDER BY cnt DESC`)
+  ]);
+  return {
+    total: parseInt(String(totalRes[0]?.[0]?.cnt ?? 0)),
+    today: parseInt(String(todayRes[0]?.[0]?.cnt ?? 0)),
+    byCategory: (catRes[0] ?? []).map((r) => ({
+      category: r.category,
+      count: parseInt(String(r.cnt ?? 0))
+    }))
+  };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -130722,6 +130800,30 @@ var adminProcedure = t.procedure.use(
 
 // server/_core/systemRouter.ts
 init_localAuth();
+
+// server/_core/auditHelper.ts
+function extractIp(req) {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string") return fwd.split(",")[0].trim();
+  if (Array.isArray(fwd)) return fwd[0];
+  return req.socket?.remoteAddress ?? null;
+}
+async function audit(ctx, params) {
+  await logAudit({
+    userId: ctx.user?.id ?? null,
+    userName: ctx.user?.name ?? null,
+    userEmail: ctx.user?.email ?? null,
+    action: params.action,
+    category: params.category,
+    entityType: params.entityType ?? null,
+    entityId: params.entityId ?? null,
+    summary: params.summary,
+    metadata: params.metadata ?? null,
+    ipAddress: extractIp(ctx.req)
+  });
+}
+
+// server/_core/systemRouter.ts
 var systemRouter = router({
   health: publicProcedure.input(external_exports.object({ timestamp: external_exports.number().min(0, "timestamp cannot be negative") })).query(() => ({ ok: true })),
   notifyOwner: adminProcedure.input(external_exports.object({ title: external_exports.string().min(1), content: external_exports.string().min(1) })).mutation(async ({ input }) => {
@@ -130737,7 +130839,7 @@ var systemRouter = router({
     name: external_exports.string().min(2, "Nome muito curto"),
     password: external_exports.string().min(8, "Senha precisa de 8+ caracteres"),
     role: external_exports.enum(["admin", "user"]).default("user")
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ input, ctx }) => {
     const existing = await getUserByEmail(input.email.toLowerCase());
     if (existing) throw new Error("J\xE1 existe um usu\xE1rio com este email.");
     const openId = emailToOpenId(input.email);
@@ -130752,6 +130854,13 @@ var systemRouter = router({
     });
     const user = await getUserByOpenId(openId);
     if (user) await updateUserPassword(user.id, passwordHash);
+    await audit(ctx, {
+      action: "user.create",
+      category: "usuario",
+      entityType: "user",
+      entityId: user?.id,
+      summary: `Criou o usu\xE1rio ${input.name} (${input.email}) como ${input.role === "admin" ? "Administrador" : "Operador"}`
+    });
     return { success: true, id: user?.id };
   }),
   // Excluir usuário — somente admin, com proteções
@@ -130765,12 +130874,27 @@ var systemRouter = router({
       if (adminCount <= 1) throw new Error("N\xE3o \xE9 poss\xEDvel excluir o \xFAltimo administrador.");
     }
     await deleteUser(input.id);
+    await audit(ctx, {
+      action: "user.delete",
+      category: "usuario",
+      entityType: "user",
+      entityId: input.id,
+      summary: `Excluiu o usu\xE1rio ${target?.name ?? target?.email ?? "#" + input.id}`
+    });
     return { success: true };
   }),
   // Alterar senha de qualquer usuário — somente admin
-  updateUserPassword: adminProcedure.input(external_exports.object({ id: external_exports.number(), password: external_exports.string().min(8, "Senha precisa de 8+ caracteres") })).mutation(async ({ input }) => {
+  updateUserPassword: adminProcedure.input(external_exports.object({ id: external_exports.number(), password: external_exports.string().min(8, "Senha precisa de 8+ caracteres") })).mutation(async ({ input, ctx }) => {
     const hash2 = await hashPassword(input.password);
     await updateUserPassword(input.id, hash2);
+    const target = (await getUsers()).find((u) => u.id === input.id);
+    await audit(ctx, {
+      action: "user.password_reset",
+      category: "usuario",
+      entityType: "user",
+      entityId: input.id,
+      summary: `Alterou a senha do usu\xE1rio ${target?.name ?? target?.email ?? "#" + input.id}`
+    });
     return { success: true };
   }),
   // Alterar a própria senha — qualquer usuário logado
@@ -130778,6 +130902,13 @@ var systemRouter = router({
     if (!ctx.user?.id) throw new Error("Sess\xE3o inv\xE1lida.");
     const hash2 = await hashPassword(input.password);
     await updateUserPassword(ctx.user.id, hash2);
+    await audit(ctx, {
+      action: "user.own_password_change",
+      category: "usuario",
+      entityType: "user",
+      entityId: ctx.user.id,
+      summary: `Alterou a pr\xF3pria senha`
+    });
     return { success: true };
   }),
   // Alterar papel (admin/user) — somente admin, com proteção do último admin
@@ -130787,11 +130918,26 @@ var systemRouter = router({
       if (adminCount <= 1) throw new Error("Voc\xEA \xE9 o \xFAnico administrador \u2014 n\xE3o pode rebaixar a si mesmo.");
     }
     await updateUserRole(input.id, input.role);
+    const target = (await getUsers()).find((u) => u.id === input.id);
+    await audit(ctx, {
+      action: "user.role_change",
+      category: "usuario",
+      entityType: "user",
+      entityId: input.id,
+      summary: `Alterou o perfil de ${target?.name ?? target?.email ?? "#" + input.id} para ${input.role === "admin" ? "Administrador" : "Operador"}`
+    });
     return { success: true };
   }),
   // Editar nome do usuário — somente admin
-  updateUserProfile: adminProcedure.input(external_exports.object({ id: external_exports.number(), name: external_exports.string().min(2, "Nome muito curto") })).mutation(async ({ input }) => {
+  updateUserProfile: adminProcedure.input(external_exports.object({ id: external_exports.number(), name: external_exports.string().min(2, "Nome muito curto") })).mutation(async ({ input, ctx }) => {
     await updateUserProfile(input.id, input.name.trim());
+    await audit(ctx, {
+      action: "user.update",
+      category: "usuario",
+      entityType: "user",
+      entityId: input.id,
+      summary: `Atualizou o nome do usu\xE1rio #${input.id} para "${input.name.trim()}"`
+    });
     return { success: true };
   })
 });
@@ -131077,7 +131223,7 @@ var ACTION_LEVELS = {
   "payable.paid": "info",
   "credit.created": "info"
 };
-function audit(params) {
+function audit2(params) {
   const entry = {
     id: generateAuditId(),
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -131151,7 +131297,7 @@ function processSource(sessionId, raw, inputType, sourceName) {
 }
 function processIngestion(input) {
   const t0 = Date.now();
-  audit({
+  audit2({
     action: "ingestion.start",
     sessionId: input.sessionId,
     userId: input.userId,
@@ -131200,7 +131346,7 @@ function processIngestion(input) {
   const totalDuplicates = Object.values(sources).reduce((s, r) => s + r.duplicateCount, 0);
   const totalErrors = Object.values(sources).reduce((s, r) => s + r.errorCount, 0);
   if (totalDuplicates > 0) {
-    audit({
+    audit2({
       action: "ingestion.duplicate_removed",
       sessionId: input.sessionId,
       userId: input.userId,
@@ -131208,7 +131354,7 @@ function processIngestion(input) {
     });
   }
   if (totalErrors > 0) {
-    audit({
+    audit2({
       action: "ingestion.validation_error",
       sessionId: input.sessionId,
       userId: input.userId,
@@ -131218,7 +131364,7 @@ function processIngestion(input) {
       }
     });
   }
-  audit({
+  audit2({
     action: "ingestion.complete",
     sessionId: input.sessionId,
     userId: input.userId,
@@ -131956,9 +132102,16 @@ var reconciliationRouter = router({
   getSessions: protectedProcedure.query(async () => {
     return getReconciliationSessions(30);
   }),
-  deleteSession: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteSession: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
     await deleteReconciliationSession(input.id);
     invalidateReconciliationCache();
+    await audit(ctx, {
+      action: "reconciliation.delete",
+      category: "conciliacao",
+      entityType: "session",
+      entityId: input.id,
+      summary: `Excluiu a sess\xE3o de concilia\xE7\xE3o #${input.id}`
+    });
     return { success: true };
   }),
   getSessionTransactions: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
@@ -132317,7 +132470,7 @@ var reconciliationRouter = router({
       userId: ctx.user.id,
       referenceDate: input.referenceDate
     });
-    audit({
+    audit2({
       action: "reconciliation.start",
       sessionId,
       userId: ctx.user.id,
@@ -132414,7 +132567,7 @@ var reconciliationRouter = router({
         const amount = parseFloat(String(bt.amount));
         totalDivergenceAmount += amount;
         if (classified.priority === "critical") criticalDivergences++;
-        audit({
+        audit2({
           action: "divergence.created",
           sessionId,
           metadata: { type: "bank_surplus", bankId, amount, category: classified.category, priority: classified.priority }
@@ -132448,7 +132601,7 @@ var reconciliationRouter = router({
         const amount = parseFloat(String(at.amount));
         totalDivergenceAmount += amount;
         if (classified.priority === "critical") criticalDivergences++;
-        audit({
+        audit2({
           action: "divergence.created",
           sessionId,
           metadata: { type: "bank_shortage", apiId, amount, category: classified.category, priority: classified.priority }
@@ -132483,12 +132636,13 @@ var reconciliationRouter = router({
         });
       }
       const processingMs = Date.now() - t0;
-      audit({
-        action: "reconciliation.complete",
-        sessionId,
-        userId: ctx.user.id,
-        durationMs: processingMs,
-        metadata: { ...engineResult.stats, criticalDivergences, totalDivergenceAmount, ingestionSummary: ingested.summary }
+      await audit(ctx, {
+        action: "reconciliation.create",
+        category: "conciliacao",
+        entityType: "session",
+        entityId: sessionId,
+        summary: `Processou a concilia\xE7\xE3o de ${input.referenceDate} \u2014 ${engineResult.stats.matched} conciliados, ${engineResult.stats.matchRate}% de taxa`,
+        metadata: { ...engineResult.stats, criticalDivergences, totalDivergenceAmount, processingMs }
       });
       return {
         sessionId,
@@ -132505,10 +132659,12 @@ var reconciliationRouter = router({
       };
     } catch (err) {
       await updateReconciliationSession(sessionId, { status: "error" });
-      audit({
+      await audit(ctx, {
         action: "reconciliation.error",
-        sessionId,
-        userId: ctx.user.id,
+        category: "conciliacao",
+        entityType: "session",
+        entityId: sessionId,
+        summary: `Erro ao processar concilia\xE7\xE3o de ${input.referenceDate}`,
         metadata: { error: String(err) }
       });
       throw err;
@@ -132658,6 +132814,14 @@ var reconciliationRouter = router({
       ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
     );
     await updateSessionPendingCount(input.sessionId);
+    await audit(ctx, {
+      action: "divergence.manual_reconcile",
+      category: "divergencia",
+      entityType: "divergence",
+      entityId: input.ids.join(","),
+      summary: `Conciliou manualmente ${input.ids.length} diverg\xEAncia(s)`,
+      metadata: { ids: input.ids, note: input.note }
+    });
     return result;
   }),
   // ── Saldo diário dos bancos ───────────────────────────────────────────────
@@ -132669,11 +132833,20 @@ var reconciliationRouter = router({
     clientName: external_exports.string().min(1),
     description: external_exports.string().optional()
   })).mutation(async ({ input, ctx }) => {
-    return resolveNdi(input.id, {
+    const r = await resolveNdi(input.id, {
       clientName: input.clientName,
       description: input.description ?? "",
       createdByName: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
     });
+    await audit(ctx, {
+      action: "ndi.resolve",
+      category: "ndi",
+      entityType: "divergence",
+      entityId: input.id,
+      summary: `Identificou NDI #${input.id} \u2014 cliente: ${input.clientName}`,
+      metadata: { clientName: input.clientName }
+    });
+    return r;
   }),
   // ── NDI — Não Identificados ───────────────────────────────────────────────
   // ── Editar NDI (nota, data encontrada) ───────────────────────────────────
@@ -132702,8 +132875,16 @@ var reconciliationRouter = router({
   markAsNdi: protectedProcedure.input(external_exports.object({
     ids: external_exports.array(external_exports.number()).min(1),
     ndiNote: external_exports.string().optional()
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ input, ctx }) => {
     await markDivergencesAsNdi(input.ids, input.ndiNote);
+    await audit(ctx, {
+      action: "ndi.mark",
+      category: "ndi",
+      entityType: "divergence",
+      entityId: input.ids.join(","),
+      summary: `Marcou ${input.ids.length} diverg\xEAncia(s) como NDI`,
+      metadata: { ids: input.ids }
+    });
     return { success: true };
   }),
   unmarkNdi: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
@@ -132744,6 +132925,14 @@ var reconciliationRouter = router({
       createdByName: ctx.user?.name ?? "Sistema"
     });
     await updateSessionPendingCount(input.sessionId);
+    await audit(ctx, {
+      action: "divergence.move_to_revenue",
+      category: "divergencia",
+      entityType: "divergence",
+      entityId: input.ids.join(","),
+      summary: `Moveu ${input.ids.length} diverg\xEAncia(s) para Receitas (${input.type})`,
+      metadata: { ids: input.ids, type: input.type }
+    });
     return { success: true, revenueIds };
   }),
   // ── Mover divergências para Despesas (bulk) ───────────────────────────────
@@ -132764,6 +132953,14 @@ var reconciliationRouter = router({
       createdByName: ctx.user?.name ?? "Sistema"
     });
     await updateSessionPendingCount(input.sessionId);
+    await audit(ctx, {
+      action: "divergence.move_to_expense",
+      category: "divergencia",
+      entityType: "divergence",
+      entityId: input.ids.join(","),
+      summary: `Moveu ${input.ids.length} diverg\xEAncia(s) para Despesas (${input.category})`,
+      metadata: { ids: input.ids, category: input.category }
+    });
     return { success: true, expenseIds };
   }),
   getManagerialBalance: protectedProcedure.query(async () => {
@@ -133189,6 +133386,15 @@ var dashboardRouter = router({
     await dbConn.execute(s`UPDATE alerts SET status = 'resolved' WHERE id = ${input.id}`);
     return { success: true };
   }),
+  // ── Log de Auditoria ──────────────────────────────────────────────────────
+  getAuditLogs: protectedProcedure.input(external_exports.object({
+    category: external_exports.string().optional(),
+    userId: external_exports.number().optional(),
+    dateFrom: external_exports.string().optional(),
+    dateTo: external_exports.string().optional(),
+    limit: external_exports.number().optional()
+  })).query(async ({ input }) => getAuditLogs(input)),
+  getAuditStats: protectedProcedure.query(async () => getAuditStats()),
   getSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string() })).query(async ({ input }) => getSystemConfig(input.key)),
   setSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string(), value: external_exports.string(), description: external_exports.string().optional() })).mutation(async ({ input }) => {
     await setSystemConfig(input.key, input.value, input.description);
