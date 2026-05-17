@@ -639,13 +639,30 @@ const reconciliationRouter = router({
         const totalApiCredits  = apiCredits.reduce((s, t) => s + parseFloat(String(t.amount)), 0);
         const totalApiDebits   = apiDebits.reduce((s, t) => s + parseFloat(String(t.amount)), 0);
 
+        // Reconta matchedCount direto do banco usando a regra única do sistema:
+        // conciliado = matchStatus IN ('matched','manual'). Isso garante que o
+        // valor gravado inclui as tarifas batidas automaticamente — consistente
+        // com getSessionStats e recalculateSessionStats.
+        let finalMatchedCount = engineResult.stats.matched;
+        try {
+          const dbConnFin = await db.getDb();
+          if (dbConnFin) {
+            const { sql: sqlFin } = await import("drizzle-orm");
+            const mRes = await dbConnFin.execute(sqlFin`
+              SELECT COUNT(*) as cnt FROM bank_transactions
+              WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
+            `);
+            finalMatchedCount = parseInt(String((mRes as any)[0]?.[0]?.cnt ?? engineResult.stats.matched));
+          }
+        } catch { /* mantém o valor do engine como fallback */ }
+
         await db.updateReconciliationSession(sessionId, {
           status: 'completed',
           totalBankCredits: totalBankCredits.toFixed(2),
           totalBankDebits: totalBankDebits.toFixed(2),
           totalApiCredits: totalApiCredits.toFixed(2),
           totalApiDebits: totalApiDebits.toFixed(2),
-          matchedCount: engineResult.stats.matched,
+          matchedCount: finalMatchedCount,
           divergentCount: engineResult.unmatchedBankIds.length + engineResult.unmatchedApiIds.length,
           pendingCount: 0,
         });
@@ -802,9 +819,11 @@ const reconciliationRouter = router({
       }
 
       // Recontar após limpeza
+      // Conciliado = matchStatus IN ('matched','manual') — regra única do sistema
+      // (tarifa batida automaticamente conta como conciliada)
       const [totalRes, matchedRes, pendingRes, totalDivRes] = await Promise.all([
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
-        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'matched'`),
+        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id}`),
       ]);
@@ -831,16 +850,13 @@ const reconciliationRouter = router({
       const { sql: sqlTag } = await import("drizzle-orm");
 
       // Conta transações reais (excluindo tarifas 'manual' do denominador para matchRate correto)
-      const [totalRealRes, totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
-        // Transações reais = não são tarifas auto (matchStatus != 'manual' OU channel != 'TARIFA')
-        dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND (matchStatus != 'manual' OR matchType IS NULL)`),
+      const [totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
         dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
         dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`),
       ]);
 
-      const totalRealTxs    = parseInt(String((totalRealRes as any)[0]?.[0]?.cnt ?? 0));
       const totalAllTxs     = parseInt(String((totalAllRes  as any)[0]?.[0]?.cnt ?? 0));
       const matchedBankTxs  = parseInt(String((matchedRes   as any)[0]?.[0]?.cnt ?? 0));
       const pendingDivs     = parseInt(String((pendingRes   as any)[0]?.[0]?.cnt ?? 0));
@@ -848,25 +864,17 @@ const reconciliationRouter = router({
       const sessionMatched  = parseInt(String(sessionRow?.matchedCount   ?? 0));
       const sessionDivergent= parseInt(String(sessionRow?.divergentCount ?? 0));
 
-      // matchRate correto:
-      // - Numerador: matched (pelo engine) — NÃO inclui tarifas auto
-      // - Denominador: transações reais (sem tarifas) — para refletir qualidade real do matching
-      // Para sessões novas: matchedRealTxs = matched (sem manual/tarifa) / totalRealTxs
-      const matchedRealTxs = await dbConn.execute(sqlTag`
-        SELECT COUNT(*) as cnt FROM bank_transactions
-        WHERE sessionId = ${input.id} AND matchStatus = 'matched'
-      `);
-      const matchedOnlyReal = parseInt(String((matchedRealTxs as any)[0]?.[0]?.cnt ?? 0));
-
-      // ── Fórmula ÚNICA e consistente para matchRate ───────────────────────────
-      // Numerador: matchStatus='matched' (apenas engine matches, sem tarifas auto)
-      // Denominador: total de bank_transactions da sessão (após remoção de duplicatas)
-      // Fallback para sessões sem bank_transactions (legacy pré-sistema novo)
+      // ── Fórmula ÚNICA e consistente para matchRate (todo o sistema) ──────────
+      // Conciliado = matchStatus IN ('matched','manual'). Tarifa batida
+      // automaticamente CONTA como conciliada — não é divergência, o usuário
+      // não precisa agir sobre ela.
+      // Denominador = total de bank_transactions da sessão.
+      // Fallback para sessões legacy sem bank_transactions no banco.
       let effectiveMatched: number;
       let effectiveTotal: number;
 
       if (totalAllTxs > 0) {
-        effectiveMatched = matchedOnlyReal;       // apenas engine-matched
+        effectiveMatched = matchedBankTxs;        // matched + manual (inclui tarifas)
         effectiveTotal   = totalAllTxs;           // total real no banco
       } else {
         // Legacy: sem bank_transactions no DB

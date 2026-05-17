@@ -128009,13 +128009,26 @@ var reconciliationRouter = router({
       const totalBankDebits = bankDebits.reduce((s, t2) => s + parseFloat(String(t2.amount)), 0);
       const totalApiCredits = apiCredits.reduce((s, t2) => s + parseFloat(String(t2.amount)), 0);
       const totalApiDebits = apiDebits.reduce((s, t2) => s + parseFloat(String(t2.amount)), 0);
+      let finalMatchedCount = engineResult.stats.matched;
+      try {
+        const dbConnFin = await getDb();
+        if (dbConnFin) {
+          const { sql: sqlFin } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+          const mRes = await dbConnFin.execute(sqlFin`
+              SELECT COUNT(*) as cnt FROM bank_transactions
+              WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
+            `);
+          finalMatchedCount = parseInt(String(mRes[0]?.[0]?.cnt ?? engineResult.stats.matched));
+        }
+      } catch {
+      }
       await updateReconciliationSession(sessionId, {
         status: "completed",
         totalBankCredits: totalBankCredits.toFixed(2),
         totalBankDebits: totalBankDebits.toFixed(2),
         totalApiCredits: totalApiCredits.toFixed(2),
         totalApiDebits: totalApiDebits.toFixed(2),
-        matchedCount: engineResult.stats.matched,
+        matchedCount: finalMatchedCount,
         divergentCount: engineResult.unmatchedBankIds.length + engineResult.unmatchedApiIds.length,
         pendingCount: 0
       });
@@ -128149,7 +128162,7 @@ var reconciliationRouter = router({
     }
     const [totalRes, matchedRes, pendingRes, totalDivRes] = await Promise.all([
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
-      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus = 'matched'`),
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id}`)
     ]);
@@ -128166,30 +128179,22 @@ var reconciliationRouter = router({
     const dbConn = await getDb();
     if (!dbConn) return null;
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
-    const [totalRealRes, totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
-      // Transações reais = não são tarifas auto (matchStatus != 'manual' OU channel != 'TARIFA')
-      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND (matchStatus != 'manual' OR matchType IS NULL)`),
+    const [totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
       dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`)
     ]);
-    const totalRealTxs = parseInt(String(totalRealRes[0]?.[0]?.cnt ?? 0));
     const totalAllTxs = parseInt(String(totalAllRes[0]?.[0]?.cnt ?? 0));
     const matchedBankTxs = parseInt(String(matchedRes[0]?.[0]?.cnt ?? 0));
     const pendingDivs = parseInt(String(pendingRes[0]?.[0]?.cnt ?? 0));
     const sessionRow = sessionRes[0]?.[0];
     const sessionMatched = parseInt(String(sessionRow?.matchedCount ?? 0));
     const sessionDivergent = parseInt(String(sessionRow?.divergentCount ?? 0));
-    const matchedRealTxs = await dbConn.execute(sqlTag`
-        SELECT COUNT(*) as cnt FROM bank_transactions
-        WHERE sessionId = ${input.id} AND matchStatus = 'matched'
-      `);
-    const matchedOnlyReal = parseInt(String(matchedRealTxs[0]?.[0]?.cnt ?? 0));
     let effectiveMatched;
     let effectiveTotal;
     if (totalAllTxs > 0) {
-      effectiveMatched = matchedOnlyReal;
+      effectiveMatched = matchedBankTxs;
       effectiveTotal = totalAllTxs;
     } else {
       effectiveMatched = sessionMatched;
