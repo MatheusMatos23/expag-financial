@@ -504,3 +504,113 @@ button[class*="bg-primary"]:hover:not(:disabled) {
 /* Number inputs alinhados */
 input[type="number"] { font-variant-numeric: tabular-nums; }
 
+
+
+/* ─── EXTRA PREMIUM UTILITIES ──────────────────────────────────────────────── */
+@layer components {
+
+  /* Tabular numbers everywhere for financial values */
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Empty state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+    text-align: center;
+  }
+  .empty-state-icon {
+    width: 2.5rem; height: 2.5rem;
+    color: #2d4166;
+    margin-bottom: 0.75rem;
+  }
+
+  /* Section header — usado em cards de dashboard */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .section-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #eef1f8;
+    letter-spacing: -0.01em;
+  }
+
+  /* Link sutil "Ver mais →" */
+  .link-subtle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    color: #4d6490;
+    transition: color 0.15s;
+  }
+  .link-subtle:hover { color: #7b97f9; }
+
+  /* Hover lift sutil para itens clicáveis */
+  .hover-lift {
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .hover-lift:hover {
+    transform: translateY(-1px);
+  }
+
+  /* Divisória de seção com label */
+  .section-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.5rem 0;
+  }
+  .section-divider::before,
+  .section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .section-divider span {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #2d4166;
+  }
+
+  /* Dialog content premium */
+  [role="dialog"] {
+    border-color: rgba(79,110,247,0.15) !important;
+  }
+
+  /* Toast premium */
+  [data-sonner-toast] {
+    background: rgba(10,15,30,0.95) !important;
+    border: 1px solid rgba(79,110,247,0.2) !important;
+    backdrop-filter: blur(12px);
+  }
+
+  /* Select dropdown premium */
+  [role="listbox"], [data-radix-select-content] {
+    background: #0d1426 !important;
+    border: 1px solid rgba(79,110,247,0.18) !important;
+  }
+
+  /* Tabs underline animado */
+  .tab-underline {
+    position: relative;
+  }
+  .tab-underline.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 2px;
+    background: #4f6ef7;
+    border-radius: 2px 2px 0 0;
+    box-shadow: 0 0 8px rgba(79,110,247,0.6);
+  }
+}

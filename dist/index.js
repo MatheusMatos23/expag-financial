@@ -109867,6 +109867,22 @@ async function deleteUser(id) {
   if (!db) throw new Error("DB unavailable");
   await db.execute(sql`DELETE FROM users WHERE id = ${id}`);
 }
+async function updateUserRole(id, role) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE users SET role = ${role} WHERE id = ${id}`);
+}
+async function updateUserProfile(id, name2) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE users SET name = ${name2} WHERE id = ${id}`);
+}
+async function countAdmins() {
+  const db = await getDb();
+  if (!db) return 0;
+  const res = await db.execute(sql`SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'`);
+  return parseInt(String(res[0]?.[0]?.cnt ?? 0));
+}
 async function deleteManagerialBalance(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -130712,26 +130728,70 @@ var systemRouter = router({
     const delivered = await notifyOwner(input);
     return { success: delivered };
   }),
-  // ── User Management ──────────────────────────────────────────────────────
+  // ── User Management ────────────────────────────────────────────────────────
+  // Listar é permitido para qualquer usuário logado (precisa para "responsável" etc)
   getUsers: protectedProcedure.query(async () => getUsers()),
-  createUser: protectedProcedure.input(external_exports.object({ email: external_exports.string().email(), name: external_exports.string().min(1), password: external_exports.string().min(8) })).mutation(async ({ input }) => {
+  // Criar usuário — somente admin
+  createUser: adminProcedure.input(external_exports.object({
+    email: external_exports.string().email("Email inv\xE1lido"),
+    name: external_exports.string().min(2, "Nome muito curto"),
+    password: external_exports.string().min(8, "Senha precisa de 8+ caracteres"),
+    role: external_exports.enum(["admin", "user"]).default("user")
+  })).mutation(async ({ input }) => {
     const existing = await getUserByEmail(input.email.toLowerCase());
-    if (existing) throw new Error("Usu\xE1rio com este email j\xE1 existe.");
+    if (existing) throw new Error("J\xE1 existe um usu\xE1rio com este email.");
     const openId = emailToOpenId(input.email);
     const passwordHash = await hashPassword(input.password);
-    await upsertUser({ openId, email: input.email.toLowerCase(), name: input.name, loginMethod: "local", role: "user", lastSignedIn: /* @__PURE__ */ new Date() });
+    await upsertUser({
+      openId,
+      email: input.email.toLowerCase(),
+      name: input.name.trim(),
+      loginMethod: "local",
+      role: input.role,
+      lastSignedIn: /* @__PURE__ */ new Date()
+    });
     const user = await getUserByOpenId(openId);
     if (user) await updateUserPassword(user.id, passwordHash);
-    return { success: true };
+    return { success: true, id: user?.id };
   }),
-  deleteUser: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
-    if (ctx.user?.id === input.id) throw new Error("Voc\xEA n\xE3o pode excluir seu pr\xF3prio usu\xE1rio.");
+  // Excluir usuário — somente admin, com proteções
+  deleteUser: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    if (ctx.user?.id === input.id) {
+      throw new Error("Voc\xEA n\xE3o pode excluir seu pr\xF3prio usu\xE1rio.");
+    }
+    const target = (await getUsers()).find((u) => u.id === input.id);
+    if (target?.role === "admin") {
+      const adminCount = await countAdmins();
+      if (adminCount <= 1) throw new Error("N\xE3o \xE9 poss\xEDvel excluir o \xFAltimo administrador.");
+    }
     await deleteUser(input.id);
     return { success: true };
   }),
-  updateUserPassword: protectedProcedure.input(external_exports.object({ id: external_exports.number(), password: external_exports.string().min(8) })).mutation(async ({ input }) => {
+  // Alterar senha de qualquer usuário — somente admin
+  updateUserPassword: adminProcedure.input(external_exports.object({ id: external_exports.number(), password: external_exports.string().min(8, "Senha precisa de 8+ caracteres") })).mutation(async ({ input }) => {
     const hash2 = await hashPassword(input.password);
     await updateUserPassword(input.id, hash2);
+    return { success: true };
+  }),
+  // Alterar a própria senha — qualquer usuário logado
+  changeOwnPassword: protectedProcedure.input(external_exports.object({ password: external_exports.string().min(8, "Senha precisa de 8+ caracteres") })).mutation(async ({ input, ctx }) => {
+    if (!ctx.user?.id) throw new Error("Sess\xE3o inv\xE1lida.");
+    const hash2 = await hashPassword(input.password);
+    await updateUserPassword(ctx.user.id, hash2);
+    return { success: true };
+  }),
+  // Alterar papel (admin/user) — somente admin, com proteção do último admin
+  updateUserRole: adminProcedure.input(external_exports.object({ id: external_exports.number(), role: external_exports.enum(["admin", "user"]) })).mutation(async ({ input, ctx }) => {
+    if (ctx.user?.id === input.id && input.role === "user") {
+      const adminCount = await countAdmins();
+      if (adminCount <= 1) throw new Error("Voc\xEA \xE9 o \xFAnico administrador \u2014 n\xE3o pode rebaixar a si mesmo.");
+    }
+    await updateUserRole(input.id, input.role);
+    return { success: true };
+  }),
+  // Editar nome do usuário — somente admin
+  updateUserProfile: adminProcedure.input(external_exports.object({ id: external_exports.number(), name: external_exports.string().min(2, "Nome muito curto") })).mutation(async ({ input }) => {
+    await updateUserProfile(input.id, input.name.trim());
     return { success: true };
   })
 });

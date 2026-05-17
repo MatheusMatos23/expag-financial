@@ -203,3 +203,43 @@ export function calcVariation(
   const pct = ((cur - prev) / Math.abs(prev)) * 100;
   return { value: pct, isPositive: pct >= 0, isNeutral: pct === 0 };
 }
+
+// ─── EXPORTAÇÃO CSV ───────────────────────────────────────────────────────────
+/**
+ * Exporta um array de objetos como arquivo CSV (download no navegador).
+ * @param rows  Linhas de dados (objetos)
+ * @param columns  Mapeamento { chave: "Título da Coluna" }
+ * @param filename  Nome do arquivo (sem extensão)
+ */
+export function exportToCsv(
+  rows: Record<string, any>[],
+  columns: Record<string, string>,
+  filename: string,
+): void {
+  if (!rows.length) return;
+  const keys = Object.keys(columns);
+  const headerLine = keys.map(k => `"${columns[k]}"`).join(";");
+
+  const escape = (val: any): string => {
+    if (val === null || val === undefined) return "";
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const dataLines = rows.map(row =>
+    keys.map(k => escape(row[k])).join(";")
+  );
+
+  // BOM para Excel reconhecer UTF-8 corretamente
+  const csv = "\uFEFF" + [headerLine, ...dataLines].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  const stamp = new Date().toISOString().slice(0, 10);
+  link.download = `${filename}_${stamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

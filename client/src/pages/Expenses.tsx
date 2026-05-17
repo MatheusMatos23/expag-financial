@@ -4,7 +4,7 @@ import {
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, Receipt, TrendingDown, Calendar, Hash, Filter, ArrowDownRight, Edit2, Trash2 , RefreshCw} from "lucide-react";
+import { Plus, Receipt, TrendingDown, Calendar, Hash, Filter, ArrowDownRight, Edit2, Trash2, RefreshCw, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { RecordDetail } from "@/components/RecordDetail";
-import { cn } from "@/lib/utils";
+import { cn, exportToCsv } from "@/lib/utils";
 
 const CATEGORIES = ["bancaria","api","tecnologia","infra","operacional","comercial","folha","comissao","impostos","reembolso","chargeback","estorno","marketing","juridico","administrativo","outros"];
 const CAT_LABELS: Record<string,string> = {
@@ -168,6 +168,23 @@ export default function Expenses() {
         </div>
         <Dialog open={open} onOpenChange={v => { setOpen(v); if(!v) { setEditRow(null); setForm(DEFAULT_FORM); } }}>
 <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}><RefreshCw className="w-3.5 h-3.5" /> Atualizar</Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0"
+              onClick={() => {
+                exportToCsv(
+                  ((expenses ?? []) as any[]).map((r: any) => ({
+                    data: r.referenceDate ? formatDate(r.referenceDate) : "",
+                    descricao: r.description ?? "",
+                    categoria: r.category ?? "",
+                    origem: r.origin ?? "",
+                    valor: r.amount ?? "",
+                  })),
+                  { data: "Data", descricao: "Descrição", categoria: "Categoria", origem: "Origem", valor: "Valor" },
+                  "despesas",
+                );
+                toast.success("Despesas exportadas em CSV.");
+              }}>
+              <Download className="w-3.5 h-3.5" /> Exportar
+            </Button>
           <DialogTrigger asChild>
             <Button className="gap-2 shrink-0"><Plus className="w-4 h-4" /> Nova Despesa</Button>
           </DialogTrigger>

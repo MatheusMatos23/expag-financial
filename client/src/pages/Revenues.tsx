@@ -4,7 +4,7 @@ import {
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
 } from "@/lib/utils";
 import { useState } from "react";
-import { Plus, TrendingUp, DollarSign, Calendar, Hash, ArrowUpRight, Filter, Edit2, Trash2 , RefreshCw} from "lucide-react";
+import { Plus, TrendingUp, DollarSign, Calendar, Hash, ArrowUpRight, Filter, Edit2, Trash2, RefreshCw, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { RecordDetail } from "@/components/RecordDetail";
-import { cn } from "@/lib/utils";
+import { cn, exportToCsv } from "@/lib/utils";
 
 const REVENUE_TYPES = ["pix","ted","boleto","credito","antecipacao","pos","white_label","receita_financeira","receita_operacional","outros"];
 const TYPE_LABELS: Record<string, string> = {
@@ -189,6 +189,23 @@ export default function Revenues() {
           </Select>
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={() => refetch()}>
             <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0"
+            onClick={() => {
+              exportToCsv(
+                ((revenues ?? []) as any[]).map((r: any) => ({
+                  data: r.referenceDate ? formatDate(r.referenceDate) : "",
+                  descricao: r.description ?? "",
+                  tipo: r.type ?? "",
+                  origem: r.origin ?? "",
+                  valor: r.amount ?? "",
+                })),
+                { data: "Data", descricao: "Descrição", tipo: "Tipo", origem: "Origem", valor: "Valor" },
+                "receitas",
+              );
+              toast.success("Receitas exportadas em CSV.");
+            }}>
+            <Download className="w-3.5 h-3.5" /> Exportar
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

@@ -1,11 +1,11 @@
 import { trpc } from "@/lib/trpc";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, exportToCsv } from "@/lib/utils";
 import { useState } from "react";
 import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
   Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare,
-  Tag, Wrench, RefreshCw
+  Tag, Wrench, RefreshCw, Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -672,17 +672,52 @@ export default function Divergences() {
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Checkbox selecionar todos */}
-          <div className="flex items-center gap-2 px-1">
-            <button onClick={toggleSelectAll} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
-              {allSelected
-                ? <CheckSquare className="w-4 h-4 text-primary" />
-                : <Square className="w-4 h-4" />}
-              {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+          {/* Checkbox selecionar todos + Exportar */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-2">
+              <button onClick={toggleSelectAll} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                {allSelected
+                  ? <CheckSquare className="w-4 h-4 text-primary" />
+                  : <Square className="w-4 h-4" />}
+                {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+              </button>
+              {someSelected && (
+                <span className="text-xs text-muted-foreground">· {selectedIds.size} de {rows.length}</span>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                const toExport = someSelected ? selectedRows : rows;
+                exportToCsv(
+                  toExport.map((d: any) => ({
+                    data: d.transactionDate ? formatDate(d.transactionDate) : "",
+                    banco: d.bankName ?? "",
+                    tipo: d.divergenceType ?? "",
+                    descricao: d.bankDescription ?? "",
+                    cliente: d.clientName ?? d.ndiClientName ?? "",
+                    end2end: d.externalId ?? "",
+                    vlrBanco: d.bankAmount ?? "",
+                    vlrApi: d.apiAmount ?? "",
+                    diferenca: d.amount ?? "",
+                    categoria: d.category ?? "",
+                    prioridade: d.priority ?? "",
+                    status: d.status ?? "",
+                  })),
+                  {
+                    data: "Data", banco: "Banco", tipo: "Tipo", descricao: "Descrição",
+                    cliente: "Cliente", end2end: "END2END", vlrBanco: "Vlr Banco",
+                    vlrApi: "Vlr API", diferenca: "Diferença", categoria: "Categoria",
+                    prioridade: "Prioridade", status: "Status",
+                  },
+                  "divergencias",
+                );
+                toast.success(`${toExport.length} divergência(s) exportada(s) em CSV.`);
+              }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-md border border-border hover:border-primary/30"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Exportar {someSelected ? `(${selectedIds.size})` : "tudo"}
             </button>
-            {someSelected && (
-              <span className="text-xs text-muted-foreground">· {selectedIds.size} de {rows.length}</span>
-            )}
           </div>
 
           {STATUS_ORDER.filter(s => grouped[s]?.length > 0).map(statusKey => {

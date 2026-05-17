@@ -1762,6 +1762,25 @@ export async function deleteUser(id: number) {
   await db.execute(sql`DELETE FROM users WHERE id = ${id}`);
 }
 
+export async function updateUserRole(id: number, role: "admin" | "user") {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE users SET role = ${role} WHERE id = ${id}`);
+}
+
+export async function updateUserProfile(id: number, name: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE users SET name = ${name} WHERE id = ${id}`);
+}
+
+export async function countAdmins(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const res = await db.execute(sql`SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'`);
+  return parseInt(String((res as any)[0]?.[0]?.cnt ?? 0));
+}
+
 export async function deleteManagerialBalance(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
