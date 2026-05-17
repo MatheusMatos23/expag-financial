@@ -88,9 +88,12 @@ const reconciliationRouter = router({
       referenceDate: z.string(),
       apiFileBase64: z.string(),
       banks: z.array(z.object({
-        name: z.enum(["sicoob", "bb", "jd"]),
+        // parserType: qual parser usar. 'generic' aceita qualquer banco.
+        parserType: z.enum(["sicoob", "bb", "jd", "generic"]),
+        // displayName: rótulo do banco (ex: "Itaú", "Bradesco"), usado nas divergências
+        displayName: z.string().min(1).max(60),
         fileBase64: z.string(),
-      })).min(1).max(3),
+      })).min(1).max(8),
     }))
     .mutation(async ({ input, ctx }) => {
       const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
@@ -99,10 +102,14 @@ const reconciliationRouter = router({
       // Parse cada banco — parser resiliente (fallback p/ genérico se layout mudou)
       const parsedBanks = input.banks.map(b => {
         const buffer = Buffer.from(b.fileBase64, "base64");
-        const txs = parseStatementResilient(buffer, b.name);
-        // Sicoob também tem END2END em alguns PIX — habilita E2E quando disponível
-      const hasE2E = txs.some(t => t.externalId && /^E[A-Z0-9]{28,}$/i.test(t.externalId));
-      return { name: b.name, txs, useE2E: b.name === "jd" || (b.name === "sicoob" && hasE2E) };
+        const txs = parseStatementResilient(buffer, b.parserType);
+        // END2END habilita matching exato — JD sempre, demais quando o extrato traz E2E
+        const hasE2E = txs.some(t => t.externalId && /^E[A-Z0-9]{28,}$/i.test(t.externalId));
+        return {
+          name: b.displayName,
+          txs,
+          useE2E: b.parserType === "jd" || hasE2E,
+        };
       });
 
       // Detectar datas presentes nos extratos bancários (expandido para ±1 dia de lag de liquidação)

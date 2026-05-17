@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight, FileSpreadsheet,
   RefreshCw, ChevronDown, ChevronUp, Trash2, Eye, ArrowLeft, X,
-  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2
+  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,10 +16,14 @@ import { cn } from "@/lib/utils";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const BANK_OPTIONS = [
-  { value: "jd",     label: "JD (Expag)",       color: "text-blue-400",   border: "border-blue-500/30",   bg: "bg-blue-500/5" },
-  { value: "sicoob", label: "Sicoob",            color: "text-green-400",  border: "border-green-500/30",  bg: "bg-green-500/5" },
-  { value: "bb",     label: "Banco do Brasil",   color: "text-yellow-400", border: "border-yellow-500/30", bg: "bg-yellow-500/5" },
+  { value: "jd",     label: "JD (Expag)",       parserType: "jd",     color: "text-blue-400",   border: "border-blue-500/30",   bg: "bg-blue-500/5" },
+  { value: "sicoob", label: "Sicoob",            parserType: "sicoob", color: "text-green-400",  border: "border-green-500/30",  bg: "bg-green-500/5" },
+  { value: "bb",     label: "Banco do Brasil",   parserType: "bb",     color: "text-yellow-400", border: "border-yellow-500/30", bg: "bg-yellow-500/5" },
 ];
+
+// Banco genérico — para qualquer instituição não cadastrada.
+// Usa o parser inteligente que detecta as colunas automaticamente.
+type CustomBank = { id: string; name: string; file: File | null };
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
@@ -408,6 +412,7 @@ export default function Reconciliation() {
   const [referenceDate, setReferenceDate] = useState(new Date().toISOString().split("T")[0]);
   const [apiFile, setApiFile] = useState<File | null>(null);
   const [bankFiles, setBankFiles] = useState<Record<string, File | null>>({ jd: null, sicoob: null, bb: null });
+  const [customBanks, setCustomBanks] = useState<CustomBank[]>([]);
   const [liveResult, setLiveResult] = useState<any>(null);
   const [liveMeta, setLiveMeta] = useState<any>(null);
   const [expanded, setExpanded] = useState<string>("matched");
@@ -452,17 +457,33 @@ export default function Reconciliation() {
   });
 
   const handleRun = async () => {
-    const activeBanks = BANK_OPTIONS.filter(b => bankFiles[b.value]);
-    if (activeBanks.length === 0) { toast.error("Selecione ao menos 1 extrato bancário."); return; }
+    const activeKnown = BANK_OPTIONS.filter(b => bankFiles[b.value]);
+    const activeCustom = customBanks.filter(b => b.file && b.name.trim());
+    const totalBanks = activeKnown.length + activeCustom.length;
+    if (totalBanks === 0) { toast.error("Selecione ao menos 1 extrato bancário."); return; }
+    if (totalBanks > 8) { toast.error("Máximo de 8 bancos por conciliação."); return; }
     if (!apiFile) { toast.error("Selecione o arquivo API Clientes."); return; }
     if (!referenceDate) { toast.error("Informe a data de referência."); return; }
+    // Valida nomes de bancos personalizados
+    const customWithoutName = customBanks.filter(b => b.file && !b.name.trim());
+    if (customWithoutName.length > 0) { toast.error("Dê um nome a todos os bancos adicionados."); return; }
     try {
       const apiB64 = await fileToBase64(apiFile);
-      const banks = await Promise.all(activeBanks.map(async b => ({
-        name: b.value as "sicoob" | "bb" | "jd",
+      const knownBanks = await Promise.all(activeKnown.map(async b => ({
+        parserType: b.parserType as "sicoob" | "bb" | "jd" | "generic",
+        displayName: b.label,
         fileBase64: await fileToBase64(bankFiles[b.value]!),
       })));
-      reconcileMutation.mutate({ referenceDate, apiFileBase64: apiB64, banks });
+      const customParsed = await Promise.all(activeCustom.map(async b => ({
+        parserType: "generic" as const,
+        displayName: b.name.trim(),
+        fileBase64: await fileToBase64(b.file!),
+      })));
+      reconcileMutation.mutate({
+        referenceDate,
+        apiFileBase64: apiB64,
+        banks: [...knownBanks, ...customParsed],
+      });
     } catch { toast.error("Erro ao ler os arquivos."); }
   };
 
@@ -540,7 +561,7 @@ export default function Reconciliation() {
             </div>
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground mb-2 block">Extratos Bancários (1 a 3 bancos)</Label>
+            <Label className="text-xs text-muted-foreground mb-2 block">Extratos Bancários (até 8 bancos)</Label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {BANK_OPTIONS.map(b => (
                 <UploadZone key={b.value} label={b.label} color={b.color} border={b.border} bg={b.bg}
@@ -549,6 +570,58 @@ export default function Reconciliation() {
                   onRemove={() => setBankFiles(p => ({ ...p, [b.value]: null }))} />
               ))}
             </div>
+
+            {/* Bancos personalizados — qualquer instituição via parser inteligente */}
+            {customBanks.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+                {customBanks.map((cb) => (
+                  <div key={cb.id} className="rounded-lg border border-border bg-card p-2 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        value={cb.name}
+                        onChange={e => setCustomBanks(prev =>
+                          prev.map(b => b.id === cb.id ? { ...b, name: e.target.value } : b))}
+                        placeholder="Nome do banco (ex: Itaú)"
+                        className="h-7 text-xs flex-1"
+                      />
+                      <button
+                        onClick={() => setCustomBanks(prev => prev.filter(b => b.id !== cb.id))}
+                        title="Remover banco"
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <UploadZone
+                      label={cb.name.trim() || "Extrato bancário"}
+                      color="text-violet-400" border="border-violet-500/30" bg="bg-violet-500/5"
+                      file={cb.file}
+                      onFile={f => setCustomBanks(prev =>
+                        prev.map(b => b.id === cb.id ? { ...b, file: f } : b))}
+                      onRemove={() => setCustomBanks(prev =>
+                        prev.map(b => b.id === cb.id ? { ...b, file: null } : b))}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Botão adicionar banco */}
+            {(BANK_OPTIONS.length + customBanks.length) < 8 && (
+              <button
+                onClick={() => setCustomBanks(prev => [
+                  ...prev,
+                  { id: `cb-${Date.now()}-${prev.length}`, name: "", file: null },
+                ])}
+                className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-primary/40 rounded-lg px-3 py-2 transition-colors w-full justify-center"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Adicionar outro banco
+              </button>
+            )}
+            <p className="text-[10px] text-muted-foreground mt-1.5">
+              Bancos adicionais usam leitura inteligente — o sistema detecta as colunas automaticamente, independente do layout da planilha.
+            </p>
           </div>
           <div>
             <Label className="text-xs text-muted-foreground mb-2 block">API Clientes Expag *</Label>
@@ -567,7 +640,7 @@ export default function Reconciliation() {
             </div>
           )}
           <Button onClick={handleRun}
-            disabled={!apiFile || Object.values(bankFiles).every(f => !f) || reconcileMutation.isPending}
+            disabled={!apiFile || (Object.values(bankFiles).every(f => !f) && customBanks.every(b => !b.file)) || reconcileMutation.isPending}
             className="w-full gap-2">
             {reconcileMutation.isPending
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processando...</>

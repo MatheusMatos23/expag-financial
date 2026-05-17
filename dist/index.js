@@ -127402,17 +127402,24 @@ var reconciliationRouter = router({
     referenceDate: external_exports.string(),
     apiFileBase64: external_exports.string(),
     banks: external_exports.array(external_exports.object({
-      name: external_exports.enum(["sicoob", "bb", "jd"]),
+      // parserType: qual parser usar. 'generic' aceita qualquer banco.
+      parserType: external_exports.enum(["sicoob", "bb", "jd", "generic"]),
+      // displayName: rótulo do banco (ex: "Itaú", "Bradesco"), usado nas divergências
+      displayName: external_exports.string().min(1).max(60),
       fileBase64: external_exports.string()
-    })).min(1).max(3)
+    })).min(1).max(8)
   })).mutation(async ({ input, ctx }) => {
     const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
     const allApiTxs = parseStatement(apiBuffer, "api");
     const parsedBanks = input.banks.map((b) => {
       const buffer = Buffer.from(b.fileBase64, "base64");
-      const txs = parseStatementResilient(buffer, b.name);
+      const txs = parseStatementResilient(buffer, b.parserType);
       const hasE2E = txs.some((t2) => t2.externalId && /^E[A-Z0-9]{28,}$/i.test(t2.externalId));
-      return { name: b.name, txs, useE2E: b.name === "jd" || b.name === "sicoob" && hasE2E };
+      return {
+        name: b.displayName,
+        txs,
+        useE2E: b.parserType === "jd" || hasE2E
+      };
     });
     const bankDatesRaw = new Set(parsedBanks.flatMap((b) => b.txs.map((t2) => t2.date)));
     const bankDates = /* @__PURE__ */ new Set();
