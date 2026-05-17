@@ -214,7 +214,17 @@ export default function ReconciliationSession() {
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const id = parseInt(params.id ?? "0");
 
-  const { data, isLoading, refetch } = trpc.reconciliation.getSessionById.useQuery({ id });
+  const { data, isLoading, refetch } = trpc.reconciliation.getSessionById.useQuery(
+    { id },
+    {
+      // Enquanto a conciliação está processando, atualiza a cada 3s para
+      // detectar quando o job em segundo plano termina.
+      refetchInterval: (query) => {
+        const s = (query.state.data as any)?.session?.status;
+        return s === "processing" ? 3000 : false;
+      },
+    },
+  );
   const recalcMutation = trpc.reconciliation.recalculateSessionStats.useMutation({
     onSuccess: (r) => {
       toast.success(`Stats recalculados: ${r.matchedCount} conciliados · ${r.divergentCount} divergentes · ${r.matchRate}% taxa`);
@@ -290,6 +300,59 @@ export default function ReconciliationSession() {
         <p className="text-sm font-medium text-muted-foreground">Sessão não encontrada.</p>
         <button onClick={() => setLocation("/conciliacao")}
           className="mt-3 text-xs text-primary hover:underline">← Voltar</button>
+      </div>
+    );
+  }
+
+  // ── Tela de processamento — conciliação rodando em segundo plano ──
+  if (session?.status === "processing") {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <div className="relative">
+            <div className="w-14 h-14 border-[3px] border-primary/20 border-t-primary rounded-full animate-spin" />
+            <Activity className="w-5 h-5 text-primary absolute inset-0 m-auto" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-foreground">Processando conciliação</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Os extratos estão sendo lidos e cruzados com a API. Isto pode levar alguns
+              instantes para arquivos grandes — a tela atualiza sozinha quando terminar.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            Sessão #{session.id} · {formatDate(session.referenceDate)}
+          </div>
+          <button onClick={() => setLocation("/conciliacao")}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            ← Voltar para conciliações
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tela de erro — conciliação falhou ──
+  if (session?.status === "error") {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/25 flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6 text-red-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-foreground">Falha no processamento</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              A conciliação não pôde ser concluída. Os dados parciais foram removidos
+              automaticamente. Verifique os arquivos e tente novamente.
+            </p>
+          </div>
+          <button onClick={() => setLocation("/conciliacao")}
+            className="text-xs text-primary hover:underline">
+            ← Voltar e tentar novamente
+          </button>
+        </div>
       </div>
     );
   }

@@ -38,66 +38,24 @@ async function updateSessionPendingCount(sessionId: number | undefined) {
     .where(eqOp(reconciliationSessions.id, sessionId));
 }
 
-const reconciliationRouter = router({
-  getSessions: protectedProcedure.query(async () => {
-    return db.getReconciliationSessions(30);
-  }),
-
-  deleteSession: adminProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      await db.deleteReconciliationSession(input.id);
-      db.invalidateReconciliationCache(); // limpa cache de saldo por banco
-      await audit(ctx, {
-        action: "reconciliation.delete", category: "conciliacao",
-        entityType: "session", entityId: input.id,
-        summary: `Excluiu a sessão de conciliação #${input.id}`,
-      });
-      return { success: true };
-    }),
-
-  getSessionTransactions: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      const session = await db.getReconciliationSessionById(input.id);
-      if (!session) return null;
-      const [bankTxs, apiTxs, divs] = await Promise.all([
-        db.getBankTransactionsBySession(input.id),
-        db.getApiTransactionsBySession(input.id),
-        db.getDivergences({ sessionId: input.id }),
-      ]);
-      return { session, bankTxs, apiTxs, divs };
-    }),
-
-  // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
-  parseStatementFile: protectedProcedure
-    .input(z.object({
-      fileBase64: z.string(),
-      bank: z.enum(["sicoob", "bb", "jd", "api", "generic"]),
-    }))
-    .mutation(async ({ input }) => {
-      const buffer = Buffer.from(input.fileBase64, "base64");
-      // Parser resiliente: tenta o específico do banco, cai para o genérico se falhar
-      const transactions = parseStatementResilient(buffer, input.bank);
-      return { transactions, count: transactions.length };
-    }),
-
-  // ── Novo: conciliar múltiplos bancos vs API ────────────────────────────────
-  runReconciliation: protectedProcedure
-    .input(z.object({
-      referenceDate: z.string(),
-      apiFileBase64: z.string(),
-      banks: z.array(z.object({
-        // parserType: qual parser usar. 'generic' aceita qualquer banco.
-        parserType: z.enum(["sicoob", "bb", "jd", "generic"]),
-        // displayName: rótulo do banco (ex: "Itaú", "Bradesco"), usado nas divergências
-        displayName: z.string().min(1).max(60),
-        fileBase64: z.string(),
-      })).min(1).max(8),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
-      const allApiTxs = parseStatement(apiBuffer, "api");
+// ═══════════════════════════════════════════════════════════════════════════
+// JOB DE CONCILIAÇÃO — processamento em segundo plano
+// Recebe a sessão já criada (status 'processing') e executa parse + engine +
+// persistência. Em caso de erro, faz rollback completo (atomicidade).
+// ═══════════════════════════════════════════════════════════════════════════
+async function processReconciliationJob(
+  sessionId: number,
+  input: {
+    referenceDate: string;
+    apiFileBase64: string;
+    banks: Array<{ parserType: "sicoob" | "bb" | "jd" | "generic"; displayName: string; fileBase64: string }>;
+  },
+  ctx: any,
+): Promise<void> {
+  const t0 = Date.now();
+  try {
+    const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
+    const allApiTxs = parseStatement(apiBuffer, "api");
 
       // Parse cada banco — parser resiliente (fallback p/ genérico se layout mudou)
       const parsedBanks = input.banks.map(b => {
@@ -171,11 +129,7 @@ const reconciliationRouter = router({
       const { reconcileMultiBank } = await import("./reconciliation/engine");
       const result = reconcileMultiBank(parsedBanksClean, apiTxs);
 
-      // Salvar sessão
-      const sessionId = await db.createReconciliationSession({
-        userId: ctx.user.id,
-        referenceDate: input.referenceDate,
-      });
+      // Sessão já criada pela mutation (recebida como parâmetro)
 
       // ── BATCH INSERT: banco + API (104x mais rápido que loop individual) ─────
       const matchedExternalIds = new Set<string>();
@@ -403,13 +357,112 @@ const reconciliationRouter = router({
 
       db.invalidateReconciliationCache(); // atualiza cache após nova conciliação
       db.generateSystemAlerts().catch(() => {}); // gera alertas em background
+      // Job concluído com sucesso — status já gravado como 'completed' acima
+  } catch (err) {
+    // ── ATOMICIDADE: limpa dados parciais e marca a sessão como erro ──
+    await db.cleanupFailedSession(sessionId).catch(() => {
+      console.error(`[RECONCILIATION] Falha ao limpar sessão ${sessionId} após erro`);
+    });
+    await db.updateReconciliationSession(sessionId, { status: 'error' }).catch(() => {});
+    db.invalidateReconciliationCache();
+    await audit(ctx, {
+      action: "reconciliation.error", category: "conciliacao",
+      entityType: "session", entityId: sessionId,
+      summary: `Erro ao processar conciliação de ${input.referenceDate} — dados parciais removidos (rollback)`,
+      metadata: { error: String(err) },
+    });
+  }
+}
+
+const reconciliationRouter = router({
+  getSessions: protectedProcedure.query(async () => {
+    return db.getReconciliationSessions(30);
+  }),
+
+  deleteSession: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await db.deleteReconciliationSession(input.id);
+      db.invalidateReconciliationCache(); // limpa cache de saldo por banco
+      await audit(ctx, {
+        action: "reconciliation.delete", category: "conciliacao",
+        entityType: "session", entityId: input.id,
+        summary: `Excluiu a sessão de conciliação #${input.id}`,
+      });
+      return { success: true };
+    }),
+
+  getSessionTransactions: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const session = await db.getReconciliationSessionById(input.id);
+      if (!session) return null;
+      const [bankTxs, apiTxs, divs] = await Promise.all([
+        db.getBankTransactionsBySession(input.id),
+        db.getApiTransactionsBySession(input.id),
+        db.getDivergences({ sessionId: input.id }),
+      ]);
+      return { session, bankTxs, apiTxs, divs };
+    }),
+
+  // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
+  parseStatementFile: protectedProcedure
+    .input(z.object({
+      fileBase64: z.string(),
+      bank: z.enum(["sicoob", "bb", "jd", "api", "generic"]),
+    }))
+    .mutation(async ({ input }) => {
+      const buffer = Buffer.from(input.fileBase64, "base64");
+      // Parser resiliente: tenta o específico do banco, cai para o genérico se falhar
+      const transactions = parseStatementResilient(buffer, input.bank);
+      return { transactions, count: transactions.length };
+    }),
+
+  // ── Novo: conciliar múltiplos bancos vs API ────────────────────────────────
+  runReconciliation: protectedProcedure
+    .input(z.object({
+      referenceDate: z.string(),
+      apiFileBase64: z.string(),
+      banks: z.array(z.object({
+        // parserType: qual parser usar. 'generic' aceita qualquer banco.
+        parserType: z.enum(["sicoob", "bb", "jd", "generic"]),
+        // displayName: rótulo do banco (ex: "Itaú", "Bradesco"), usado nas divergências
+        displayName: z.string().min(1).max(60),
+        fileBase64: z.string(),
+      })).min(1).max(8),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // ── CONCILIAÇÃO ASSÍNCRONA ──────────────────────────────────────────────
+      // Cria a sessão como 'processing' e retorna imediatamente. O processamento
+      // pesado (parse + engine + persistência) roda em segundo plano, evitando
+      // timeout em arquivos grandes. O frontend acompanha pelo status da sessão.
+      const sessionId = await db.createReconciliationSession({
+        userId: ctx.user.id,
+        referenceDate: input.referenceDate,
+      });
+
+      // Dispara o processamento detached (sem await) — o erro é tratado internamente
+      processReconciliationJob(sessionId, input, ctx).catch((err) => {
+        console.error(`[RECONCILIATION] Job ${sessionId} falhou:`, err);
+      });
+
+      // Retorna na hora — sessão fica como 'processing' até o job terminar
+      return { sessionId, status: "processing" as const };
+    }),
+
+  // ── Verifica o status de uma conciliação em andamento ──────────────────────
+  getReconciliationStatus: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .query(async ({ input }) => {
+      const session = await db.getReconciliationSessionById(input.sessionId);
+      if (!session) return { status: "not_found" as const };
       return {
-        sessionId, result,
-        bankDates: Array.from(bankDates).sort(),
-        apiFilteredCount: apiTxs.length,
-        banksProcessed: parsedBanks.map(b => ({ name: b.name, count: b.txs.length })),
+        status: session.status as "processing" | "completed" | "error",
+        matchedCount: session.matchedCount ?? 0,
+        divergentCount: session.divergentCount ?? 0,
       };
     }),
+
 
   getSessionById: protectedProcedure
     .input(z.object({ id: z.number() }))

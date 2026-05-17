@@ -127362,53 +127362,9 @@ async function updateSessionPendingCount(sessionId) {
   const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
   await dbConn.update(reconciliationSessions2).set({ pendingCount, matchedCount }).where(eqOp(reconciliationSessions2.id, sessionId));
 }
-var reconciliationRouter = router({
-  getSessions: protectedProcedure.query(async () => {
-    return getReconciliationSessions(30);
-  }),
-  deleteSession: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
-    await deleteReconciliationSession(input.id);
-    invalidateReconciliationCache();
-    await audit(ctx, {
-      action: "reconciliation.delete",
-      category: "conciliacao",
-      entityType: "session",
-      entityId: input.id,
-      summary: `Excluiu a sess\xE3o de concilia\xE7\xE3o #${input.id}`
-    });
-    return { success: true };
-  }),
-  getSessionTransactions: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
-    const session = await getReconciliationSessionById(input.id);
-    if (!session) return null;
-    const [bankTxs, apiTxs, divs] = await Promise.all([
-      getBankTransactionsBySession(input.id),
-      getApiTransactionsBySession(input.id),
-      getDivergences({ sessionId: input.id })
-    ]);
-    return { session, bankTxs, apiTxs, divs };
-  }),
-  // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
-  parseStatementFile: protectedProcedure.input(external_exports.object({
-    fileBase64: external_exports.string(),
-    bank: external_exports.enum(["sicoob", "bb", "jd", "api", "generic"])
-  })).mutation(async ({ input }) => {
-    const buffer = Buffer.from(input.fileBase64, "base64");
-    const transactions = parseStatementResilient(buffer, input.bank);
-    return { transactions, count: transactions.length };
-  }),
-  // ── Novo: conciliar múltiplos bancos vs API ────────────────────────────────
-  runReconciliation: protectedProcedure.input(external_exports.object({
-    referenceDate: external_exports.string(),
-    apiFileBase64: external_exports.string(),
-    banks: external_exports.array(external_exports.object({
-      // parserType: qual parser usar. 'generic' aceita qualquer banco.
-      parserType: external_exports.enum(["sicoob", "bb", "jd", "generic"]),
-      // displayName: rótulo do banco (ex: "Itaú", "Bradesco"), usado nas divergências
-      displayName: external_exports.string().min(1).max(60),
-      fileBase64: external_exports.string()
-    })).min(1).max(8)
-  })).mutation(async ({ input, ctx }) => {
+async function processReconciliationJob(sessionId, input, ctx) {
+  const t0 = Date.now();
+  try {
     const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
     const allApiTxs = parseStatement(apiBuffer, "api");
     const parsedBanks = input.banks.map((b) => {
@@ -127486,10 +127442,6 @@ var reconciliationRouter = router({
     const apiTxs = apiTxsForEngine;
     const { reconcileMultiBank: reconcileMultiBank2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const result = reconcileMultiBank2(parsedBanksClean, apiTxs);
-    const sessionId = await createReconciliationSession({
-      userId: ctx.user.id,
-      referenceDate: input.referenceDate
-    });
     const matchedExternalIds = /* @__PURE__ */ new Set();
     const matchedApiExternalIds = /* @__PURE__ */ new Set();
     const matchedByDat = /* @__PURE__ */ new Set();
@@ -127710,12 +127662,87 @@ var reconciliationRouter = router({
     invalidateReconciliationCache();
     generateSystemAlerts().catch(() => {
     });
+  } catch (err) {
+    await cleanupFailedSession(sessionId).catch(() => {
+      console.error(`[RECONCILIATION] Falha ao limpar sess\xE3o ${sessionId} ap\xF3s erro`);
+    });
+    await updateReconciliationSession(sessionId, { status: "error" }).catch(() => {
+    });
+    invalidateReconciliationCache();
+    await audit(ctx, {
+      action: "reconciliation.error",
+      category: "conciliacao",
+      entityType: "session",
+      entityId: sessionId,
+      summary: `Erro ao processar concilia\xE7\xE3o de ${input.referenceDate} \u2014 dados parciais removidos (rollback)`,
+      metadata: { error: String(err) }
+    });
+  }
+}
+var reconciliationRouter = router({
+  getSessions: protectedProcedure.query(async () => {
+    return getReconciliationSessions(30);
+  }),
+  deleteSession: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    await deleteReconciliationSession(input.id);
+    invalidateReconciliationCache();
+    await audit(ctx, {
+      action: "reconciliation.delete",
+      category: "conciliacao",
+      entityType: "session",
+      entityId: input.id,
+      summary: `Excluiu a sess\xE3o de concilia\xE7\xE3o #${input.id}`
+    });
+    return { success: true };
+  }),
+  getSessionTransactions: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {
+    const session = await getReconciliationSessionById(input.id);
+    if (!session) return null;
+    const [bankTxs, apiTxs, divs] = await Promise.all([
+      getBankTransactionsBySession(input.id),
+      getApiTransactionsBySession(input.id),
+      getDivergences({ sessionId: input.id })
+    ]);
+    return { session, bankTxs, apiTxs, divs };
+  }),
+  // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
+  parseStatementFile: protectedProcedure.input(external_exports.object({
+    fileBase64: external_exports.string(),
+    bank: external_exports.enum(["sicoob", "bb", "jd", "api", "generic"])
+  })).mutation(async ({ input }) => {
+    const buffer = Buffer.from(input.fileBase64, "base64");
+    const transactions = parseStatementResilient(buffer, input.bank);
+    return { transactions, count: transactions.length };
+  }),
+  // ── Novo: conciliar múltiplos bancos vs API ────────────────────────────────
+  runReconciliation: protectedProcedure.input(external_exports.object({
+    referenceDate: external_exports.string(),
+    apiFileBase64: external_exports.string(),
+    banks: external_exports.array(external_exports.object({
+      // parserType: qual parser usar. 'generic' aceita qualquer banco.
+      parserType: external_exports.enum(["sicoob", "bb", "jd", "generic"]),
+      // displayName: rótulo do banco (ex: "Itaú", "Bradesco"), usado nas divergências
+      displayName: external_exports.string().min(1).max(60),
+      fileBase64: external_exports.string()
+    })).min(1).max(8)
+  })).mutation(async ({ input, ctx }) => {
+    const sessionId = await createReconciliationSession({
+      userId: ctx.user.id,
+      referenceDate: input.referenceDate
+    });
+    processReconciliationJob(sessionId, input, ctx).catch((err) => {
+      console.error(`[RECONCILIATION] Job ${sessionId} falhou:`, err);
+    });
+    return { sessionId, status: "processing" };
+  }),
+  // ── Verifica o status de uma conciliação em andamento ──────────────────────
+  getReconciliationStatus: protectedProcedure.input(external_exports.object({ sessionId: external_exports.number() })).query(async ({ input }) => {
+    const session = await getReconciliationSessionById(input.sessionId);
+    if (!session) return { status: "not_found" };
     return {
-      sessionId,
-      result,
-      bankDates: Array.from(bankDates).sort(),
-      apiFilteredCount: apiTxs.length,
-      banksProcessed: parsedBanks.map((b) => ({ name: b.name, count: b.txs.length }))
+      status: session.status,
+      matchedCount: session.matchedCount ?? 0,
+      divergentCount: session.divergentCount ?? 0
     };
   }),
   getSessionById: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).query(async ({ input }) => {

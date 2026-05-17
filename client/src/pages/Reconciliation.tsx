@@ -442,15 +442,14 @@ export default function Reconciliation() {
 
   const reconcileMutation = trpc.reconciliation.runReconciliation.useMutation({
     onSuccess: (data) => {
-      setLiveResult(data.result);
-      setLiveMeta(data);
+      // Conciliação assíncrona: a sessão entra como 'processing' e é processada
+      // em segundo plano. Abrimos a sessão — a tela de detalhe acompanha o status.
       setUploadOpen(false);
       setManualBack(false);
-      const s = data.result.summary;
-      const totalDivs = s.divergentCount + s.unmatchedBankCount + s.unmatchedApiCount;
-      toast.success(`Concluído! ✅ ${s.matchedCount} conciliados · ⚠️ ${totalDivs} divergências a analisar`);
+      setLiveResult(null);
+      setLiveMeta(null);
+      toast.success("Conciliação iniciada — processando em segundo plano...");
       refetchSessions();
-      // Abre a sessão recém-criada
       setSelectedSession(data.sessionId);
     },
     onError: (e) => toast.error(e.message),
