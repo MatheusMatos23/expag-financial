@@ -295,7 +295,7 @@ export default function Expenses() {
           </h3>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={chartData} margin={{ left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#5c7099" }} />
               <YAxis tick={{ fontSize: 10, fill: "#5c7099" }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
               <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={TOOLTIP_STYLE} />

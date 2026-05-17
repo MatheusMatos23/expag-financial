@@ -80,7 +80,7 @@ export default function CashFlow() {
                     <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={v => fmtS(v)} tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} width={65} />
                 <Tooltip contentStyle={TOOLTIP} formatter={(v:any) => formatCurrency(v)} />
@@ -94,7 +94,7 @@ export default function CashFlow() {
             <h3 className="text-sm font-bold text-foreground mb-4">Entradas vs Saídas por Dia</h3>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={chartData} margin={{ top:0, right:0, left:0, bottom:0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={v => fmtS(v)} tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} width={65} />
                 <Tooltip contentStyle={TOOLTIP} formatter={(v:any) => formatCurrency(v)} />

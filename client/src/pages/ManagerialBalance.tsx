@@ -126,10 +126,10 @@ export default function ManagerialBalance() {
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} />
               <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: any) => formatCurrency(v)} contentStyle={{ background: "#1a1f2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "12px" }} />
+              <Tooltip formatter={(v: any) => formatCurrency(v)} contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px", color: "var(--foreground)" }} />
               <Legend wrapperStyle={{ fontSize: "11px" }} />
               <Area type="monotone" dataKey="banco" stroke="#38bdf8" fill="url(#grad_banco)" strokeWidth={2} name="Banco" />
               <Area type="monotone" dataKey="clientes" stroke="#facc15" fill="url(#grad_clientes)" strokeWidth={2} name="Clientes" />

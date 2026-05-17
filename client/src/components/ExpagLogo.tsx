@@ -41,7 +41,7 @@ export function ExpagLogo({ collapsed = false, className = "", size = "md" }: Ex
   if (collapsed) {
     // Apenas ícone EX
     return (
-      <div className={className} style={{ color: '#eef1f8', lineHeight: 0, flexShrink: 0 }}>
+      <div className={className} style={{ color: 'var(--foreground)', lineHeight: 0, flexShrink: 0 }}>
         <ExIcon size={iconSize} />
       </div>
     );
@@ -49,7 +49,7 @@ export function ExpagLogo({ collapsed = false, className = "", size = "md" }: Ex
 
   // Logo completo (ícone + pag já dentro do SVG)
   return (
-    <div className={`inline-flex items-center ${className}`} style={{ color: '#d0daf0', lineHeight: 0 }}>
+    <div className={`inline-flex items-center ${className}`} style={{ color: 'var(--foreground)', lineHeight: 0 }}>
       <ExpagFull height={fullHeight} />
     </div>
   );

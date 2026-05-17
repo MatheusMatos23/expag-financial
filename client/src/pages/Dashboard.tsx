@@ -218,7 +218,7 @@ export default function Dashboard() {
                     <stop offset="95%" stopColor="#60a5fa" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis dataKey="date" tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={v => fmtS(v)} tick={{ fontSize:9, fill:"#6b7280" }} axisLine={false} tickLine={false} width={60} />
                 <Tooltip contentStyle={TOOLTIP} formatter={(v:any) => formatCurrency(v)} />

@@ -213,7 +213,7 @@ export default function Controladoria() {
                   <stop offset="95%" stopColor="#f87171" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={v => fmtShort(v)} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} width={70} />
               <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => fmt(v)} />
