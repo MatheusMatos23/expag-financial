@@ -1509,23 +1509,60 @@ export async function getBankBalancesByBank() {
   if (cached) return cached;
   const db = await getDb();
   if (!db) return [];
-  // Agrega bank_transactions por bankName das últimas sessões completadas
-  const result = await db.execute(sql`
+
+  // 1) Saldos e matching por banco — vem de bank_transactions
+  const balRes = await db.execute(sql`
     SELECT
       bt.bankName,
       SUM(CASE WHEN bt.type = 'credit' THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalCredits,
       SUM(CASE WHEN bt.type = 'debit'  THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalDebits,
-      COUNT(*)                                                                              as totalTxs,
-      SUM(CASE WHEN bt.matchStatus IN ('matched','manual') THEN 1 ELSE 0 END)             as matchedTxs,
-      SUM(CASE WHEN bt.matchStatus NOT IN ('matched','manual') THEN 1 ELSE 0 END)         as divergentTxs,
-      MAX(rs.referenceDate)                                                                 as lastDate
+      COUNT(*)                                                                          as totalTxs,
+      SUM(CASE WHEN bt.matchStatus IN ('matched','manual') THEN 1 ELSE 0 END)           as matchedTxs,
+      MAX(rs.referenceDate)                                                             as lastDate
     FROM bank_transactions bt
     JOIN reconciliation_sessions rs ON rs.id = bt.sessionId
     WHERE bt.bankName IS NOT NULL AND bt.bankName != ''
     GROUP BY bt.bankName
     ORDER BY totalCredits DESC
   `);
-  const data = (result as any)[0] ?? [];
+  const balRows: any[] = (balRes as any)[0] ?? [];
+
+  // 2) Contagem de divergências pendentes por banco — vem da tabela divergences.
+  //    bank_surplus tem bankName preenchido. bank_shortage (falta no banco /
+  //    sobra na API) normalmente não tem banco — agrupado como 'API / Sem banco'.
+  const divRes = await db.execute(sql`
+    SELECT
+      COALESCE(NULLIF(bankName, ''), 'API / Sem banco') as grp,
+      COUNT(*) as cnt
+    FROM divergences
+    WHERE status NOT IN ('regularizado','reclassificado','baixado')
+    GROUP BY grp
+  `);
+  const divMap = new Map<string, number>();
+  for (const row of ((divRes as any)[0] ?? [])) {
+    divMap.set(String(row.grp), parseInt(String(row.cnt ?? 0)));
+  }
+
+  // 3) Junta: cada banco recebe sua contagem real de divergências
+  const data = balRows.map(b => ({
+    ...b,
+    divergentTxs: divMap.get(String(b.bankName)) ?? 0,
+  }));
+
+  // 4) Se houver divergências sem banco (lado API), adiciona uma linha própria
+  //    para que a soma do card bata com o total da aba Divergências.
+  const apiSideDivs = divMap.get('API / Sem banco') ?? 0;
+  if (apiSideDivs > 0) {
+    data.push({
+      bankName: 'API / Sem banco',
+      totalCredits: 0, totalDebits: 0,
+      totalTxs: 0, matchedTxs: 0,
+      divergentTxs: apiSideDivs,
+      lastDate: null,
+      apiSideOnly: true,
+    });
+  }
+
   cacheSet('bank_balances_by_bank', data, 10_000); // 10s cache
   return data;
 }

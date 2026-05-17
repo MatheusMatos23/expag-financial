@@ -107896,22 +107896,50 @@ async function getBankBalancesByBank() {
   if (cached2) return cached2;
   const db = await getDb();
   if (!db) return [];
-  const result = await db.execute(sql`
+  const balRes = await db.execute(sql`
     SELECT
       bt.bankName,
       SUM(CASE WHEN bt.type = 'credit' THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalCredits,
       SUM(CASE WHEN bt.type = 'debit'  THEN CAST(bt.amount AS DECIMAL(18,2)) ELSE 0 END) as totalDebits,
-      COUNT(*)                                                                              as totalTxs,
-      SUM(CASE WHEN bt.matchStatus IN ('matched','manual') THEN 1 ELSE 0 END)             as matchedTxs,
-      SUM(CASE WHEN bt.matchStatus NOT IN ('matched','manual') THEN 1 ELSE 0 END)         as divergentTxs,
-      MAX(rs.referenceDate)                                                                 as lastDate
+      COUNT(*)                                                                          as totalTxs,
+      SUM(CASE WHEN bt.matchStatus IN ('matched','manual') THEN 1 ELSE 0 END)           as matchedTxs,
+      MAX(rs.referenceDate)                                                             as lastDate
     FROM bank_transactions bt
     JOIN reconciliation_sessions rs ON rs.id = bt.sessionId
     WHERE bt.bankName IS NOT NULL AND bt.bankName != ''
     GROUP BY bt.bankName
     ORDER BY totalCredits DESC
   `);
-  const data = result[0] ?? [];
+  const balRows = balRes[0] ?? [];
+  const divRes = await db.execute(sql`
+    SELECT
+      COALESCE(NULLIF(bankName, ''), 'API / Sem banco') as grp,
+      COUNT(*) as cnt
+    FROM divergences
+    WHERE status NOT IN ('regularizado','reclassificado','baixado')
+    GROUP BY grp
+  `);
+  const divMap = /* @__PURE__ */ new Map();
+  for (const row of divRes[0] ?? []) {
+    divMap.set(String(row.grp), parseInt(String(row.cnt ?? 0)));
+  }
+  const data = balRows.map((b) => ({
+    ...b,
+    divergentTxs: divMap.get(String(b.bankName)) ?? 0
+  }));
+  const apiSideDivs = divMap.get("API / Sem banco") ?? 0;
+  if (apiSideDivs > 0) {
+    data.push({
+      bankName: "API / Sem banco",
+      totalCredits: 0,
+      totalDebits: 0,
+      totalTxs: 0,
+      matchedTxs: 0,
+      divergentTxs: apiSideDivs,
+      lastDate: null,
+      apiSideOnly: true
+    });
+  }
   cacheSet("bank_balances_by_bank", data, 1e4);
   return data;
 }

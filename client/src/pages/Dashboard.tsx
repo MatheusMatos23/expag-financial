@@ -259,6 +259,19 @@ export default function Dashboard() {
               const tot  = parseInt(String(b.totalTxs ?? 0));
               const mat  = parseInt(String(b.matchedTxs ?? 0));
               const rate = tot > 0 ? Math.round((mat / tot) * 100) : 0;
+              const divCount = parseInt(String(b.divergentTxs ?? 0));
+              // Linha especial: divergências do lado da API (sem banco atribuído)
+              if (b.apiSideOnly) {
+                return (
+                  <div key="api-side" className="flex items-center gap-2 pt-1 border-t border-border/40">
+                    <div className="w-2 h-2 rounded-full shrink-0 bg-muted-foreground/50" />
+                    <span className="text-xs font-medium text-muted-foreground flex-1">API / Sem banco</span>
+                    {divCount > 0 && (
+                      <span className="text-[10px] text-yellow-400 font-semibold">{divCount} div.</span>
+                    )}
+                  </div>
+                );
+              }
               return (
                 <div key={b.bankName} className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -270,8 +283,8 @@ export default function Dashboard() {
                     <span className="text-emerald-400">+{formatCurrency(cred)}</span>
                     <span>/</span>
                     <span className="text-red-400">-{formatCurrency(deb)}</span>
-                    {parseInt(String(b.divergentTxs??0)) > 0 && (
-                      <span className="text-yellow-400">{b.divergentTxs} div.</span>
+                    {divCount > 0 && (
+                      <span className="text-yellow-400">{divCount} div.</span>
                     )}
                   </div>
                   <div className="ml-4 w-full bg-accent/20 rounded-full h-1 overflow-hidden">
