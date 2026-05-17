@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, adminProcedure, publicProcedure, router } from "./_core/trpc";
 import { audit } from "./_core/auditHelper";
 import { notifyOwner } from "./_core/notification";
 import * as db from "./db";
@@ -43,7 +43,7 @@ const reconciliationRouter = router({
     return db.getReconciliationSessions(30);
   }),
 
-  deleteSession: protectedProcedure
+  deleteSession: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await db.deleteReconciliationSession(input.id);
@@ -665,7 +665,7 @@ const reconciliationRouter = router({
       return { success: true };
     }),
 
-  deleteDivergence: protectedProcedure
+  deleteDivergence: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const dbConn = await db.getDb();
@@ -1072,7 +1072,7 @@ const controllershipRouter = router({
     }))
     .mutation(async ({ input }) => { await db.updateRevenue(input.id, input); return { success: true }; }),
 
-  deleteRevenue: protectedProcedure
+  deleteRevenue: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => { await db.deleteRevenue(input.id); return { success: true }; }),
 
@@ -1103,7 +1103,7 @@ const controllershipRouter = router({
     }))
     .mutation(async ({ input }) => { await db.updateExpense(input.id, input); return { success: true }; }),
 
-  deleteExpense: protectedProcedure
+  deleteExpense: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => { await db.deleteExpense(input.id); return { success: true }; }),
 
@@ -1131,7 +1131,7 @@ const controllershipRouter = router({
       return { success: true };
     }),
 
-  deletePayable: protectedProcedure
+  deletePayable: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await db.deletePayable(input.id);
@@ -1184,7 +1184,7 @@ const controllershipRouter = router({
     }))
     .mutation(async ({ input }) => { await db.updateCreditPortfolio(input.id, input); return { success: true }; }),
 
-  deleteLoan: protectedProcedure
+  deleteLoan: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => { await db.deleteCreditPortfolio(input.id); return { success: true }; }),
 
@@ -1416,15 +1416,15 @@ const accountingRouter = router({
       return { success: true };
     }),
 
-  deleteManagerialBalance: protectedProcedure
+  deleteManagerialBalance: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => { await db.deleteManagerialBalance(input.id); return { success: true }; }),
 
-  deleteDRE: protectedProcedure
+  deleteDRE: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => { await db.deleteDRE(input.id); return { success: true }; }),
 
-  deleteCashFlow: protectedProcedure
+  deleteCashFlow: adminProcedure
     .input(z.object({ referenceDate: z.string() }))
     .mutation(async ({ input }) => { await db.deleteCashFlow(input.referenceDate); return { success: true }; }),
 
@@ -1445,7 +1445,7 @@ const accountingRouter = router({
     .input(z.object({ id: z.number(), name: z.string().optional(), type: z.string().optional(), description: z.string().optional(), budget: z.string().optional() }))
     .mutation(async ({ input }) => { await db.updateCostCenter(input.id, input); return { success: true }; }),
 
-  deleteCostCenter: protectedProcedure
+  deleteCostCenter: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await db.deleteCostCenter(input.id);

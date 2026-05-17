@@ -108150,7 +108150,7 @@ var COOKIE_NAME = "app_session_id";
 var ONE_YEAR_MS = 1e3 * 60 * 60 * 24 * 365;
 var AXIOS_TIMEOUT_MS = 3e4;
 var UNAUTHED_ERR_MSG = "Please login (10001)";
-var NOT_ADMIN_ERR_MSG = "You do not have required permission (10002)";
+var NOT_ADMIN_ERR_MSG = "Esta a\xE7\xE3o requer permiss\xE3o de administrador.";
 
 // server/db.ts
 init_drizzle_orm();
@@ -132102,7 +132102,7 @@ var reconciliationRouter = router({
   getSessions: protectedProcedure.query(async () => {
     return getReconciliationSessions(30);
   }),
-  deleteSession: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+  deleteSession: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
     await deleteReconciliationSession(input.id);
     invalidateReconciliationCache();
     await audit(ctx, {
@@ -132690,7 +132690,7 @@ var reconciliationRouter = router({
     await updateDivergenceStatus(input.id, input);
     return { success: true };
   }),
-  deleteDivergence: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteDivergence: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     const dbConn = await getDb();
     if (!dbConn) throw new Error("DB unavailable");
     const { sql: sqlTag, eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
@@ -133031,7 +133031,7 @@ var controllershipRouter = router({
     await updateRevenue(input.id, input);
     return { success: true };
   }),
-  deleteRevenue: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteRevenue: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteRevenue(input.id);
     return { success: true };
   }),
@@ -133067,7 +133067,7 @@ var controllershipRouter = router({
     await updateExpense(input.id, input);
     return { success: true };
   }),
-  deleteExpense: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteExpense: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteExpense(input.id);
     return { success: true };
   }),
@@ -133093,7 +133093,7 @@ var controllershipRouter = router({
     await updatePayableStatus(input.id, input.status, input.paidDate);
     return { success: true };
   }),
-  deletePayable: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deletePayable: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deletePayable(input.id);
     return { success: true };
   }),
@@ -133149,7 +133149,7 @@ var controllershipRouter = router({
     await updateCreditPortfolio(input.id, input);
     return { success: true };
   }),
-  deleteLoan: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteLoan: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteCreditPortfolio(input.id);
     return { success: true };
   }),
@@ -133340,15 +133340,15 @@ var accountingRouter = router({
     }
     return { success: true };
   }),
-  deleteManagerialBalance: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteManagerialBalance: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteManagerialBalance(input.id);
     return { success: true };
   }),
-  deleteDRE: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteDRE: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteDRE(input.id);
     return { success: true };
   }),
-  deleteCashFlow: protectedProcedure.input(external_exports.object({ referenceDate: external_exports.string() })).mutation(async ({ input }) => {
+  deleteCashFlow: adminProcedure.input(external_exports.object({ referenceDate: external_exports.string() })).mutation(async ({ input }) => {
     await deleteCashFlow(input.referenceDate);
     return { success: true };
   }),
@@ -133362,7 +133362,7 @@ var accountingRouter = router({
     await updateCostCenter(input.id, input);
     return { success: true };
   }),
-  deleteCostCenter: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+  deleteCostCenter: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteCostCenter(input.id);
     return { success: true };
   })
@@ -133721,6 +133721,53 @@ function serveStatic(app) {
 init_localAuth();
 init_schema2();
 init_drizzle_orm();
+
+// server/_core/rateLimiter.ts
+var buckets = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const now = Date.now();
+  Array.from(buckets.entries()).forEach(([key, bucket]) => {
+    if (now > bucket.resetAt) buckets.delete(key);
+  });
+}, 6e4).unref?.();
+function checkRateLimit(key, maxHits, windowMs) {
+  const now = Date.now();
+  const bucket = buckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    buckets.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, remaining: maxHits - 1, resetInSec: Math.ceil(windowMs / 1e3) };
+  }
+  if (bucket.count >= maxHits) {
+    return { allowed: false, remaining: 0, resetInSec: Math.ceil((bucket.resetAt - now) / 1e3) };
+  }
+  bucket.count += 1;
+  return {
+    allowed: true,
+    remaining: maxHits - bucket.count,
+    resetInSec: Math.ceil((bucket.resetAt - now) / 1e3)
+  };
+}
+function getClientIp(req) {
+  const fwd = req.headers?.["x-forwarded-for"];
+  if (typeof fwd === "string") return fwd.split(",")[0].trim();
+  if (Array.isArray(fwd)) return fwd[0];
+  return req.socket?.remoteAddress ?? req.ip ?? "unknown";
+}
+function resetRateLimit(key) {
+  buckets.delete(key);
+}
+var LIMITS = {
+  LOGIN: { max: 8, windowMs: 15 * 6e4 },
+  // 8 tentativas / 15 min
+  SETUP: { max: 3, windowMs: 60 * 6e4 },
+  // 3 tentativas / 1 hora
+  API: { max: 300, windowMs: 6e4 },
+  // 300 req / min por IP
+  MUTATION: { max: 120, windowMs: 6e4 }
+  // 120 mutations / min
+};
+
+// server/_core/index.ts
 function isPortAvailable(port) {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -133742,6 +133789,16 @@ async function startServer() {
   const app = (0, import_express2.default)();
   app.use(import_express2.default.json({ limit: "50mb" }));
   app.use(import_express2.default.urlencoded({ limit: "50mb", extended: true }));
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+    if (process.env.NODE_ENV === "production") {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
   async function handleLogin(req, body, res) {
     console.log("[AUTH] POST /api/auth/login \u2192", body?.email);
     const jsonReply = (status, data) => {
@@ -133784,6 +133841,7 @@ async function startServer() {
         "Set-Cookie": cookieValue
       });
       res.end(json4);
+      resetRateLimit(`login:${getClientIp(req)}`);
       console.log("[AUTH] Login OK:", email3);
     } catch (err) {
       console.error("[AUTH] Login error:", err);
@@ -133793,6 +133851,15 @@ async function startServer() {
   const server = createServer((req, res) => {
     const url3 = req.url?.split("?")[0];
     if (req.method === "POST" && url3 === "/api/auth/login") {
+      const ip = getClientIp(req);
+      const rl = checkRateLimit(`login:${ip}`, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs);
+      if (!rl.allowed) {
+        res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(rl.resetInSec) });
+        res.end(JSON.stringify({
+          error: `Muitas tentativas de login. Tente novamente em ${Math.ceil(rl.resetInSec / 60)} minuto(s).`
+        }));
+        return;
+      }
       let body = "";
       req.on("data", (chunk) => {
         body += chunk;
@@ -133833,6 +133900,13 @@ async function startServer() {
       return;
     }
     if (req.method === "POST" && url3 === "/api/auth/setup") {
+      const ipSetup = getClientIp(req);
+      const rlSetup = checkRateLimit(`setup:${ipSetup}`, LIMITS.SETUP.max, LIMITS.SETUP.windowMs);
+      if (!rlSetup.allowed) {
+        res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(rlSetup.resetInSec) });
+        res.end(JSON.stringify({ error: "Muitas tentativas. Aguarde antes de tentar novamente." }));
+        return;
+      }
       let body = "";
       req.on("data", (chunk) => {
         body += chunk;

@@ -15,6 +15,7 @@ import * as dbModule from "../db";
 import { hashPassword, verifyPassword, emailToOpenId } from "./localAuth";
 import { users as usersTable } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
+import { checkRateLimit, getClientIp, resetRateLimit, LIMITS } from "./rateLimiter";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -41,6 +42,23 @@ async function startServer() {
   // ── Body parsers ──────────────────────────────────────────────────────────
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // ── Cabeçalhos de segurança ───────────────────────────────────────────────
+  app.use((_req, res, next) => {
+    // Previne MIME sniffing
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Previne clickjacking
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    // Controla informação de referrer
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    // Restringe APIs sensíveis do navegador
+    res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+    // HSTS — força HTTPS (apenas em produção)
+    if (process.env.NODE_ENV === "production") {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
 
   // ── Funções de auth ───────────────────────────────────────────────────────
   async function handleLogin(req: any, body: any, res: any) {
@@ -86,6 +104,7 @@ async function startServer() {
         "Set-Cookie": cookieValue,
       });
       res.end(json);
+      resetRateLimit(`login:${getClientIp(req)}`); // limpa contador após sucesso
       console.log("[AUTH] Login OK:", email);
     } catch (err) {
       console.error("[AUTH] Login error:", err);
@@ -99,6 +118,16 @@ async function startServer() {
 
     // Intercepta /api/auth/login no nível HTTP puro
     if (req.method === "POST" && url === "/api/auth/login") {
+      // ── Rate limiting: protege contra força bruta ──
+      const ip = getClientIp(req);
+      const rl = checkRateLimit(`login:${ip}`, LIMITS.LOGIN.max, LIMITS.LOGIN.windowMs);
+      if (!rl.allowed) {
+        res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(rl.resetInSec) });
+        res.end(JSON.stringify({
+          error: `Muitas tentativas de login. Tente novamente em ${Math.ceil(rl.resetInSec / 60)} minuto(s).`,
+        }));
+        return;
+      }
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", async () => {
@@ -133,6 +162,13 @@ async function startServer() {
 
     // /api/auth/setup
     if (req.method === "POST" && url === "/api/auth/setup") {
+      const ipSetup = getClientIp(req);
+      const rlSetup = checkRateLimit(`setup:${ipSetup}`, LIMITS.SETUP.max, LIMITS.SETUP.windowMs);
+      if (!rlSetup.allowed) {
+        res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(rlSetup.resetInSec) });
+        res.end(JSON.stringify({ error: "Muitas tentativas. Aguarde antes de tentar novamente." }));
+        return;
+      }
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", async () => {
