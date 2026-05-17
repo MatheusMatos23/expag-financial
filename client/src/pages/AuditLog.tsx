@@ -4,10 +4,14 @@ import { useState } from "react";
 import {
   ScrollText, Search, RefreshCw, Download, Activity, Calendar,
   ArrowLeftRight, AlertTriangle, Users as UsersIcon, FileText,
-  Shield, Clock, Filter, DatabaseBackup,
+  Shield, Clock, Filter, DatabaseBackup, Eraser,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useI18n } from "@/i18n/I18nContext";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -93,6 +97,21 @@ export default function AuditLog() {
     },
     onError: (e: any) => toast.error(e.message),
   });
+  // ── Limpeza de dados operacionais ──
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState("");
+  const utils = trpc.useUtils();
+  const clearMutation = trpc.dashboard.clearOperationalData.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(`Dados limpos — ${data.totalRows} registro(s) removido(s).`);
+      setClearOpen(false);
+      setClearConfirm("");
+      utils.dashboard.getAuditLogs.invalidate();
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -161,6 +180,14 @@ export default function AuditLog() {
               disabled={backupMutation.isPending}>
               <DatabaseBackup className="w-3.5 h-3.5" />
               {backupMutation.isPending ? "Gerando..." : "Backup completo"}
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="outline" size="sm"
+              className="h-8 gap-1.5 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-400"
+              onClick={() => setClearOpen(true)}>
+              <Eraser className="w-3.5 h-3.5" />
+              Limpar dados
             </Button>
           )}
         </div>
@@ -310,6 +337,63 @@ export default function AuditLog() {
           </span>
         </div>
       )}
+
+      {/* ════ Dialog: Limpar dados operacionais ════ */}
+      <Dialog open={clearOpen} onOpenChange={v => { setClearOpen(v); if (!v) setClearConfirm(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-red-500/12 border border-red-500/25 flex items-center justify-center">
+                <Eraser className="w-3.5 h-3.5 text-red-400" />
+              </div>
+              Limpar dados operacionais
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="bg-red-500/8 border border-red-500/25 rounded-lg p-3">
+              <p className="text-xs text-red-400 font-semibold mb-1.5 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Ação irreversível
+              </p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Esta ação apaga permanentemente todas as conciliações, transações, divergências,
+                receitas, despesas, contas a pagar, carteira de crédito, DRE, fluxo de caixa,
+                saldo gerencial, centros de custo e alertas.
+              </p>
+            </div>
+            <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-lg p-3">
+              <p className="text-[11px] text-emerald-400 leading-relaxed">
+                <span className="font-semibold">Preservado:</span> usuários, senhas, configurações
+                do sistema e o log de auditoria não são afetados.
+              </p>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Use esta função para remover os dados de demonstração antes de entrar com dados reais.
+              <span className="text-amber-400"> Recomendamos gerar um backup antes.</span>
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Digite <span className="text-red-400 font-mono">LIMPAR TUDO</span> para confirmar
+              </Label>
+              <Input
+                value={clearConfirm}
+                onChange={e => setClearConfirm(e.target.value)}
+                placeholder="LIMPAR TUDO"
+                className="h-10 text-sm font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setClearOpen(false)}>
+              Cancelar
+            </Button>
+            <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white"
+              disabled={clearConfirm !== "LIMPAR TUDO" || clearMutation.isPending}
+              onClick={() => clearMutation.mutate({ confirmation: clearConfirm })}>
+              {clearMutation.isPending ? "Limpando..." : "Limpar dados"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

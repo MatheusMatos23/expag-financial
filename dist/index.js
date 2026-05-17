@@ -108288,6 +108288,42 @@ async function exportFullBackup() {
     tables
   };
 }
+async function clearOperationalData() {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const tablesToClear = [
+    "credit_installments",
+    "credit_portfolio",
+    "divergences",
+    "bank_transactions",
+    "api_transactions",
+    "manual_adjustments",
+    "reconciliation_sessions",
+    "revenues",
+    "expenses",
+    "payables",
+    "managerial_balances",
+    "dre",
+    "cash_flow",
+    "cost_centers",
+    "alerts"
+  ];
+  const clearedTables = [];
+  let totalRows = 0;
+  for (const tableName of tablesToClear) {
+    try {
+      const countRes = await db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM ${tableName}`));
+      const rowCount = parseInt(String(countRes[0]?.[0]?.cnt ?? 0));
+      await db.execute(sql.raw(`DELETE FROM ${tableName}`));
+      clearedTables.push(tableName);
+      totalRows += rowCount;
+    } catch (err) {
+      console.error(`[CLEANUP] Falha ao limpar tabela ${tableName}:`, err);
+    }
+  }
+  _cache.clear();
+  return { clearedTables, totalRows };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -128758,6 +128794,25 @@ var dashboardRouter = router({
       metadata: { totalRecords: backup.meta.totalRecords, tableCount: backup.meta.tableCount }
     });
     return backup;
+  }),
+  // ── Limpar dados operacionais (somente admin) ──────────────────────────────
+  // Operação destrutiva: zera o banco para entrada de dados reais.
+  // Exige a frase de confirmação exata para evitar acionamento acidental.
+  clearOperationalData: adminProcedure.input(external_exports.object({
+    confirmation: external_exports.string()
+  })).mutation(async ({ input, ctx }) => {
+    if (input.confirmation !== "LIMPAR TUDO") {
+      throw new Error("Confirma\xE7\xE3o inv\xE1lida. Digite exatamente: LIMPAR TUDO");
+    }
+    const result = await clearOperationalData();
+    await audit(ctx, {
+      action: "system.clear_data",
+      category: "usuario",
+      entityType: "system",
+      summary: `Limpou todos os dados operacionais (${result.totalRows} registros removidos de ${result.clearedTables.length} tabelas)`,
+      metadata: { clearedTables: result.clearedTables, totalRows: result.totalRows }
+    });
+    return result;
   }),
   getSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string() })).query(async ({ input }) => getSystemConfig(input.key)),
   setSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string(), value: external_exports.string(), description: external_exports.string().optional() })).mutation(async ({ input }) => {

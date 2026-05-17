@@ -2009,3 +2009,60 @@ export async function exportFullBackup(): Promise<{
     tables,
   };
 }
+
+
+/**
+ * Limpa TODOS os dados operacionais do sistema — usado para zerar o banco
+ * antes de entrar com dados reais de produção (remove dados de demonstração).
+ *
+ * PRESERVA: usuários, configurações do sistema, log de auditoria.
+ * APAGA: conciliações, transações, divergências, receitas, despesas,
+ *        contas a pagar, carteira de crédito, DRE, fluxo de caixa,
+ *        saldo gerencial, centros de custo, alertas, ajustes manuais.
+ *
+ * É uma operação destrutiva e irreversível — exige confirmação explícita.
+ */
+export async function clearOperationalData(): Promise<{ clearedTables: string[]; totalRows: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Ordem importa: tabelas-filhas antes das tabelas-pai (respeita dependências)
+  const tablesToClear = [
+    "credit_installments",
+    "credit_portfolio",
+    "divergences",
+    "bank_transactions",
+    "api_transactions",
+    "manual_adjustments",
+    "reconciliation_sessions",
+    "revenues",
+    "expenses",
+    "payables",
+    "managerial_balances",
+    "dre",
+    "cash_flow",
+    "cost_centers",
+    "alerts",
+  ];
+
+  const clearedTables: string[] = [];
+  let totalRows = 0;
+
+  for (const tableName of tablesToClear) {
+    try {
+      // Conta antes de apagar (para o relatório)
+      const countRes = await db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM ${tableName}`));
+      const rowCount = parseInt(String((countRes as any)[0]?.[0]?.cnt ?? 0));
+      await db.execute(sql.raw(`DELETE FROM ${tableName}`));
+      clearedTables.push(tableName);
+      totalRows += rowCount;
+    } catch (err) {
+      console.error(`[CLEANUP] Falha ao limpar tabela ${tableName}:`, err);
+    }
+  }
+
+  // Limpa o cache para os dados removidos não reaparecerem
+  _cache.clear();
+
+  return { clearedTables, totalRows };
+}

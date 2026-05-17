@@ -1583,6 +1583,27 @@ const dashboardRouter = router({
       return backup;
     }),
 
+  // ── Limpar dados operacionais (somente admin) ──────────────────────────────
+  // Operação destrutiva: zera o banco para entrada de dados reais.
+  // Exige a frase de confirmação exata para evitar acionamento acidental.
+  clearOperationalData: adminProcedure
+    .input(z.object({
+      confirmation: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.confirmation !== "LIMPAR TUDO") {
+        throw new Error("Confirmação inválida. Digite exatamente: LIMPAR TUDO");
+      }
+      const result = await db.clearOperationalData();
+      await audit(ctx, {
+        action: "system.clear_data", category: "usuario",
+        entityType: "system",
+        summary: `Limpou todos os dados operacionais (${result.totalRows} registros removidos de ${result.clearedTables.length} tabelas)`,
+        metadata: { clearedTables: result.clearedTables, totalRows: result.totalRows },
+      });
+      return result;
+    }),
+
   getSystemConfig: protectedProcedure
     .input(z.object({ key: z.string() }))
     .query(async ({ input }) => db.getSystemConfig(input.key)),
