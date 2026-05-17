@@ -1570,6 +1570,19 @@ const dashboardRouter = router({
   getAuditStats: protectedProcedure
     .query(async () => db.getAuditStats()),
 
+  // ── Backup completo dos dados (somente admin) ──────────────────────────────
+  exportBackup: adminProcedure
+    .mutation(async ({ ctx }) => {
+      const backup = await db.exportFullBackup();
+      await audit(ctx, {
+        action: "system.backup", category: "usuario",
+        entityType: "system",
+        summary: `Exportou backup completo dos dados (${backup.meta.totalRecords} registros)`,
+        metadata: { totalRecords: backup.meta.totalRecords, tableCount: backup.meta.tableCount },
+      });
+      return backup;
+    }),
+
   getSystemConfig: protectedProcedure
     .input(z.object({ key: z.string() }))
     .query(async ({ input }) => db.getSystemConfig(input.key)),

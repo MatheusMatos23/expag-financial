@@ -4,12 +4,13 @@ import { useState } from "react";
 import {
   ScrollText, Search, RefreshCw, Download, Activity, Calendar,
   ArrowLeftRight, AlertTriangle, Users as UsersIcon, FileText,
-  Shield, Clock, Filter,
+  Shield, Clock, Filter, DatabaseBackup,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useI18n } from "@/i18n/I18nContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 // ── Metadados de categorias ───────────────────────────────────────────────────
 const CATEGORY_META: Record<string, { label: string; cls: string; icon: any }> = {
@@ -71,6 +72,27 @@ const CATEGORY_TABS = [
 
 export default function AuditLog() {
   const { t } = useI18n();
+  const { user: me } = useAuth();
+  const isAdmin = me?.role === "admin";
+
+  // ── Backup completo dos dados ──
+  const backupMutation = trpc.dashboard.exportBackup.useMutation({
+    onSuccess: (data) => {
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      link.download = `expag-backup-${stamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Backup gerado — ${data.meta.totalRecords} registros exportados.`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -133,6 +155,14 @@ export default function AuditLog() {
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleExport}>
             <Download className="w-3.5 h-3.5" /> Exportar
           </Button>
+          {isAdmin && (
+            <Button size="sm" className="h-8 gap-1.5 text-xs"
+              onClick={() => backupMutation.mutate()}
+              disabled={backupMutation.isPending}>
+              <DatabaseBackup className="w-3.5 h-3.5" />
+              {backupMutation.isPending ? "Gerando..." : "Backup completo"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -268,6 +298,18 @@ export default function AuditLog() {
         <Shield className="w-3.5 h-3.5 shrink-0" />
         Os registros de auditoria são imutáveis e mantidos para fins de conformidade e rastreabilidade.
       </div>
+
+      {isAdmin && (
+        <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/20 border border-border/60 rounded-lg px-3 py-2">
+          <DatabaseBackup className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>
+            <span className="text-foreground font-medium">Backup completo:</span> exporta todos os
+            dados do sistema (conciliações, divergências, receitas, despesas, usuários e mais) em
+            um único arquivo JSON. Guarde-o em local seguro fora do servidor. Recomenda-se gerar
+            um backup periodicamente. Senhas não são incluídas no arquivo.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

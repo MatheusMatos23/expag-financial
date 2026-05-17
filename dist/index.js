@@ -108239,6 +108239,55 @@ async function getAuditStats() {
     }))
   };
 }
+async function exportFullBackup() {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const tableMap = [
+    ["users", users],
+    ["reconciliation_sessions", reconciliationSessions],
+    ["bank_transactions", bankTransactions],
+    ["api_transactions", apiTransactions],
+    ["divergences", divergences],
+    ["managerial_balances", managerialBalances],
+    ["revenues", revenues],
+    ["expenses", expenses],
+    ["manual_adjustments", manualAdjustments],
+    ["payables", payables],
+    ["credit_portfolio", creditPortfolio],
+    ["credit_installments", creditInstallments],
+    ["cost_centers", costCenters],
+    ["dre", dre],
+    ["cash_flow", cashFlow],
+    ["alerts", alerts],
+    ["system_config", systemConfig],
+    ["audit_logs", auditLogs]
+  ];
+  const tables = {};
+  let totalRecords = 0;
+  for (const [name2, table] of tableMap) {
+    try {
+      const rows = await db.select().from(table);
+      const sanitized = name2 === "users" ? rows.map((r) => {
+        const { passwordHash, ...rest } = r;
+        return rest;
+      }) : rows;
+      tables[name2] = sanitized;
+      totalRecords += sanitized.length;
+    } catch (err) {
+      console.error(`[BACKUP] Falha ao exportar tabela ${name2}:`, err);
+      tables[name2] = [];
+    }
+  }
+  return {
+    meta: {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      version: "1.0",
+      tableCount: tableMap.length,
+      totalRecords
+    },
+    tables
+  };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -128698,6 +128747,18 @@ var dashboardRouter = router({
     limit: external_exports.number().optional()
   })).query(async ({ input }) => getAuditLogs(input)),
   getAuditStats: protectedProcedure.query(async () => getAuditStats()),
+  // ── Backup completo dos dados (somente admin) ──────────────────────────────
+  exportBackup: adminProcedure.mutation(async ({ ctx }) => {
+    const backup = await exportFullBackup();
+    await audit(ctx, {
+      action: "system.backup",
+      category: "usuario",
+      entityType: "system",
+      summary: `Exportou backup completo dos dados (${backup.meta.totalRecords} registros)`,
+      metadata: { totalRecords: backup.meta.totalRecords, tableCount: backup.meta.tableCount }
+    });
+    return backup;
+  }),
   getSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string() })).query(async ({ input }) => getSystemConfig(input.key)),
   setSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string(), value: external_exports.string(), description: external_exports.string().optional() })).mutation(async ({ input }) => {
     await setSystemConfig(input.key, input.value, input.description);

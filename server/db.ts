@@ -1936,3 +1936,76 @@ export async function getAuditStats() {
     })),
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── BACKUP COMPLETO DE DADOS ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Exporta TODOS os dados do sistema como um objeto JSON estruturado.
+ * Cada tabela vira uma chave. Usado para backup externo — protege contra
+ * perda de dados caso o banco fique indisponível.
+ *
+ * Senhas (passwordHash) são EXCLUÍDAS do backup por segurança.
+ */
+export async function exportFullBackup(): Promise<{
+  meta: { generatedAt: string; version: string; tableCount: number; totalRecords: number };
+  tables: Record<string, any[]>;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Lista de tabelas a exportar (nome lógico → tabela Drizzle)
+  const tableMap: Array<[string, any]> = [
+    ["users", users],
+    ["reconciliation_sessions", reconciliationSessions],
+    ["bank_transactions", bankTransactions],
+    ["api_transactions", apiTransactions],
+    ["divergences", divergences],
+    ["managerial_balances", managerialBalances],
+    ["revenues", revenues],
+    ["expenses", expenses],
+    ["manual_adjustments", manualAdjustments],
+    ["payables", payables],
+    ["credit_portfolio", creditPortfolio],
+    ["credit_installments", creditInstallments],
+    ["cost_centers", costCenters],
+    ["dre", dre],
+    ["cash_flow", cashFlow],
+    ["alerts", alerts],
+    ["system_config", systemConfig],
+    ["audit_logs", auditLogs],
+  ];
+
+  const tables: Record<string, any[]> = {};
+  let totalRecords = 0;
+
+  for (const [name, table] of tableMap) {
+    try {
+      const rows = await db.select().from(table);
+      // Remove passwordHash da tabela users — nunca exportar credenciais
+      const sanitized = name === "users"
+        ? rows.map((r: any) => {
+            const { passwordHash, ...rest } = r;
+            return rest;
+          })
+        : rows;
+      tables[name] = sanitized;
+      totalRecords += sanitized.length;
+    } catch (err) {
+      // Se uma tabela falhar (ex: ainda não existe), registra vazia e continua
+      console.error(`[BACKUP] Falha ao exportar tabela ${name}:`, err);
+      tables[name] = [];
+    }
+  }
+
+  return {
+    meta: {
+      generatedAt: new Date().toISOString(),
+      version: "1.0",
+      tableCount: tableMap.length,
+      totalRecords,
+    },
+    tables,
+  };
+}
