@@ -668,7 +668,9 @@ export default function Reconciliation() {
               </thead>
               <tbody className="divide-y divide-border">
                 {(sessions as any[]).map((sess: any) => {
-                  const realT = sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0);
+                  // Fórmula única: conciliados / total real de transações de banco
+                  const realT = sess.totalTransactions
+                    ?? (sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0));
                   const rate = realT > 0
                     ? Math.round((sess.matchedCount / realT) * 100)
                     : 0;
