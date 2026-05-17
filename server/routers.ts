@@ -10,7 +10,7 @@ import { processIngestion } from "./modules/ingestion";
 import { runReconciliationEngine } from "./modules/reconciliation/engine";
 import { classifyDivergence } from "./modules/divergence/classifier";
 import { audit as auditLog } from "./modules/audit/logger";
-import { parseStatement } from "./reconciliation/parsers";
+import { parseStatement, parseStatementResilient } from "./reconciliation/parsers";
 import { sql } from "drizzle-orm";
 
 // ─── CONCILIAÇÃO ROUTER ───────────────────────────────────────────────────────
@@ -73,11 +73,12 @@ const reconciliationRouter = router({
   parseStatementFile: protectedProcedure
     .input(z.object({
       fileBase64: z.string(),
-      bank: z.enum(["sicoob", "bb", "jd", "api"]),
+      bank: z.enum(["sicoob", "bb", "jd", "api", "generic"]),
     }))
     .mutation(async ({ input }) => {
       const buffer = Buffer.from(input.fileBase64, "base64");
-      const transactions = parseStatement(buffer, input.bank);
+      // Parser resiliente: tenta o específico do banco, cai para o genérico se falhar
+      const transactions = parseStatementResilient(buffer, input.bank);
       return { transactions, count: transactions.length };
     }),
 
@@ -95,10 +96,10 @@ const reconciliationRouter = router({
       const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
       const allApiTxs = parseStatement(apiBuffer, "api");
 
-      // Parse cada banco
+      // Parse cada banco — parser resiliente (fallback p/ genérico se layout mudou)
       const parsedBanks = input.banks.map(b => {
         const buffer = Buffer.from(b.fileBase64, "base64");
-        const txs = parseStatement(buffer, b.name);
+        const txs = parseStatementResilient(buffer, b.name);
         // Sicoob também tem END2END em alguns PIX — habilita E2E quando disponível
       const hasE2E = txs.some(t => t.externalId && /^E[A-Z0-9]{28,}$/i.test(t.externalId));
       return { name: b.name, txs, useE2E: b.name === "jd" || (b.name === "sicoob" && hasE2E) };

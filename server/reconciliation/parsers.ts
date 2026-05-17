@@ -471,12 +471,51 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
 
 export function parseStatement(
   buffer: Buffer,
-  bank: "sicoob" | "bb" | "jd" | "api"
+  bank: "sicoob" | "bb" | "jd" | "api" | "generic"
 ): ParsedTransaction[] {
   switch (bank) {
     case "sicoob": return parseSicoob(buffer);
     case "bb":     return parseBB(buffer);
     case "jd":     return parseJD(buffer);
     case "api":    return parseAPI(buffer);
+    case "generic": {
+      // Parser genérico inteligente — detecta colunas automaticamente
+      const { parseGenericStatement } = require("./genericParser");
+      return parseGenericStatement(buffer).transactions;
+    }
   }
+}
+
+/**
+ * Tenta o parser específico do banco; se ele retornar vazio ou poucas
+ * transações (provável mudança de layout), cai para o parser genérico.
+ * Garante leitura robusta mesmo se o banco alterar a planilha.
+ */
+export function parseStatementResilient(
+  buffer: Buffer,
+  bank: "sicoob" | "bb" | "jd" | "api" | "generic"
+): ParsedTransaction[] {
+  if (bank === "generic" || bank === "api") {
+    return parseStatement(buffer, bank);
+  }
+  // 1ª tentativa: parser específico do banco
+  let result: ParsedTransaction[] = [];
+  try {
+    result = parseStatement(buffer, bank);
+  } catch {
+    result = [];
+  }
+  // Se o parser específico falhou ou leu muito pouco, usa o genérico
+  if (result.length === 0) {
+    try {
+      const { parseGenericStatement } = require("./genericParser");
+      const generic = parseGenericStatement(buffer);
+      if (generic.transactions.length > 0) {
+        return generic.transactions;
+      }
+    } catch {
+      // mantém result vazio
+    }
+  }
+  return result;
 }

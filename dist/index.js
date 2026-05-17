@@ -37,6 +37,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // node_modules/.pnpm/dotenv@17.2.3/node_modules/dotenv/package.json
 var require_package = __commonJS({
@@ -5702,8 +5703,8 @@ var require_read = __commonJS({
     var onFinished = require_on_finished();
     var unpipe = require_unpipe();
     var zlib2 = __require("zlib");
-    module.exports = read2;
-    function read2(req, res, next, parse3, debug, options) {
+    module.exports = read3;
+    function read3(req, res, next, parse3, debug, options) {
       var length;
       var opts = options;
       var stream4;
@@ -14573,7 +14574,7 @@ var require_type_is = __commonJS({
     module.exports = typeofrequest;
     module.exports.is = typeis;
     module.exports.hasBody = hasbody;
-    module.exports.normalize = normalize;
+    module.exports.normalize = normalize2;
     module.exports.match = mimeMatch;
     function typeis(value, types_) {
       var i;
@@ -14593,7 +14594,7 @@ var require_type_is = __commonJS({
       }
       var type;
       for (i = 0; i < types.length; i++) {
-        if (mimeMatch(normalize(type = types[i]), val)) {
+        if (mimeMatch(normalize2(type = types[i]), val)) {
           return type[0] === "+" || type.indexOf("*") !== -1 ? val : type;
         }
       }
@@ -14616,7 +14617,7 @@ var require_type_is = __commonJS({
       var value = req.headers["content-type"];
       return typeis(value, types);
     }
-    function normalize(type) {
+    function normalize2(type) {
       if (typeof type !== "string") {
         return false;
       }
@@ -14677,7 +14678,7 @@ var require_json = __commonJS({
     var contentType = require_content_type();
     var createError = require_http_errors();
     var debug = require_src()("body-parser:json");
-    var read2 = require_read();
+    var read3 = require_read();
     var typeis = require_type_is();
     module.exports = json4;
     var FIRST_CHAR_REGEXP = /^[\x20\x09\x0a\x0d]*([^\x20\x09\x0a\x0d])/;
@@ -14743,7 +14744,7 @@ var require_json = __commonJS({
           }));
           return;
         }
-        read2(req, res, next, parse3, debug, {
+        read3(req, res, next, parse3, debug, {
           encoding: charset,
           inflate,
           limit,
@@ -14809,7 +14810,7 @@ var require_raw = __commonJS({
     "use strict";
     var bytes = require_bytes();
     var debug = require_src()("body-parser:raw");
-    var read2 = require_read();
+    var read3 = require_read();
     var typeis = require_type_is();
     module.exports = raw;
     function raw(options) {
@@ -14843,7 +14844,7 @@ var require_raw = __commonJS({
           next();
           return;
         }
-        read2(req, res, next, parse3, debug, {
+        read3(req, res, next, parse3, debug, {
           encoding: null,
           inflate,
           limit,
@@ -14866,7 +14867,7 @@ var require_text = __commonJS({
     var bytes = require_bytes();
     var contentType = require_content_type();
     var debug = require_src()("body-parser:text");
-    var read2 = require_read();
+    var read3 = require_read();
     var typeis = require_type_is();
     module.exports = text2;
     function text2(options) {
@@ -14902,7 +14903,7 @@ var require_text = __commonJS({
           return;
         }
         var charset = getCharset(req) || defaultCharset;
-        read2(req, res, next, parse3, debug, {
+        read3(req, res, next, parse3, debug, {
           encoding: charset,
           inflate,
           limit,
@@ -16787,7 +16788,7 @@ var require_stringify = __commonJS({
   "node_modules/.pnpm/qs@6.13.0/node_modules/qs/lib/stringify.js"(exports, module) {
     "use strict";
     var getSideChannel = require_side_channel();
-    var utils2 = require_utils();
+    var utils3 = require_utils();
     var formats = require_formats();
     var has = Object.prototype.hasOwnProperty;
     var arrayPrefixGenerators = {
@@ -16819,7 +16820,7 @@ var require_stringify = __commonJS({
       delimiter: "&",
       encode: true,
       encodeDotInKeys: false,
-      encoder: utils2.encode,
+      encoder: utils3.encode,
       encodeValuesOnly: false,
       format: defaultFormat,
       formatter: formats.formatters[defaultFormat],
@@ -16859,7 +16860,7 @@ var require_stringify = __commonJS({
       } else if (obj instanceof Date) {
         obj = serializeDate(obj);
       } else if (generateArrayPrefix === "comma" && isArray2(obj)) {
-        obj = utils2.maybeMap(obj, function(value2) {
+        obj = utils3.maybeMap(obj, function(value2) {
           if (value2 instanceof Date) {
             return serializeDate(value2);
           }
@@ -16872,7 +16873,7 @@ var require_stringify = __commonJS({
         }
         obj = "";
       }
-      if (isNonNullishPrimitive(obj) || utils2.isBuffer(obj)) {
+      if (isNonNullishPrimitive(obj) || utils3.isBuffer(obj)) {
         if (encoder2) {
           var keyValue = encodeValuesOnly ? prefix : encoder2(prefix, defaults2.encoder, charset, "key", format);
           return [formatter(keyValue) + "=" + formatter(encoder2(obj, defaults2.encoder, charset, "value", format))];
@@ -16886,7 +16887,7 @@ var require_stringify = __commonJS({
       var objKeys;
       if (generateArrayPrefix === "comma" && isArray2(obj)) {
         if (encodeValuesOnly && encoder2) {
-          obj = utils2.maybeMap(obj, encoder2);
+          obj = utils3.maybeMap(obj, encoder2);
         }
         objKeys = [{ value: obj.length > 0 ? obj.join(",") || null : void 0 }];
       } else if (isArray2(filter2)) {
@@ -17066,7 +17067,7 @@ var require_stringify = __commonJS({
 var require_parse = __commonJS({
   "node_modules/.pnpm/qs@6.13.0/node_modules/qs/lib/parse.js"(exports, module) {
     "use strict";
-    var utils2 = require_utils();
+    var utils3 = require_utils();
     var has = Object.prototype.hasOwnProperty;
     var isArray2 = Array.isArray;
     var defaults2 = {
@@ -17079,7 +17080,7 @@ var require_parse = __commonJS({
       charsetSentinel: false,
       comma: false,
       decodeDotInKeys: false,
-      decoder: utils2.decode,
+      decoder: utils3.decode,
       delimiter: "&",
       depth: 5,
       duplicates: "combine",
@@ -17139,7 +17140,7 @@ var require_parse = __commonJS({
           val = options.strictNullHandling ? null : "";
         } else {
           key = options.decoder(part.slice(0, pos), defaults2.decoder, charset, "key");
-          val = utils2.maybeMap(
+          val = utils3.maybeMap(
             parseArrayValue(part.slice(pos + 1), options),
             function(encodedVal) {
               return options.decoder(encodedVal, defaults2.decoder, charset, "value");
@@ -17154,7 +17155,7 @@ var require_parse = __commonJS({
         }
         var existing = has.call(obj, key);
         if (existing && options.duplicates === "combine") {
-          obj[key] = utils2.combine(obj[key], val);
+          obj[key] = utils3.combine(obj[key], val);
         } else if (!existing || options.duplicates === "last") {
           obj[key] = val;
         }
@@ -17255,7 +17256,7 @@ var require_parse = __commonJS({
         comma: typeof opts.comma === "boolean" ? opts.comma : defaults2.comma,
         decodeDotInKeys: typeof opts.decodeDotInKeys === "boolean" ? opts.decodeDotInKeys : defaults2.decodeDotInKeys,
         decoder: typeof opts.decoder === "function" ? opts.decoder : defaults2.decoder,
-        delimiter: typeof opts.delimiter === "string" || utils2.isRegExp(opts.delimiter) ? opts.delimiter : defaults2.delimiter,
+        delimiter: typeof opts.delimiter === "string" || utils3.isRegExp(opts.delimiter) ? opts.delimiter : defaults2.delimiter,
         // eslint-disable-next-line no-implicit-coercion, no-extra-parens
         depth: typeof opts.depth === "number" || opts.depth === false ? +opts.depth : defaults2.depth,
         duplicates,
@@ -17279,12 +17280,12 @@ var require_parse = __commonJS({
       for (var i = 0; i < keys.length; ++i) {
         var key = keys[i];
         var newObj = parseKeys(key, tempObj[key], options, typeof str === "string");
-        obj = utils2.merge(obj, newObj, options);
+        obj = utils3.merge(obj, newObj, options);
       }
       if (options.allowSparse === true) {
         return obj;
       }
-      return utils2.compact(obj);
+      return utils3.compact(obj);
     };
   }
 });
@@ -17313,7 +17314,7 @@ var require_urlencoded = __commonJS({
     var createError = require_http_errors();
     var debug = require_src()("body-parser:urlencoded");
     var deprecate = require_depd()("body-parser");
-    var read2 = require_read();
+    var read3 = require_read();
     var typeis = require_type_is();
     module.exports = urlencoded;
     var parsers = /* @__PURE__ */ Object.create(null);
@@ -17363,7 +17364,7 @@ var require_urlencoded = __commonJS({
           }));
           return;
         }
-        read2(req, res, next, parse3, debug, {
+        read3(req, res, next, parse3, debug, {
           debug,
           encoding: charset,
           inflate,
@@ -19429,7 +19430,7 @@ var require_send = __commonJS({
     var util3 = __require("util");
     var extname = path3.extname;
     var join = path3.join;
-    var normalize = path3.normalize;
+    var normalize2 = path3.normalize;
     var resolve = path3.resolve;
     var sep = path3.sep;
     var BYTES_RANGE_REGEXP = /^ *bytes=/;
@@ -19639,7 +19640,7 @@ var require_send = __commonJS({
       var parts;
       if (root !== null) {
         if (path4) {
-          path4 = normalize("." + sep + path4);
+          path4 = normalize2("." + sep + path4);
         }
         if (UP_PATH_REGEXP.test(path4)) {
           debug('malicious path "%s"', path4);
@@ -19647,14 +19648,14 @@ var require_send = __commonJS({
           return res;
         }
         parts = path4.split(sep);
-        path4 = normalize(join(root, path4));
+        path4 = normalize2(join(root, path4));
       } else {
         if (UP_PATH_REGEXP.test(path4)) {
           debug('malicious path "%s"', path4);
           this.error(403);
           return res;
         }
-        parts = normalize(path4).split(sep);
+        parts = normalize2(path4).split(sep);
         path4 = resolve(path4);
       }
       if (containsDotFile(parts)) {
@@ -56306,9 +56307,9 @@ var require_cpexcel = __commonJS({
 // node_modules/.pnpm/xlsx@0.18.5/node_modules/xlsx/xlsx.js
 var require_xlsx = __commonJS({
   "node_modules/.pnpm/xlsx@0.18.5/node_modules/xlsx/xlsx.js"(exports, module) {
-    var XLSX2 = {};
-    function make_xlsx_lib(XLSX3) {
-      XLSX3.version = "0.18.5";
+    var XLSX3 = {};
+    function make_xlsx_lib(XLSX4) {
+      XLSX4.version = "0.18.5";
       var current_codepage = 1200, current_ansi = 1252;
       var $cptable;
       if (typeof cptable !== "undefined") $cptable = cptable;
@@ -57914,7 +57915,7 @@ var require_xlsx = __commonJS({
       function make_ssf() {
         table_fmt = SSF_init_table();
       }
-      var SSF = {
+      var SSF2 = {
         format: SSF_format,
         load: SSF_load,
         _table: table_fmt,
@@ -57922,7 +57923,7 @@ var require_xlsx = __commonJS({
         parse_date_code: SSF_parse_date_code,
         is_date: fmt_is_date,
         get_table: function get_table() {
-          return SSF._table = table_fmt;
+          return SSF2._table = table_fmt;
         }
       };
       var SSFImplicit = {
@@ -58459,7 +58460,7 @@ var require_xlsx = __commonJS({
           get_fs();
           return parse3(fs4.readFileSync(filename2), options);
         }
-        function read2(blob, options) {
+        function read3(blob, options) {
           var type = options && options.type;
           if (!type) {
             if (has_buf && Buffer.isBuffer(blob)) type = "buffer";
@@ -59640,7 +59641,7 @@ var require_xlsx = __commonJS({
           rebuild_cfb(cfb, true);
         }
         exports2.find = find;
-        exports2.read = read2;
+        exports2.read = read3;
         exports2.parse = parse3;
         exports2.write = write;
         exports2.writeFile = write_file;
@@ -62191,7 +62192,7 @@ var require_xlsx = __commonJS({
         return o.join("");
       }
       function write_meta_ods() {
-        return '<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2"><office:meta><meta:generator>SheetJS ' + XLSX3.version + "</meta:generator></office:meta></office:document-meta>";
+        return '<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2"><office:meta><meta:generator>SheetJS ' + XLSX4.version + "</meta:generator></office:meta></office:document-meta>";
       }
       var CORE_PROPS = [
         ["cp:category", "Category"],
@@ -74569,8 +74570,8 @@ var require_xlsx = __commonJS({
         if (!o) o = new_buf(127);
         for (var i = 0; i != 4; ++i) o.write_shift(4, 0);
         write_XLWideString("SheetJS", o);
-        write_XLWideString(XLSX3.version, o);
-        write_XLWideString(XLSX3.version, o);
+        write_XLWideString(XLSX4.version, o);
+        write_XLWideString(XLSX4.version, o);
         write_XLWideString("7262", o);
         return o.length > o.l ? o.slice(0, o.l) : o;
       }
@@ -86047,7 +86048,7 @@ var require_xlsx = __commonJS({
         }
         return ws;
       }
-      var utils2 = {
+      var utils3 = {
         encode_col,
         encode_row,
         encode_cell,
@@ -86237,21 +86238,21 @@ var require_xlsx = __commonJS({
         to_csv: write_csv_stream,
         set_readable
       };
-      if (typeof parse_xlscfb !== "undefined") XLSX3.parse_xlscfb = parse_xlscfb;
-      XLSX3.parse_zip = parse_zip;
-      XLSX3.read = readSync;
-      XLSX3.readFile = readFileSync2;
-      XLSX3.readFileSync = readFileSync2;
-      XLSX3.write = writeSync;
-      XLSX3.writeFile = writeFileSync;
-      XLSX3.writeFileSync = writeFileSync;
-      XLSX3.writeFileAsync = writeFileAsync;
-      XLSX3.utils = utils2;
-      XLSX3.writeXLSX = writeSyncXLSX;
-      XLSX3.writeFileXLSX = writeFileSyncXLSX;
-      XLSX3.SSF = SSF;
-      if (typeof __stream !== "undefined") XLSX3.stream = __stream;
-      if (typeof CFB !== "undefined") XLSX3.CFB = CFB;
+      if (typeof parse_xlscfb !== "undefined") XLSX4.parse_xlscfb = parse_xlscfb;
+      XLSX4.parse_zip = parse_zip;
+      XLSX4.read = readSync;
+      XLSX4.readFile = readFileSync2;
+      XLSX4.readFileSync = readFileSync2;
+      XLSX4.write = writeSync;
+      XLSX4.writeFile = writeFileSync;
+      XLSX4.writeFileSync = writeFileSync;
+      XLSX4.writeFileAsync = writeFileAsync;
+      XLSX4.utils = utils3;
+      XLSX4.writeXLSX = writeSyncXLSX;
+      XLSX4.writeFileXLSX = writeFileSyncXLSX;
+      XLSX4.SSF = SSF2;
+      if (typeof __stream !== "undefined") XLSX4.stream = __stream;
+      if (typeof CFB !== "undefined") XLSX4.CFB = CFB;
       if (typeof __require !== "undefined") {
         var strmod = __require("stream");
         if ((strmod || {}).Readable) set_readable(strmod.Readable);
@@ -86260,14 +86261,395 @@ var require_xlsx = __commonJS({
     if (typeof exports !== "undefined") make_xlsx_lib(exports);
     else if (typeof module !== "undefined" && module.exports) make_xlsx_lib(module.exports);
     else if (typeof define === "function" && define.amd) define("xlsx", function() {
-      if (!XLSX2.version) make_xlsx_lib(XLSX2);
-      return XLSX2;
+      if (!XLSX3.version) make_xlsx_lib(XLSX3);
+      return XLSX3;
     });
-    else make_xlsx_lib(XLSX2);
+    else make_xlsx_lib(XLSX3);
     if (typeof window !== "undefined" && !window.XLSX) try {
-      window.XLSX = XLSX2;
+      window.XLSX = XLSX3;
     } catch (e) {
     }
+  }
+});
+
+// server/reconciliation/genericParser.ts
+var genericParser_exports = {};
+__export(genericParser_exports, {
+  parseGenericStatement: () => parseGenericStatement
+});
+function normalize(s) {
+  return String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+}
+function looksLikeDate(v) {
+  if (v instanceof Date) return true;
+  const s = String(v ?? "").trim();
+  if (/^\d{2}[\/\-.]\d{2}[\/\-.]\d{2,4}/.test(s)) return true;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return true;
+  return false;
+}
+function looksLikeMoney(v) {
+  if (typeof v === "number") return true;
+  const s = String(v ?? "").trim();
+  if (!s) return false;
+  const cleaned = s.replace(/r\$/i, "").replace(/[cd]\s*$/i, "").replace(/\u00a0/g, "").trim();
+  return /^[+-]?[\d.,]+$/.test(cleaned) && /\d/.test(cleaned);
+}
+function toIsoDate(v) {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "number" && v > 2e4 && v < 8e4) {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (d) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+  }
+  const s = String(v ?? "").trim();
+  const br = s.match(/^(\d{2})[\/\-.](\d{2})[\/\-.](\d{2,4})/);
+  if (br) {
+    const year3 = br[3].length === 2 ? `20${br[3]}` : br[3];
+    return `${year3}-${br[2]}-${br[1]}`;
+  }
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return s.slice(0, 10);
+  return "";
+}
+function toAmount(v) {
+  if (typeof v === "number") return Math.abs(v);
+  let s = String(v ?? "").replace(/\u00a0/g, "").replace(/r\$/gi, "").replace(/\s*[cd]\s*$/i, "").replace(/^[+-]/, "").trim().replace(/[^\d.,]/g, "");
+  if (!s) return 0;
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  let normalized;
+  if (lastComma > lastDot) {
+    normalized = s.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot > lastComma) {
+    normalized = s.replace(/,/g, "");
+  } else {
+    normalized = s.replace(/,/g, "");
+  }
+  const n = parseFloat(normalized);
+  return isNaN(n) ? 0 : Math.abs(n);
+}
+function detectSign(v) {
+  const s = String(v ?? "").trim();
+  if (/^-/.test(s) || /\bd\s*$/i.test(s)) return "debit";
+  if (/^\+/.test(s) || /\bc\s*$/i.test(s)) return "credit";
+  if (typeof v === "number") return v < 0 ? "debit" : "credit";
+  return null;
+}
+function scoreHeader(cell, role) {
+  const norm = normalize(cell);
+  if (!norm) return 0;
+  let best = 0;
+  for (const kw of COLUMN_KEYWORDS[role]) {
+    if (norm === kw) best = Math.max(best, 100);
+    else if (norm.includes(kw) || kw.includes(norm)) best = Math.max(best, 60);
+  }
+  return best;
+}
+function detectColumns(rows) {
+  let bestHeaderRow = -1;
+  let bestScore = 0;
+  let bestMap = {};
+  const limit = Math.min(rows.length, 25);
+  for (let r = 0; r < limit; r++) {
+    const row = rows[r];
+    if (!row || row.length < 2) continue;
+    const map2 = {
+      date: -1,
+      amount: -1,
+      description: -1,
+      creditDebit: -1,
+      document: -1,
+      creditCol: -1,
+      debitCol: -1
+    };
+    let rowScore = 0;
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c] ?? "");
+      if (!cell.trim()) continue;
+      const scores = {
+        date: scoreHeader(cell, "date"),
+        amount: scoreHeader(cell, "amount"),
+        description: scoreHeader(cell, "description"),
+        creditDebit: scoreHeader(cell, "creditDebit"),
+        document: scoreHeader(cell, "document"),
+        credit: scoreHeader(cell, "credit"),
+        debit: scoreHeader(cell, "debit")
+      };
+      const topRole = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+      if (topRole[1] < 50) continue;
+      rowScore += topRole[1];
+      const role = topRole[0];
+      if (role === "date" && map2.date === -1) map2.date = c;
+      else if (role === "amount" && map2.amount === -1) map2.amount = c;
+      else if (role === "description" && map2.description === -1) map2.description = c;
+      else if (role === "creditDebit" && map2.creditDebit === -1) map2.creditDebit = c;
+      else if (role === "document" && map2.document === -1) map2.document = c;
+      else if (role === "credit" && map2.creditCol === -1) map2.creditCol = c;
+      else if (role === "debit" && map2.debitCol === -1) map2.debitCol = c;
+    }
+    if (rowScore > bestScore) {
+      bestScore = rowScore;
+      bestHeaderRow = r;
+      bestMap = map2;
+    }
+  }
+  if (bestHeaderRow === -1 || bestScore < 100) {
+    return detectByContent(rows);
+  }
+  const m = bestMap;
+  m.headerRowIndex = bestHeaderRow;
+  const hasAmount = m.amount !== -1 || (m.creditCol !== -1 || m.debitCol !== -1);
+  if (m.date === -1 || !hasAmount) {
+    return detectByContent(rows);
+  }
+  return m;
+}
+function detectByContent(rows) {
+  const colStats = [];
+  for (const row of rows.slice(0, 60)) {
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      if (!colStats[c]) colStats[c] = { dateHits: 0, moneyHits: 0, textLen: 0, total: 0 };
+      const v = row[c];
+      if (v === null || v === void 0 || v === "") continue;
+      colStats[c].total++;
+      if (looksLikeDate(v)) colStats[c].dateHits++;
+      else if (looksLikeMoney(v)) colStats[c].moneyHits++;
+      else colStats[c].textLen += String(v).length;
+    }
+  }
+  if (colStats.length < 2) return null;
+  let dateCol = -1, dateRatio = 0;
+  let amountCol = -1, amountRatio = 0;
+  let descCol = -1, descLen = 0;
+  colStats.forEach((s, c) => {
+    if (s.total < 3) return;
+    const dRatio = s.dateHits / s.total;
+    const mRatio = s.moneyHits / s.total;
+    if (dRatio > dateRatio && dRatio > 0.5) {
+      dateRatio = dRatio;
+      dateCol = c;
+    }
+    if (mRatio > amountRatio && mRatio > 0.5) {
+      amountRatio = mRatio;
+      amountCol = c;
+    }
+    if (s.textLen > descLen) {
+      descLen = s.textLen;
+      descCol = c;
+    }
+  });
+  if (dateCol === -1 || amountCol === -1) return null;
+  return {
+    date: dateCol,
+    amount: amountCol,
+    description: descCol,
+    creditDebit: -1,
+    document: -1,
+    creditCol: -1,
+    debitCol: -1,
+    headerRowIndex: -1
+    // sem cabeçalho — processa todas as linhas
+  };
+}
+function detectChannel(desc2) {
+  const d = desc2.toLowerCase();
+  if (d.includes("pix")) return "PIX";
+  if (d.includes("ted")) return "TED";
+  if (d.includes("boleto") || d.includes("titulo") || d.includes("t\xEDtulo")) return "BOLETO";
+  if (d.includes("doc")) return "DOC";
+  if (d.includes("tarifa") || d.includes("taxa")) return "TARIFA";
+  if (d.includes("pagamento")) return "PAGAMENTO";
+  if (d.includes("transf")) return "TRANSFERENCIA";
+  return "OUTRO";
+}
+function parseGenericStatement(buffer) {
+  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
+  const warnings = [];
+  const colMap = detectColumns(rows);
+  if (!colMap) {
+    return {
+      transactions: [],
+      detectedColumns: { date: "\u2014", amount: "\u2014", description: "\u2014", creditDebit: "\u2014", headerDetected: false },
+      warnings: ["N\xE3o foi poss\xEDvel detectar as colunas de data e valor automaticamente. Verifique o formato do arquivo."]
+    };
+  }
+  const colLetter = (i) => i === -1 ? "\u2014" : XLSX.utils.encode_col(i);
+  const detectedColumns = {
+    date: colLetter(colMap.date),
+    amount: colMap.amount !== -1 ? colLetter(colMap.amount) : `${colLetter(colMap.creditCol)}/${colLetter(colMap.debitCol)}`,
+    description: colLetter(colMap.description),
+    creditDebit: colMap.creditDebit !== -1 ? colLetter(colMap.creditDebit) : "auto",
+    headerDetected: colMap.headerRowIndex !== -1
+  };
+  const transactions = [];
+  const startRow = colMap.headerRowIndex === -1 ? 0 : colMap.headerRowIndex + 1;
+  let skipped = 0;
+  for (let r = startRow; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0) continue;
+    const rawDate = row[colMap.date];
+    const date6 = toIsoDate(rawDate);
+    if (!date6 || date6 < "2015-01-01" || date6 > "2100-01-01") {
+      skipped++;
+      continue;
+    }
+    const description = colMap.description !== -1 ? String(row[colMap.description] ?? "").trim() : "";
+    const descNorm = normalize(description);
+    if (descNorm.includes("saldo") && !descNorm.includes("pix")) continue;
+    let amount = 0;
+    let type = "credit";
+    if (colMap.creditCol !== -1 || colMap.debitCol !== -1) {
+      const creditVal = colMap.creditCol !== -1 ? toAmount(row[colMap.creditCol]) : 0;
+      const debitVal = colMap.debitCol !== -1 ? toAmount(row[colMap.debitCol]) : 0;
+      if (creditVal > 0) {
+        amount = creditVal;
+        type = "credit";
+      } else if (debitVal > 0) {
+        amount = debitVal;
+        type = "debit";
+      } else {
+        skipped++;
+        continue;
+      }
+    } else {
+      const rawAmount = row[colMap.amount];
+      amount = toAmount(rawAmount);
+      if (amount === 0) {
+        skipped++;
+        continue;
+      }
+      if (colMap.creditDebit !== -1) {
+        const cd = normalize(row[colMap.creditDebit]);
+        if (cd === "d" || cd.includes("deb") || cd.includes("sa") || cd === "-") type = "debit";
+        else if (cd === "c" || cd.includes("cred") || cd.includes("entr") || cd === "+") type = "credit";
+        else {
+          const sign = detectSign(rawAmount);
+          type = sign ?? "credit";
+        }
+      } else {
+        const sign = detectSign(rawAmount);
+        type = sign ?? "credit";
+      }
+    }
+    let externalId;
+    if (colMap.document !== -1) {
+      const doc = String(row[colMap.document] ?? "").trim();
+      if (doc && /^[A-Z0-9]{4,}$/i.test(doc)) externalId = doc;
+    }
+    const e2e = description.match(/\bE[A-Z0-9]{28,}\b/i);
+    if (!externalId && e2e) externalId = e2e[0];
+    transactions.push({
+      date: date6,
+      amount,
+      type,
+      description: description || "(sem descri\xE7\xE3o)",
+      externalId,
+      channel: detectChannel(description)
+    });
+  }
+  if (transactions.length === 0) {
+    warnings.push("Nenhuma transa\xE7\xE3o v\xE1lida encontrada. As colunas foram detectadas, mas as linhas de dados n\xE3o puderam ser lidas.");
+  } else if (skipped > transactions.length) {
+    warnings.push(`${skipped} linha(s) ignorada(s) \u2014 podem conter cabe\xE7alhos, rodap\xE9s ou dados incompletos.`);
+  }
+  return { transactions, detectedColumns, warnings };
+}
+var XLSX, COLUMN_KEYWORDS;
+var init_genericParser = __esm({
+  "server/reconciliation/genericParser.ts"() {
+    "use strict";
+    XLSX = __toESM(require_xlsx(), 1);
+    COLUMN_KEYWORDS = {
+      date: [
+        "data",
+        "dt",
+        "date",
+        "data lan\xE7amento",
+        "data lancamento",
+        "data movimento",
+        "data da transa\xE7\xE3o",
+        "data transacao",
+        "compet\xEAncia",
+        "data oper",
+        "dt mov"
+      ],
+      amount: [
+        "valor",
+        "value",
+        "amount",
+        "vlr",
+        "valor r$",
+        "valor (r$)",
+        "montante",
+        "quantia",
+        "valor da transa\xE7\xE3o",
+        "valor transacao"
+      ],
+      description: [
+        "hist\xF3rico",
+        "historico",
+        "descri\xE7\xE3o",
+        "descricao",
+        "description",
+        "lan\xE7amento",
+        "lancamento",
+        "memo",
+        "detalhe",
+        "observa\xE7\xE3o",
+        "observacao",
+        "complemento",
+        "transa\xE7\xE3o",
+        "transacao",
+        "movimento"
+      ],
+      creditDebit: [
+        "tipo",
+        "c/d",
+        "d/c",
+        "d\xE9bito/cr\xE9dito",
+        "debito/credito",
+        "natureza",
+        "inf",
+        "inf.",
+        "sinal",
+        "opera\xE7\xE3o",
+        "operacao"
+      ],
+      document: [
+        "documento",
+        "doc",
+        "n\xBA documento",
+        "numero documento",
+        "num doc",
+        "n\xBA doc",
+        "controle",
+        "refer\xEAncia",
+        "referencia",
+        "id",
+        "c\xF3digo",
+        "codigo",
+        "nosso n\xFAmero",
+        "nosso numero"
+      ],
+      credit: [
+        "cr\xE9dito",
+        "credito",
+        "entrada",
+        "entradas",
+        "receita",
+        "recebimento"
+      ],
+      debit: [
+        "d\xE9bito",
+        "debito",
+        "sa\xEDda",
+        "saida",
+        "pagamento",
+        "despesa"
+      ]
+    };
   }
 });
 
@@ -101123,7 +101505,7 @@ var require_sourcemap_codec_umd = __commonJS({
         }
         return to;
       };
-      var __toCommonJS = (mod) => __copyProps3(__defProp3({}, "__esModule", { value: true }), mod);
+      var __toCommonJS2 = (mod) => __copyProps3(__defProp3({}, "__esModule", { value: true }), mod);
       var sourcemap_codec_exports = {};
       __export2(sourcemap_codec_exports, {
         decode: () => decode4,
@@ -101133,7 +101515,7 @@ var require_sourcemap_codec_umd = __commonJS({
         encodeGeneratedRanges: () => encodeGeneratedRanges,
         encodeOriginalScopes: () => encodeOriginalScopes
       });
-      module2.exports = __toCommonJS(sourcemap_codec_exports);
+      module2.exports = __toCommonJS2(sourcemap_codec_exports);
       var comma = ",".charCodeAt(0);
       var semicolon = ";".charCodeAt(0);
       var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -103034,7 +103416,7 @@ var require_dist3 = __commonJS({
       isNodeMode || !mod || !mod.__esModule ? __defProp3(target, "default", { value: mod, enumerable: true }) : target,
       mod
     ));
-    var __toCommonJS = (mod) => __copyProps3(__defProp3({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps3(__defProp3({}, "__esModule", { value: true }), mod);
     var index_exports = {};
     __export2(index_exports, {
       defaultParserOptions: () => defaultParserOptions,
@@ -103046,7 +103428,7 @@ var require_dist3 = __commonJS({
       transformJsxCode: () => transformJsxCode,
       validExtensions: () => validExtensions
     });
-    module.exports = __toCommonJS(index_exports);
+    module.exports = __toCommonJS2(index_exports);
     var import_parser = require_lib6();
     var import_magic_string = __toESM3(require_magic_string_cjs());
     var import_path2 = __toESM3(__require("path"));
@@ -103208,12 +103590,12 @@ var require_dist4 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps3(__defProp3({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps3(__defProp3({}, "__esModule", { value: true }), mod);
     var index_exports = {};
     __export2(index_exports, {
       jsxLocPlugin: () => jsxLocPlugin2
     });
-    module.exports = __toCommonJS(index_exports);
+    module.exports = __toCommonJS2(index_exports);
     var import_jsx_loc_internals = require_dist3();
     function jsxLocPlugin2() {
       return {
@@ -126624,7 +127006,7 @@ function classifyDivergence(input) {
 }
 
 // server/reconciliation/parsers.ts
-var XLSX = __toESM(require_xlsx(), 1);
+var XLSX2 = __toESM(require_xlsx(), 1);
 function parseBRDate(str) {
   if (!str) return "";
   const s = String(str).trim();
@@ -126649,7 +127031,7 @@ function parseJSDate(val) {
   if (val instanceof Date) return val.toISOString().slice(0, 10);
   return parseBRDate(String(val));
 }
-function detectChannel(desc2) {
+function detectChannel2(desc2) {
   const d = desc2.toLowerCase();
   if (d.includes("pix")) return "PIX";
   if (d.includes("ted")) return "TED";
@@ -126661,9 +127043,9 @@ function detectChannel(desc2) {
   return "OUTRO";
 }
 function parseSicoob(buffer) {
-  const wb = XLSX.read(buffer, { type: "buffer" });
+  const wb = XLSX2.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const allRows = XLSX.utils.sheet_to_json(ws, {
+  const allRows = XLSX2.utils.sheet_to_json(ws, {
     header: 1,
     raw: false,
     dateNF: "dd/mm/yyyy"
@@ -126720,7 +127102,7 @@ function parseSicoob(buffer) {
       description: clientName ? `${pendingDesc} - ${clientName}` : pendingDesc,
       externalId,
       clientName,
-      channel: detectChannel(pendingDesc)
+      channel: detectChannel2(pendingDesc)
     });
   };
   for (const row of allRows) {
@@ -126746,9 +127128,9 @@ function parseSicoob(buffer) {
   return results;
 }
 function parseBB(buffer) {
-  const wb = XLSX.read(buffer, { type: "buffer" });
+  const wb = XLSX2.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, {
+  const rows = XLSX2.utils.sheet_to_json(ws, {
     header: 1,
     raw: false,
     dateNF: "dd/mm/yyyy"
@@ -126798,15 +127180,15 @@ function parseBB(buffer) {
       description,
       externalId,
       clientName,
-      channel: detectChannel(hist)
+      channel: detectChannel2(hist)
     });
   }
   return results;
 }
 function parseJD(buffer) {
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const wb = XLSX2.read(buffer, { type: "buffer", cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+  const rows = XLSX2.utils.sheet_to_json(ws, { header: 1, raw: true });
   const results = [];
   let headerIdx = -1;
   for (let i = 0; i < rows.length; i++) {
@@ -126851,9 +127233,9 @@ var INTERNAL_OPERATIONS = /* @__PURE__ */ new Set([
   "TRANSFER\xCANCIA ENTRE CONTAS"
 ]);
 function parseAPI(buffer) {
-  const wb = XLSX.read(buffer, { type: "buffer" });
+  const wb = XLSX2.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+  const rows = XLSX2.utils.sheet_to_json(ws, { header: 1, raw: false });
   const results = [];
   let headerIdx = -1;
   for (let i = 0; i < rows.length; i++) {
@@ -126891,7 +127273,7 @@ function parseAPI(buffer) {
       type: valRaw > 0 ? "credit" : "debit",
       description: descRaw || op,
       externalId: isE2E ? auth : void 0,
-      channel: isTariff ? "TARIFA" : detectChannel(op),
+      channel: isTariff ? "TARIFA" : detectChannel2(op),
       clientName,
       isTariff,
       isInternal,
@@ -126930,7 +127312,33 @@ function parseStatement(buffer, bank) {
       return parseJD(buffer);
     case "api":
       return parseAPI(buffer);
+    case "generic": {
+      const { parseGenericStatement: parseGenericStatement2 } = (init_genericParser(), __toCommonJS(genericParser_exports));
+      return parseGenericStatement2(buffer).transactions;
+    }
   }
+}
+function parseStatementResilient(buffer, bank) {
+  if (bank === "generic" || bank === "api") {
+    return parseStatement(buffer, bank);
+  }
+  let result = [];
+  try {
+    result = parseStatement(buffer, bank);
+  } catch {
+    result = [];
+  }
+  if (result.length === 0) {
+    try {
+      const { parseGenericStatement: parseGenericStatement2 } = (init_genericParser(), __toCommonJS(genericParser_exports));
+      const generic = parseGenericStatement2(buffer);
+      if (generic.transactions.length > 0) {
+        return generic.transactions;
+      }
+    } catch {
+    }
+  }
+  return result;
 }
 
 // server/routers.ts
@@ -126983,10 +127391,10 @@ var reconciliationRouter = router({
   // ── Novo: parse de extrato bancário (base64 XLSX) ──────────────────────────
   parseStatementFile: protectedProcedure.input(external_exports.object({
     fileBase64: external_exports.string(),
-    bank: external_exports.enum(["sicoob", "bb", "jd", "api"])
+    bank: external_exports.enum(["sicoob", "bb", "jd", "api", "generic"])
   })).mutation(async ({ input }) => {
     const buffer = Buffer.from(input.fileBase64, "base64");
-    const transactions = parseStatement(buffer, input.bank);
+    const transactions = parseStatementResilient(buffer, input.bank);
     return { transactions, count: transactions.length };
   }),
   // ── Novo: conciliar múltiplos bancos vs API ────────────────────────────────
@@ -127002,7 +127410,7 @@ var reconciliationRouter = router({
     const allApiTxs = parseStatement(apiBuffer, "api");
     const parsedBanks = input.banks.map((b) => {
       const buffer = Buffer.from(b.fileBase64, "base64");
-      const txs = parseStatement(buffer, b.name);
+      const txs = parseStatementResilient(buffer, b.name);
       const hasE2E = txs.some((t2) => t2.externalId && /^E[A-Z0-9]{28,}$/i.test(t2.externalId));
       return { name: b.name, txs, useE2E: b.name === "jd" || b.name === "sicoob" && hasE2E };
     });
