@@ -76,8 +76,8 @@ export default function Dashboard() {
   const { data: ctrlData, refetch: refetchCtrl } = trpc.controllership.getControllershipDashboard.useQuery(
     { dateFrom, dateTo }, { refetchOnWindowFocus: false }
   );
-  const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery(undefined, { refetchInterval: 30000 });
-  const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 10000 });
   const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({}, { refetchInterval: 30000, staleTime: 15000 });
   const { data: dailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
 
@@ -92,7 +92,7 @@ export default function Dashboard() {
   const lastSession = sessionList[0];
   const { data: lastSessionStats } = trpc.reconciliation.getSessionStats.useQuery(
     { id: lastSession?.id ?? 0 },
-    { enabled: !!lastSession?.id, refetchInterval: 15000 }
+    { enabled: !!lastSession?.id, refetchInterval: 8000 }
   );
   // Usa stats ao vivo se disponível (mais preciso), fallback para sessão
   const liveMatched    = (lastSessionStats as any)?.matchedCount  ?? lastSession?.matchedCount  ?? 0;

@@ -1550,11 +1550,15 @@ export async function getBankBalancesByBank() {
   const balRows: any[] = (balRes as any)[0] ?? [];
 
   // 2) Contagem de divergências pendentes por banco — vem da tabela divergences.
-  //    bank_surplus tem bankName preenchido. bank_shortage (falta no banco /
-  //    sobra na API) normalmente não tem banco — agrupado como 'API / Sem banco'.
+  //    bank_surplus tem bankName do banco. bank_shortage (falta no banco / sobra
+  //    na API) é gravado com bankName='API' como texto literal — agrupado como
+  //    'API / Sem banco' junto com casos onde bankName veio null/vazio.
   const divRes = await db.execute(sql`
     SELECT
-      COALESCE(NULLIF(bankName, ''), 'API / Sem banco') as grp,
+      CASE
+        WHEN bankName IS NULL OR bankName = '' OR bankName = 'API' THEN 'API / Sem banco'
+        ELSE bankName
+      END as grp,
       COUNT(*) as cnt
     FROM divergences
     WHERE status NOT IN ('regularizado','reclassificado','baixado')
@@ -1585,7 +1589,7 @@ export async function getBankBalancesByBank() {
     });
   }
 
-  cacheSet('bank_balances_by_bank', data, 10_000); // 10s cache
+  cacheSet('bank_balances_by_bank', data, 5_000); // 5s cache — sincronia rápida com ações
   return data;
 }
 

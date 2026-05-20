@@ -107922,7 +107922,10 @@ async function getBankBalancesByBank() {
   const balRows = balRes[0] ?? [];
   const divRes = await db.execute(sql`
     SELECT
-      COALESCE(NULLIF(bankName, ''), 'API / Sem banco') as grp,
+      CASE
+        WHEN bankName IS NULL OR bankName = '' OR bankName = 'API' THEN 'API / Sem banco'
+        ELSE bankName
+      END as grp,
       COUNT(*) as cnt
     FROM divergences
     WHERE status NOT IN ('regularizado','reclassificado','baixado')
@@ -107949,7 +107952,7 @@ async function getBankBalancesByBank() {
       apiSideOnly: true
     });
   }
-  cacheSet("bank_balances_by_bank", data, 1e4);
+  cacheSet("bank_balances_by_bank", data, 5e3);
   return data;
 }
 async function getDailyBankBalances() {
