@@ -361,12 +361,23 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
   const [priority, setPriority] = useState(d.priority ?? "medium");
 
   // ── Busca de pares suspeitos (conciliados com valor/data próximos) ──
-  const { data: suspiciousData, refetch: refetchSuspicious } =
+  const { data: suspiciousData, refetch: refetchSuspicious, isLoading: suspiciousLoading, error: suspiciousError } =
     trpc.reconciliation.findSuspiciousPairsForDivergence.useQuery(
       { divergenceId: d.id },
       { enabled: !!d.id, staleTime: 30000 }
     );
   const suspiciousPairs = suspiciousData?.pairs ?? [];
+
+  // DEBUG temporário — remover depois de confirmar o funcionamento
+  if (typeof window !== 'undefined') {
+    (window as any).__divPanelDebug = {
+      divId: d.id, divAmount: d.amount, divDate: d.divergenceDate,
+      sessionId: d.sessionId,
+      suspiciousData, suspiciousPairs, suspiciousLoading, suspiciousError,
+    };
+    if (suspiciousData) console.log('[Pares suspeitos]', { divId: d.id, ...suspiciousData });
+    if (suspiciousError) console.error('[Pares suspeitos ERRO]', suspiciousError);
+  }
 
   const utils = trpc.useUtils();
   const unmatchPairMutation = trpc.reconciliation.unmatchPair.useMutation({

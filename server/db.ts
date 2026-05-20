@@ -49,6 +49,17 @@ function cacheInvalidate(pattern: string) {
   }
 }
 
+/** Invalida todos os caches que dependem do estado das conciliações.
+ *  Chamado após qualquer ação que mude o estado: conciliação manual,
+ *  desvinculação, atualização de divergência, contrapartida, etc. */
+function invalidateReconciliationCaches() {
+  _cache.delete('divergences_all');
+  _cache.delete('bank_balances_by_bank');
+  _cache.delete('daily_bank_balances');
+  _cache.delete('boleto_daily_balances');
+  cacheInvalidate('reconciliation_sessions_');
+}
+
 /** Converte Date do MySQL (ou string) para ISO YYYY-MM-DD de forma segura */
 function toISODate(val: Date | string | null | undefined): string {
   if (!val) return '';
@@ -137,6 +148,9 @@ export async function createReconciliationSession(data: {
 }
 
 export async function getReconciliationSessions(limit = 20) {
+  const cacheKey = `reconciliation_sessions_${limit}`;
+  const cached = cacheGet<any[]>(cacheKey);
+  if (cached) return cached;
   const db = await getDb();
   if (!db) return [];
   const sessions = await db.select().from(reconciliationSessions)
@@ -159,10 +173,12 @@ export async function getReconciliationSessions(limit = 20) {
     countMap.set(Number(row.sessionId), parseInt(String(row.cnt ?? 0)));
   }
 
-  return sessions.map(s => ({
+  const data = sessions.map(s => ({
     ...s,
     totalTransactions: countMap.get(s.id) ?? ((s.matchedCount ?? 0) + (s.divergentCount ?? 0)),
   }));
+  cacheSet(cacheKey, data, 8_000); // 8s cache
+  return data;
 }
 
 export async function getReconciliationSessionById(id: number) {
@@ -456,6 +472,16 @@ export async function createDivergence(data: {
 export async function getDivergences(filters?: {
   sessionId?: number; status?: string; priority?: string; dateFrom?: string; dateTo?: string;
 }) {
+  // Caso especial: chamada sem filtros (do Dashboard) é a mais pesada e a mais
+  // repetida. Vale a pena cachear por alguns segundos.
+  const isUnfiltered = !filters || (
+    !filters.sessionId && !filters.status && !filters.priority &&
+    !filters.dateFrom && !filters.dateTo
+  );
+  if (isUnfiltered) {
+    const cached = cacheGet<any[]>('divergences_all');
+    if (cached) return cached;
+  }
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
@@ -464,10 +490,14 @@ export async function getDivergences(filters?: {
   if (filters?.priority) conditions.push(eq(divergences.priority, filters.priority as any));
   if (filters?.dateFrom) conditions.push(gte(divergences.divergenceDate, filters.dateFrom as unknown as Date));
   if (filters?.dateTo) conditions.push(lte(divergences.divergenceDate, filters.dateTo as unknown as Date));
-  return db.select().from(divergences)
+  const result = await db.select().from(divergences)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(divergences.createdAt))
     .limit(1000);  // never do full table scan
+  if (isUnfiltered) {
+    cacheSet('divergences_all', result, 10_000); // 10s cache
+  }
+  return result;
 }
 
 export async function updateDivergenceStatus(id: number, data: {
@@ -483,6 +513,7 @@ export async function updateDivergenceStatus(id: number, data: {
     actionTaken: data.actionTaken,
     slaDeadline: data.slaDeadline ? data.slaDeadline as unknown as Date : undefined,
   }).where(eq(divergences.id, id));
+  invalidateReconciliationCaches();
 }
 
 // ─── MOTOR GERENCIAL ──────────────────────────────────────────────────────────
@@ -1521,6 +1552,8 @@ export async function manualReconcileDivergences(ids: number[], note: string, cr
     .set({ matchedCount: newMatchedCount, pendingCount })
     .where(eq(reconciliationSessions.id, sessionId));
 
+  invalidateReconciliationCaches();
+
   return { success: true, count: ids.length, netAmount };
 }
 
@@ -1594,6 +1627,8 @@ export async function getBankBalancesByBank() {
 }
 
 export async function getDailyBankBalances() {
+  const cached = cacheGet<any[]>('daily_bank_balances');
+  if (cached) return cached;
   const db = await getDb();
   if (!db) return [];
   // Agrupa por data de referência e banco os totais das sessões conciliadas
@@ -1612,7 +1647,9 @@ export async function getDailyBankBalances() {
     ORDER BY rs.referenceDate DESC
     LIMIT 30
   `);
-  return ((result as any)[0] ?? []).reverse();
+  const data = ((result as any)[0] ?? []).reverse();
+  cacheSet('daily_bank_balances', data, 10_000); // 10s cache
+  return data;
 }
 
 /** BATCH INSERT para expenses - evita loop individual de tarifas */

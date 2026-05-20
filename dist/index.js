@@ -106773,6 +106773,18 @@ function cacheGet(key) {
 function cacheSet(key, data, ttlMs = 3e4) {
   _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
+function cacheInvalidate(pattern) {
+  for (const key of Array.from(_cache.keys())) {
+    if (key.startsWith(pattern)) _cache.delete(key);
+  }
+}
+function invalidateReconciliationCaches() {
+  _cache.delete("divergences_all");
+  _cache.delete("bank_balances_by_bank");
+  _cache.delete("daily_bank_balances");
+  _cache.delete("boleto_daily_balances");
+  cacheInvalidate("reconciliation_sessions_");
+}
 function toISODate(val) {
   if (!val) return "";
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -106855,6 +106867,9 @@ async function createReconciliationSession(data) {
   return result[0].insertId;
 }
 async function getReconciliationSessions(limit = 20) {
+  const cacheKey = `reconciliation_sessions_${limit}`;
+  const cached2 = cacheGet(cacheKey);
+  if (cached2) return cached2;
   const db = await getDb();
   if (!db) return [];
   const sessions = await db.select().from(reconciliationSessions).orderBy(desc(reconciliationSessions.createdAt)).limit(limit);
@@ -106869,10 +106884,12 @@ async function getReconciliationSessions(limit = 20) {
   for (const row of counts[0] ?? []) {
     countMap.set(Number(row.sessionId), parseInt(String(row.cnt ?? 0)));
   }
-  return sessions.map((s) => ({
+  const data = sessions.map((s) => ({
     ...s,
     totalTransactions: countMap.get(s.id) ?? (s.matchedCount ?? 0) + (s.divergentCount ?? 0)
   }));
+  cacheSet(cacheKey, data, 8e3);
+  return data;
 }
 async function getReconciliationSessionById(id) {
   const db = await getDb();
@@ -107084,6 +107101,11 @@ async function createDivergence(data) {
   return result[0]?.insertId ?? 0;
 }
 async function getDivergences(filters) {
+  const isUnfiltered = !filters || !filters.sessionId && !filters.status && !filters.priority && !filters.dateFrom && !filters.dateTo;
+  if (isUnfiltered) {
+    const cached2 = cacheGet("divergences_all");
+    if (cached2) return cached2;
+  }
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
@@ -107092,7 +107114,11 @@ async function getDivergences(filters) {
   if (filters?.priority) conditions.push(eq(divergences.priority, filters.priority));
   if (filters?.dateFrom) conditions.push(gte(divergences.divergenceDate, filters.dateFrom));
   if (filters?.dateTo) conditions.push(lte(divergences.divergenceDate, filters.dateTo));
-  return db.select().from(divergences).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(divergences.createdAt)).limit(1e3);
+  const result = await db.select().from(divergences).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(divergences.createdAt)).limit(1e3);
+  if (isUnfiltered) {
+    cacheSet("divergences_all", result, 1e4);
+  }
+  return result;
 }
 async function updateDivergenceStatus(id, data) {
   const db = await getDb();
@@ -107104,6 +107130,7 @@ async function updateDivergenceStatus(id, data) {
     actionTaken: data.actionTaken,
     slaDeadline: data.slaDeadline ? data.slaDeadline : void 0
   }).where(eq(divergences.id, id));
+  invalidateReconciliationCaches();
 }
 async function upsertManagerialBalance(data) {
   const db = await getDb();
@@ -107915,6 +107942,7 @@ async function manualReconcileDivergences(ids, note, createdByName) {
   const sessionMatchedBase = sessionData[0]?.matchedCount ?? 0;
   const newMatchedCount = matchedTxCount > sessionMatchedBase ? matchedTxCount : sessionMatchedBase + ids.length;
   await db.update(reconciliationSessions).set({ matchedCount: newMatchedCount, pendingCount }).where(eq(reconciliationSessions.id, sessionId));
+  invalidateReconciliationCaches();
   return { success: true, count: ids.length, netAmount };
 }
 async function getBankBalancesByBank() {
@@ -107973,6 +108001,8 @@ async function getBankBalancesByBank() {
   return data;
 }
 async function getDailyBankBalances() {
+  const cached2 = cacheGet("daily_bank_balances");
+  if (cached2) return cached2;
   const db = await getDb();
   if (!db) return [];
   const result = await db.execute(sql`
@@ -107990,7 +108020,9 @@ async function getDailyBankBalances() {
     ORDER BY rs.referenceDate DESC
     LIMIT 30
   `);
-  return (result[0] ?? []).reverse();
+  const data = (result[0] ?? []).reverse();
+  cacheSet("daily_bank_balances", data, 1e4);
+  return data;
 }
 async function insertExpensesBatch(rows) {
   if (rows.length === 0) return;
