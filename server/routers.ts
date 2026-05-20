@@ -917,6 +917,43 @@ const reconciliationRouter = router({
       return result;
     }),
 
+  // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
+  unmatchPair: protectedProcedure
+    .input(z.object({
+      bankTransactionId: z.number().optional(),
+      apiTransactionId: z.number().optional(),
+      deleteManualEntry: z.boolean().optional().default(false),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (!input.bankTransactionId && !input.apiTransactionId) {
+        throw new Error("Informe a transação bancária ou da API a ser desconciliada.");
+      }
+      const result = await db.unmatchPair({
+        bankTransactionId: input.bankTransactionId,
+        apiTransactionId: input.apiTransactionId,
+        deleteManualEntry: input.deleteManualEntry,
+      });
+      // Recalcula contadores da sessão para refletir a desconciliação na taxa
+      await updateSessionPendingCount(result.sessionId);
+      await audit(ctx, {
+        action: "reconciliation.unmatch", category: "conciliacao",
+        entityType: "transaction_pair",
+        entityId: `bank:${result.bankTxId},api:${result.apiTxId}`,
+        summary: result.deletedManualEntry
+          ? `Desconciliou par e removeu lançamento manual de contrapartida (sessão #${result.sessionId})`
+          : `Desconciliou par para reanálise (sessão #${result.sessionId})`,
+        metadata: {
+          sessionId: result.sessionId,
+          bankTransactionId: result.bankTxId,
+          apiTransactionId: result.apiTxId,
+          deletedManualEntry: result.deletedManualEntry,
+          reason: input.reason,
+        },
+      });
+      return result;
+    }),
+
   // ── Lançar contrapartida: cria a transação que faltava e concilia ──────────
   postCounterpart: protectedProcedure
     .input(z.object({

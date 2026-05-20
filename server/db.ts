@@ -2288,3 +2288,179 @@ export async function postCounterpartEntry(params: {
 
   return { success: true, newTransactionId, sessionId };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── DESCONCILIAR PAR ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Desfaz uma conciliação entre uma transação bancária e uma transação da API.
+ * Os dois lados voltam ao status 'pending', o vínculo é removido, e duas
+ * novas divergências são criadas para que cada lado apareça novamente como
+ * pendente na lista — permitindo ao usuário analisar e reconciliar de outra
+ * forma. Toda a ação é auditável.
+ *
+ * Pode ser acionado a partir de qualquer um dos lados (banco ou API) —
+ * o sistema localiza o par e desfaz ambos.
+ */
+export async function unmatchPair(params: {
+  bankTransactionId?: number;
+  apiTransactionId?: number;
+  deleteManualEntry?: boolean;    // se true, e o par foi criado por contrapartida, apaga a transação criada
+}): Promise<{
+  success: boolean;
+  sessionId: number;
+  bankTxId: number;
+  apiTxId: number;
+  deletedManualEntry: boolean;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // 1. Localiza o par
+  let bankTx: any = null;
+  let apiTx: any = null;
+
+  if (params.bankTransactionId) {
+    const r = await db.execute(sql`SELECT * FROM bank_transactions WHERE id = ${params.bankTransactionId} LIMIT 1`);
+    bankTx = (r as any)[0]?.[0];
+    if (!bankTx) throw new Error("Transação bancária não encontrada.");
+    if (bankTx.matchedApiTransactionId) {
+      const r2 = await db.execute(sql`SELECT * FROM api_transactions WHERE id = ${bankTx.matchedApiTransactionId} LIMIT 1`);
+      apiTx = (r2 as any)[0]?.[0];
+    }
+  } else if (params.apiTransactionId) {
+    const r = await db.execute(sql`SELECT * FROM api_transactions WHERE id = ${params.apiTransactionId} LIMIT 1`);
+    apiTx = (r as any)[0]?.[0];
+    if (!apiTx) throw new Error("Transação de API não encontrada.");
+    if (apiTx.matchedBankTransactionId) {
+      const r2 = await db.execute(sql`SELECT * FROM bank_transactions WHERE id = ${apiTx.matchedBankTransactionId} LIMIT 1`);
+      bankTx = (r2 as any)[0]?.[0];
+    }
+  } else {
+    throw new Error("Informe bankTransactionId ou apiTransactionId.");
+  }
+
+  if (!bankTx || !apiTx) {
+    throw new Error("Par não encontrado — a transação não está conciliada.");
+  }
+  if (bankTx.sessionId !== apiTx.sessionId) {
+    throw new Error("As duas transações pertencem a sessões diferentes.");
+  }
+
+  const sessionId = bankTx.sessionId;
+
+  // 2. Detecta se este par foi criado por 'Lançar contrapartida'
+  //    (uma das transações tem matchType='manual' E foi a criada — heurística:
+  //    matchType='manual' nos dois lados E channel='MANUAL' em uma delas)
+  const isCounterpart =
+    bankTx.matchType === 'manual' && apiTx.matchType === 'manual' &&
+    (bankTx.channel === 'MANUAL' || apiTx.channel === 'MANUAL');
+
+  let deletedManualEntry = false;
+
+  if (params.deleteManualEntry && isCounterpart) {
+    // Identifica qual lado foi o lançamento manual (geralmente o que tem channel='MANUAL')
+    // e apaga essa transação. A outra volta a 'pending' como uma órfã, que vira divergência.
+    if (bankTx.channel === 'MANUAL') {
+      // Apaga a transação bancária criada manualmente
+      await db.execute(sql`DELETE FROM bank_transactions WHERE id = ${bankTx.id}`);
+      // A transação da API volta ao estado órfão
+      await db.execute(sql`
+        UPDATE api_transactions
+        SET matchStatus = 'pending', matchType = NULL, matchedBankTransactionId = NULL
+        WHERE id = ${apiTx.id}
+      `);
+      // Cria divergência indicando o lado faltante
+      await db.execute(sql`
+        INSERT INTO divergences (
+          sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
+          category, priority, status, apiAmount, transactionType,
+          observation, apiTransactionId
+        ) VALUES (
+          ${sessionId}, ${toMysqlDate(apiTx.transactionDate)}, 'API', ${apiTx.clientName || null},
+          'bank_shortage', ${String(apiTx.amount)}, 'outros', 'medium', 'pendente',
+          ${String(apiTx.amount)}, ${apiTx.type},
+          'Recriada por desconciliação manual — o lançamento de contrapartida foi removido',
+          ${apiTx.id}
+        )
+      `);
+      deletedManualEntry = true;
+    } else if (apiTx.channel === 'MANUAL') {
+      // Apaga a transação da API criada manualmente
+      await db.execute(sql`DELETE FROM api_transactions WHERE id = ${apiTx.id}`);
+      // A transação do banco volta ao estado órfão
+      await db.execute(sql`
+        UPDATE bank_transactions
+        SET matchStatus = 'pending', matchType = NULL, matchedApiTransactionId = NULL
+        WHERE id = ${bankTx.id}
+      `);
+      await db.execute(sql`
+        INSERT INTO divergences (
+          sessionId, divergenceDate, bankName, divergenceType, amount,
+          category, priority, status, bankAmount, transactionType,
+          bankDescription, observation, bankTransactionId
+        ) VALUES (
+          ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
+          'bank_surplus', ${String(bankTx.amount)}, 'outros', 'medium', 'pendente',
+          ${String(bankTx.amount)}, ${bankTx.type},
+          ${bankTx.description || null},
+          'Recriada por desconciliação manual — o lançamento de contrapartida foi removido',
+          ${bankTx.id}
+        )
+      `);
+      deletedManualEntry = true;
+    }
+  } else {
+    // Desconciliação simples — os dois lados voltam ao estado pending
+    await db.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'pending', matchType = NULL, matchedApiTransactionId = NULL
+      WHERE id = ${bankTx.id}
+    `);
+    await db.execute(sql`
+      UPDATE api_transactions
+      SET matchStatus = 'pending', matchType = NULL, matchedBankTransactionId = NULL
+      WHERE id = ${apiTx.id}
+    `);
+
+    // Cria divergências para que os dois lados apareçam na fila de pendentes para reanálise
+    await db.execute(sql`
+      INSERT INTO divergences (
+        sessionId, divergenceDate, bankName, divergenceType, amount,
+        category, priority, status, bankAmount, transactionType,
+        bankDescription, observation, bankTransactionId
+      ) VALUES (
+        ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
+        'bank_surplus', ${String(bankTx.amount)}, 'outros', 'medium', 'pendente',
+        ${String(bankTx.amount)}, ${bankTx.type},
+        ${bankTx.description || null},
+        'Recriada por desconciliação manual — par anterior foi desfeito',
+        ${bankTx.id}
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO divergences (
+        sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
+        category, priority, status, apiAmount, transactionType,
+        observation, apiTransactionId
+      ) VALUES (
+        ${sessionId}, ${toMysqlDate(apiTx.transactionDate)}, 'API', ${apiTx.clientName || null},
+        'bank_shortage', ${String(apiTx.amount)}, 'outros', 'medium', 'pendente',
+        ${String(apiTx.amount)}, ${apiTx.type},
+        'Recriada por desconciliação manual — par anterior foi desfeito',
+        ${apiTx.id}
+      )
+    `);
+  }
+
+  // Invalida o cache para que os contadores se atualizem
+  _cache.clear();
+
+  return {
+    success: true,
+    sessionId,
+    bankTxId: bankTx.id,
+    apiTxId: apiTx.id,
+    deletedManualEntry,
+  };
+}

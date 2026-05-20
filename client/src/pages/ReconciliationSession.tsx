@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { generateReconciliationPdf, downloadPdf, type ReconciliationReportData } from "@/lib/reconciliationReport";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useState, useMemo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -139,17 +140,30 @@ function MatchQualityBar({ matched, divergent, total }: {
 
 // ─── PAIRED VIEW ─────────────────────────────────────────────────────────────
 
-function PairedTransactionRow({ bank, api }: { bank: any; api?: any }) {
+function PairedTransactionRow({ bank, api, onUnmatch }: {
+  bank: any; api?: any; onUnmatch?: (bank: any, api: any) => void;
+}) {
   const hasMatch = !!api;
   const amountMatch = hasMatch && Math.abs(safeNumber(bank.amount) - safeNumber(api.amount)) < 0.01;
 
   return (
     <div className={cn(
-      "grid grid-cols-2 gap-3 p-3 rounded-lg border transition-colors",
+      "grid grid-cols-2 gap-3 p-3 rounded-lg border transition-colors relative group",
       hasMatch
         ? "border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/8"
         : "border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/8"
     )}>
+      {/* Botão de desconciliar — só aparece em pares conciliados */}
+      {hasMatch && onUnmatch && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onUnmatch(bank, api); }}
+          title="Desconciliar este par"
+          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-amber-400 bg-background/80 border border-amber-500/30 hover:bg-amber-500/10 z-10"
+        >
+          <Unlink className="w-3 h-3" />
+          Desconciliar
+        </button>
+      )}
       {/* Bank side */}
       <div className="space-y-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -228,6 +242,21 @@ export default function ReconciliationSession() {
   const recalcMutation = trpc.reconciliation.recalculateSessionStats.useMutation({
     onSuccess: (r) => {
       toast.success(`Stats recalculados: ${r.matchedCount} conciliados · ${r.divergentCount} divergentes · ${r.matchRate}% taxa`);
+      refetch(); refetchStats();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Desconciliação manual de um par já conciliado
+  const [unmatchTarget, setUnmatchTarget] = useState<{ bank: any; api: any } | null>(null);
+  const unmatchMutation = trpc.reconciliation.unmatchPair.useMutation({
+    onSuccess: (r) => {
+      toast.success(
+        r.deletedManualEntry
+          ? `Par desconciliado e lançamento manual removido.`
+          : `Par desconciliado — os dois lados voltaram para divergências pendentes.`
+      );
+      setUnmatchTarget(null);
       refetch(); refetchStats();
     },
     onError: (e) => toast.error(e.message),
@@ -463,6 +492,27 @@ export default function ReconciliationSession() {
     {
       key: "matchType", header: "Match", width: "90px",
       cell: (r) => <MatchTypeBadge type={r.matchType} />,
+    },
+    {
+      key: "action", header: "Ação", width: "110px",
+      cell: (r) => {
+        // Botão de desconciliar — só para transações já pareadas
+        const isMatched = (r.matchStatus === "matched" || r.matchStatus === "manual") && r.matchedApiTransactionId;
+        if (!isMatched) return <span className="text-muted-foreground/40">—</span>;
+        // Localiza o par na API
+        const apiPair = apiById.get(r.matchedApiTransactionId);
+        if (!apiPair) return <span className="text-muted-foreground/40">—</span>;
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); setUnmatchTarget({ bank: r, api: apiPair }); }}
+            title="Desconciliar este par"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 transition-colors"
+          >
+            <Unlink className="w-3 h-3" />
+            Desconciliar
+          </button>
+        );
+      },
     },
   ];
 
@@ -744,7 +794,7 @@ export default function ReconciliationSession() {
             {/* Matched pairs first */}
             {(activeTab === "all" || activeTab === "matched") && matchedBank.map((bt: any) => {
               const apiTx = apiById.get(bt.matchedApiTransactionId);
-              return <PairedTransactionRow key={bt.id} bank={bt} api={apiTx} />;
+              return <PairedTransactionRow key={bt.id} bank={bt} api={apiTx} onUnmatch={(bank, api) => setUnmatchTarget({ bank, api })} />;
             })}
 
             {/* Divergent (no pair) */}
@@ -760,6 +810,122 @@ export default function ReconciliationSession() {
           </div>
         )}
       </div>
+
+      {/* ════ Dialog: Confirmar desconciliação ════ */}
+      <Dialog open={!!unmatchTarget} onOpenChange={(v) => !v && setUnmatchTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-500/12 border border-amber-500/25 flex items-center justify-center">
+                <Unlink className="w-3.5 h-3.5 text-amber-400" />
+              </div>
+              Desconciliar par
+            </DialogTitle>
+          </DialogHeader>
+
+          {unmatchTarget && (() => {
+            const isCounterpart =
+              unmatchTarget.bank?.matchType === 'manual' &&
+              unmatchTarget.api?.matchType === 'manual' &&
+              (unmatchTarget.bank?.channel === 'MANUAL' || unmatchTarget.api?.channel === 'MANUAL');
+            return (
+              <div className="space-y-3 py-1">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Esta ação desfaz a conciliação entre as duas transações abaixo.
+                  Elas voltarão para a lista de divergências pendentes para você
+                  reanalisar e conciliar de outra forma.
+                </p>
+
+                <div className="space-y-2">
+                  <div className="bg-muted/20 border border-border rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase">Banco</span>
+                      <span className={cn("font-mono text-sm font-bold",
+                        unmatchTarget.bank.type === "credit" ? "text-emerald-400" : "text-red-400")}>
+                        {formatCurrency(unmatchTarget.bank.amount)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-foreground truncate">{unmatchTarget.bank.description || "Sem descrição"}</p>
+                    <p className="text-[10px] text-muted-foreground">{formatDate(unmatchTarget.bank.transactionDate)}</p>
+                  </div>
+                  <div className="bg-muted/20 border border-border rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase">API</span>
+                      <span className={cn("font-mono text-sm font-bold",
+                        unmatchTarget.api.type === "credit" ? "text-emerald-400" : "text-red-400")}>
+                        {formatCurrency(unmatchTarget.api.amount)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-foreground truncate">{unmatchTarget.api.description || "Sem descrição"}</p>
+                    {unmatchTarget.api.clientName && (
+                      <p className="text-[10px] text-muted-foreground">{unmatchTarget.api.clientName}</p>
+                    )}
+                  </div>
+                </div>
+
+                {isCounterpart && (
+                  <div className="bg-amber-500/8 border border-amber-500/25 rounded-lg p-3">
+                    <p className="text-[11px] text-amber-400 font-semibold mb-1.5">
+                      Este par foi criado por &quot;Lançar contrapartida&quot;
+                    </p>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Uma das transações foi lançada manualmente. Você pode escolher:
+                      apenas desconciliar (mantendo a transação no sistema) ou
+                      desconciliar e remover o lançamento manual (mais limpo).
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-blue-500/8 border border-blue-500/20 rounded-lg p-2.5">
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    <strong className="text-blue-400">O que acontece:</strong> os dois lados
+                    voltam ao status &quot;pendente&quot;, são criadas divergências para reanálise, e
+                    a taxa de conciliação da sessão será recalculada. A ação fica registrada na auditoria.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+
+          <DialogFooter className="gap-2 flex-col sm:flex-row">
+            <Button variant="outline" size="sm" onClick={() => setUnmatchTarget(null)}>
+              Cancelar
+            </Button>
+            {unmatchTarget && (() => {
+              const isCounterpart =
+                unmatchTarget.bank?.matchType === 'manual' &&
+                unmatchTarget.api?.matchType === 'manual' &&
+                (unmatchTarget.bank?.channel === 'MANUAL' || unmatchTarget.api?.channel === 'MANUAL');
+              return (
+                <>
+                  {isCounterpart && (
+                    <Button
+                      size="sm"
+                      className="bg-red-500 hover:bg-red-600 text-white"
+                      disabled={unmatchMutation.isPending}
+                      onClick={() => unmatchMutation.mutate({
+                        bankTransactionId: unmatchTarget.bank.id,
+                        deleteManualEntry: true,
+                      })}>
+                      {unmatchMutation.isPending ? "..." : "Desconciliar e remover lançamento"}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    className="bg-amber-500 hover:bg-amber-600 text-white"
+                    disabled={unmatchMutation.isPending}
+                    onClick={() => unmatchMutation.mutate({
+                      bankTransactionId: unmatchTarget.bank.id,
+                      deleteManualEntry: false,
+                    })}>
+                    {unmatchMutation.isPending ? "Desconciliando..." : "Apenas desconciliar"}
+                  </Button>
+                </>
+              );
+            })()}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

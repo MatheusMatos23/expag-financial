@@ -108467,6 +108467,132 @@ async function postCounterpartEntry(params) {
   _cache.clear();
   return { success: true, newTransactionId, sessionId };
 }
+async function unmatchPair(params) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  let bankTx = null;
+  let apiTx = null;
+  if (params.bankTransactionId) {
+    const r = await db.execute(sql`SELECT * FROM bank_transactions WHERE id = ${params.bankTransactionId} LIMIT 1`);
+    bankTx = r[0]?.[0];
+    if (!bankTx) throw new Error("Transa\xE7\xE3o banc\xE1ria n\xE3o encontrada.");
+    if (bankTx.matchedApiTransactionId) {
+      const r2 = await db.execute(sql`SELECT * FROM api_transactions WHERE id = ${bankTx.matchedApiTransactionId} LIMIT 1`);
+      apiTx = r2[0]?.[0];
+    }
+  } else if (params.apiTransactionId) {
+    const r = await db.execute(sql`SELECT * FROM api_transactions WHERE id = ${params.apiTransactionId} LIMIT 1`);
+    apiTx = r[0]?.[0];
+    if (!apiTx) throw new Error("Transa\xE7\xE3o de API n\xE3o encontrada.");
+    if (apiTx.matchedBankTransactionId) {
+      const r2 = await db.execute(sql`SELECT * FROM bank_transactions WHERE id = ${apiTx.matchedBankTransactionId} LIMIT 1`);
+      bankTx = r2[0]?.[0];
+    }
+  } else {
+    throw new Error("Informe bankTransactionId ou apiTransactionId.");
+  }
+  if (!bankTx || !apiTx) {
+    throw new Error("Par n\xE3o encontrado \u2014 a transa\xE7\xE3o n\xE3o est\xE1 conciliada.");
+  }
+  if (bankTx.sessionId !== apiTx.sessionId) {
+    throw new Error("As duas transa\xE7\xF5es pertencem a sess\xF5es diferentes.");
+  }
+  const sessionId = bankTx.sessionId;
+  const isCounterpart = bankTx.matchType === "manual" && apiTx.matchType === "manual" && (bankTx.channel === "MANUAL" || apiTx.channel === "MANUAL");
+  let deletedManualEntry = false;
+  if (params.deleteManualEntry && isCounterpart) {
+    if (bankTx.channel === "MANUAL") {
+      await db.execute(sql`DELETE FROM bank_transactions WHERE id = ${bankTx.id}`);
+      await db.execute(sql`
+        UPDATE api_transactions
+        SET matchStatus = 'pending', matchType = NULL, matchedBankTransactionId = NULL
+        WHERE id = ${apiTx.id}
+      `);
+      await db.execute(sql`
+        INSERT INTO divergences (
+          sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
+          category, priority, status, apiAmount, transactionType,
+          observation, apiTransactionId
+        ) VALUES (
+          ${sessionId}, ${toMysqlDate(apiTx.transactionDate)}, 'API', ${apiTx.clientName || null},
+          'bank_shortage', ${String(apiTx.amount)}, 'outros', 'medium', 'pendente',
+          ${String(apiTx.amount)}, ${apiTx.type},
+          'Recriada por desconciliação manual — o lançamento de contrapartida foi removido',
+          ${apiTx.id}
+        )
+      `);
+      deletedManualEntry = true;
+    } else if (apiTx.channel === "MANUAL") {
+      await db.execute(sql`DELETE FROM api_transactions WHERE id = ${apiTx.id}`);
+      await db.execute(sql`
+        UPDATE bank_transactions
+        SET matchStatus = 'pending', matchType = NULL, matchedApiTransactionId = NULL
+        WHERE id = ${bankTx.id}
+      `);
+      await db.execute(sql`
+        INSERT INTO divergences (
+          sessionId, divergenceDate, bankName, divergenceType, amount,
+          category, priority, status, bankAmount, transactionType,
+          bankDescription, observation, bankTransactionId
+        ) VALUES (
+          ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
+          'bank_surplus', ${String(bankTx.amount)}, 'outros', 'medium', 'pendente',
+          ${String(bankTx.amount)}, ${bankTx.type},
+          ${bankTx.description || null},
+          'Recriada por desconciliação manual — o lançamento de contrapartida foi removido',
+          ${bankTx.id}
+        )
+      `);
+      deletedManualEntry = true;
+    }
+  } else {
+    await db.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'pending', matchType = NULL, matchedApiTransactionId = NULL
+      WHERE id = ${bankTx.id}
+    `);
+    await db.execute(sql`
+      UPDATE api_transactions
+      SET matchStatus = 'pending', matchType = NULL, matchedBankTransactionId = NULL
+      WHERE id = ${apiTx.id}
+    `);
+    await db.execute(sql`
+      INSERT INTO divergences (
+        sessionId, divergenceDate, bankName, divergenceType, amount,
+        category, priority, status, bankAmount, transactionType,
+        bankDescription, observation, bankTransactionId
+      ) VALUES (
+        ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
+        'bank_surplus', ${String(bankTx.amount)}, 'outros', 'medium', 'pendente',
+        ${String(bankTx.amount)}, ${bankTx.type},
+        ${bankTx.description || null},
+        'Recriada por desconciliação manual — par anterior foi desfeito',
+        ${bankTx.id}
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO divergences (
+        sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
+        category, priority, status, apiAmount, transactionType,
+        observation, apiTransactionId
+      ) VALUES (
+        ${sessionId}, ${toMysqlDate(apiTx.transactionDate)}, 'API', ${apiTx.clientName || null},
+        'bank_shortage', ${String(apiTx.amount)}, 'outros', 'medium', 'pendente',
+        ${String(apiTx.amount)}, ${apiTx.type},
+        'Recriada por desconciliação manual — par anterior foi desfeito',
+        ${apiTx.id}
+      )
+    `);
+  }
+  _cache.clear();
+  return {
+    success: true,
+    sessionId,
+    bankTxId: bankTx.id,
+    apiTxId: apiTx.id,
+    deletedManualEntry
+  };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -128357,6 +128483,38 @@ var reconciliationRouter = router({
       entityId: input.ids.join(","),
       summary: `Conciliou manualmente ${input.ids.length} diverg\xEAncia(s)`,
       metadata: { ids: input.ids, note: input.note }
+    });
+    return result;
+  }),
+  // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
+  unmatchPair: protectedProcedure.input(external_exports.object({
+    bankTransactionId: external_exports.number().optional(),
+    apiTransactionId: external_exports.number().optional(),
+    deleteManualEntry: external_exports.boolean().optional().default(false),
+    reason: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    if (!input.bankTransactionId && !input.apiTransactionId) {
+      throw new Error("Informe a transa\xE7\xE3o banc\xE1ria ou da API a ser desconciliada.");
+    }
+    const result = await unmatchPair({
+      bankTransactionId: input.bankTransactionId,
+      apiTransactionId: input.apiTransactionId,
+      deleteManualEntry: input.deleteManualEntry
+    });
+    await updateSessionPendingCount(result.sessionId);
+    await audit(ctx, {
+      action: "reconciliation.unmatch",
+      category: "conciliacao",
+      entityType: "transaction_pair",
+      entityId: `bank:${result.bankTxId},api:${result.apiTxId}`,
+      summary: result.deletedManualEntry ? `Desconciliou par e removeu lan\xE7amento manual de contrapartida (sess\xE3o #${result.sessionId})` : `Desconciliou par para rean\xE1lise (sess\xE3o #${result.sessionId})`,
+      metadata: {
+        sessionId: result.sessionId,
+        bankTransactionId: result.bankTxId,
+        apiTransactionId: result.apiTxId,
+        deletedManualEntry: result.deletedManualEntry,
+        reason: input.reason
+      }
     });
     return result;
   }),
