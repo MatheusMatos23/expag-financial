@@ -28,7 +28,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   AlertCircle, AlertTriangle, ArrowLeftRight, BadgeDollarSign, BarChart3,
   BookOpen, Building2, ChevronRight, CreditCard, Eye, EyeOff, FileText,
-  LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, TrendingUp, Wallet, Users, ScrollText,
+  LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, ReceiptText, TrendingUp, Wallet, Users, ScrollText,
   Sun, Moon, Languages, Check,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -361,6 +361,7 @@ const menuGroups = [
       { icon: ArrowLeftRight, labelKey: "nav.reconciliation" as const, path: "/conciliacao" },
       { icon: FileText, labelKey: "nav.divergences" as const, path: "/divergencias" },
       { icon: AlertTriangle, labelKey: "nav.ndi" as const, path: "/ndi" },
+      { icon: ReceiptText, labelKey: "nav.boletos" as const, path: "/boletos" },
       { icon: Wallet, labelKey: "nav.managerialBalance" as const, path: "/saldo-gerencial" },
     ],
   },

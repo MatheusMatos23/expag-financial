@@ -5,7 +5,7 @@ import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
   Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare,
-  Tag, Wrench, RefreshCw, Download, PlusCircle
+  Tag, Wrench, RefreshCw, Download, PlusCircle, ReceiptText
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -344,13 +344,14 @@ function PostCounterpartModal({ div: d, onConfirm, onClose, isLoading }: {
   );
 }
 
-function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue, onMoveToExpense, onPostCounterpart }: {
+function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue, onMoveToExpense, onPostCounterpart, onMoveToBoleto }: {
   div: any; onClose: () => void;
   onUpdate: (data: any) => void;
   onDelete: () => void;
   onMoveToRevenue: () => void;
   onMoveToExpense: () => void;
   onPostCounterpart: () => void;
+  onMoveToBoleto: () => void;
 }) {
   const [status, setStatus] = useState(d.status ?? "pendente");
   const [responsible, setResponsible] = useState(d.responsible ?? "");
@@ -538,6 +539,20 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
               Lançar transação que faltou ({d.divergenceType === "bank_surplus" ? "na API" : "no Banco"})
             </Button>
           )}
+          {/* Mover para Boletos — caso específico: cobrança agregada do BB */}
+          {d.divergenceType === "bank_surplus" &&
+           (String(d.bankName ?? "").toLowerCase().includes("brasil") ||
+            String(d.bankDescription ?? "").toLowerCase().includes("cobranca") ||
+            String(d.bankDescription ?? "").toLowerCase().includes("cobrança")) && (
+            <Button
+              variant="outline"
+              className="w-full text-xs border-amber-500/30 text-amber-400 hover:bg-amber-500/10 gap-1.5"
+              onClick={() => onMoveToBoleto()}
+            >
+              <ReceiptText className="w-3.5 h-3.5" />
+              Mover para Boletos
+            </Button>
+          )}
           <div className="flex gap-2">
             <Button className="flex-1 text-xs"
               onClick={() => onUpdate({ status, responsible, observation, actionTaken: action, slaDeadline: sla, priority })}>
@@ -600,6 +615,17 @@ export default function Divergences() {
       toast.success(`${expenseIds.length} divergência${expenseIds.length > 1 ? "s" : ""} movida${expenseIds.length > 1 ? "s" : ""} para Despesas!`);
       setSelectedIds(new Set());
       setMoveToExpenseOpen(false);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const moveToBoletoMutation = trpc.reconciliation.moveDivergencesToBoleto.useMutation({
+    onSuccess: ({ movedCount, daysAffected, totalMoved }) => {
+      toast.success(
+        `${movedCount} divergência(s) movida(s) para Boletos em ${daysAffected} dia(s) — total: R$ ${totalMoved.toFixed(2)}`
+      );
+      setSelectedIds(new Set());
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -1179,6 +1205,12 @@ export default function Divergences() {
             setMoveToExpenseOpen(true);
           }}
           onPostCounterpart={() => setCounterpartDiv(selected)}
+          onMoveToBoleto={() => {
+            if (confirm(`Mover esta divergência (R$ ${parseFloat(String(selected.amount)).toFixed(2)}) para a aba Boletos?\n\nA divergência será regularizada e o valor entrará na compensação diária BB x API.`)) {
+              moveToBoletoMutation.mutate({ divergenceIds: [selected.id] });
+              setSelected(null);
+            }
+          }}
         />
       )}
 
