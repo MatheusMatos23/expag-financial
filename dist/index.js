@@ -108484,6 +108484,85 @@ async function postCounterpartEntry(params) {
   _cache.clear();
   return { success: true, newTransactionId, sessionId };
 }
+async function findSuspiciousPairsForDivergence(divergenceId) {
+  const db = await getDb();
+  if (!db) {
+    return { divergenceAmount: 0, divergenceDate: "", sessionId: 0, pairs: [] };
+  }
+  const divRows = await db.select().from(divergences).where(eq(divergences.id, divergenceId)).limit(1);
+  const div = divRows[0];
+  if (!div) {
+    throw new Error("Diverg\xEAncia n\xE3o encontrada.");
+  }
+  const divAmount = parseFloat(String(div.amount));
+  const sessionId = div.sessionId;
+  const divDateStr = toMysqlDate(div.divergenceDate);
+  const AMOUNT_TOLERANCE2 = 2;
+  const DATE_TOLERANCE_DAYS = 3;
+  const result = await db.execute(sql`
+    SELECT
+      bt.id           AS bank_id,
+      bt.transactionDate AS bank_date,
+      bt.type         AS bank_type,
+      bt.description  AS bank_description,
+      bt.amount       AS bank_amount,
+      bt.channel      AS bank_channel,
+      bt.bankName     AS bank_bankName,
+      bt.matchType    AS bank_matchType,
+      bt.matchStatus  AS bank_matchStatus,
+      at.id           AS api_id,
+      at.transactionDate AS api_date,
+      at.type         AS api_type,
+      at.description  AS api_description,
+      at.amount       AS api_amount,
+      at.channel      AS api_channel,
+      at.clientName   AS api_clientName,
+      at.matchType    AS api_matchType,
+      ABS(bt.amount - ${divAmount}) AS amount_diff,
+      DATEDIFF(bt.transactionDate, ${divDateStr}) AS day_diff
+    FROM bank_transactions bt
+    INNER JOIN api_transactions at
+      ON at.id = bt.matchedApiTransactionId
+    WHERE bt.sessionId = ${sessionId}
+      AND bt.matchStatus IN ('matched','manual')
+      AND ABS(bt.amount - ${divAmount}) <= ${AMOUNT_TOLERANCE2}
+      AND ABS(DATEDIFF(bt.transactionDate, ${divDateStr})) <= ${DATE_TOLERANCE_DAYS}
+    ORDER BY ABS(bt.amount - ${divAmount}) ASC, ABS(DATEDIFF(bt.transactionDate, ${divDateStr})) ASC
+    LIMIT 20
+  `);
+  const rows = result[0] ?? [];
+  const pairs = rows.map((r) => ({
+    bank: {
+      id: r.bank_id,
+      transactionDate: r.bank_date,
+      type: r.bank_type,
+      description: r.bank_description,
+      amount: r.bank_amount,
+      channel: r.bank_channel,
+      bankName: r.bank_bankName,
+      matchType: r.bank_matchType,
+      matchStatus: r.bank_matchStatus
+    },
+    api: {
+      id: r.api_id,
+      transactionDate: r.api_date,
+      type: r.api_type,
+      description: r.api_description,
+      amount: r.api_amount,
+      channel: r.api_channel,
+      clientName: r.api_clientName,
+      matchType: r.api_matchType
+    },
+    amountDiff: parseFloat(String(r.amount_diff ?? 0)),
+    dayDiff: parseInt(String(r.day_diff ?? 0))
+  }));
+  return {
+    divergenceAmount: divAmount,
+    divergenceDate: divDateStr,
+    sessionId: sessionId ?? 0,
+    pairs
+  };
+}
 async function unmatchPair(params) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -128685,6 +128764,13 @@ var reconciliationRouter = router({
       }
     });
     return result;
+  }),
+  // ── Busca pares já conciliados que possam estar errados ─────────────────
+  // Útil quando uma divergência parece ter um par certo em outro lugar do
+  // sistema. Retorna pares com valor próximo (até R$ 2,00) e data próxima
+  // (±3 dias) ao da divergência informada, dentro da mesma sessão.
+  findSuspiciousPairsForDivergence: protectedProcedure.input(external_exports.object({ divergenceId: external_exports.number() })).query(async ({ input }) => {
+    return findSuspiciousPairsForDivergence(input.divergenceId);
   }),
   // ═════════════════════════════════════════════════════════════════════════
   // ─── BOLETOS — Compensação diária BB x API (Camada 1) ──────────────────

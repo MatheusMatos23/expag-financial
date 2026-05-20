@@ -5,7 +5,7 @@ import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
   Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare,
-  Tag, Wrench, RefreshCw, Download, PlusCircle, ReceiptText
+  Tag, Wrench, RefreshCw, Download, PlusCircle, ReceiptText, Unlink, Search
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -360,6 +360,24 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
   const [sla, setSla] = useState(d.slaDeadline ? String(d.slaDeadline).slice(0, 10) : "");
   const [priority, setPriority] = useState(d.priority ?? "medium");
 
+  // ── Busca de pares suspeitos (conciliados com valor/data próximos) ──
+  const { data: suspiciousData, refetch: refetchSuspicious } =
+    trpc.reconciliation.findSuspiciousPairsForDivergence.useQuery(
+      { divergenceId: d.id },
+      { enabled: !!d.id, staleTime: 30000 }
+    );
+  const suspiciousPairs = suspiciousData?.pairs ?? [];
+
+  const utils = trpc.useUtils();
+  const unmatchPairMutation = trpc.reconciliation.unmatchPair.useMutation({
+    onSuccess: () => {
+      toast.success("Par desvinculado — agora você pode reconciliar corretamente.");
+      refetchSuspicious();
+      utils.reconciliation.getDivergences.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const isSurplus = d.divergenceType === "bank_surplus";
   const days = daysOpen(d.divergenceDate);
 
@@ -469,6 +487,100 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
               )}
             </div>
           </div>
+
+          {/* Pares suspeitos — mostra só quando há candidatos com valor/data próximos */}
+          {suspiciousPairs.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Search className="w-3.5 h-3.5 text-amber-400" />
+                <h4 className="text-xs font-semibold text-foreground">
+                  Pares conciliados parecidos
+                </h4>
+                <span className="text-[10px] text-muted-foreground">
+                  ({suspiciousPairs.length}) — possíveis matches errados
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Estes pares já estão conciliados nesta sessão e têm valor/data próximos
+                ao desta divergência. Se algum estiver pareado errado, desvincule e
+                refaça a conciliação corretamente.
+              </p>
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {suspiciousPairs.map((p: any) => (
+                  <div
+                    key={`${p.bank.id}-${p.api.id}`}
+                    className="border border-border rounded-lg p-2.5 bg-muted/10 space-y-1.5"
+                  >
+                    {/* Linha de comparação */}
+                    <div className="flex items-center justify-between text-[9px] uppercase font-bold tracking-wider">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-amber-400">
+                          Δ valor: {formatCurrency(p.amountDiff)}
+                        </span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">
+                          Δ dias: {p.dayDiff === 0 ? "mesmo dia" : `${p.dayDiff > 0 ? "+" : ""}${p.dayDiff}d`}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm(
+                            `Desvincular este par?\n\n` +
+                            `Banco: ${formatCurrency(p.bank.amount)} — ${p.bank.description || 'sem descrição'}\n` +
+                            `API: ${formatCurrency(p.api.amount)} — ${p.api.clientName || 'sem cliente'}\n\n` +
+                            `Os dois lados voltarão para divergências pendentes, permitindo que você reconcilie do jeito certo.`
+                          )) {
+                            unmatchPairMutation.mutate({
+                              bankTransactionId: p.bank.id,
+                              deleteManualEntry: false,
+                            });
+                          }
+                        }}
+                        disabled={unmatchPairMutation.isPending}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+                      >
+                        <Unlink className="w-3 h-3" />
+                        Desvincular
+                      </button>
+                    </div>
+                    {/* Banco */}
+                    <div className="flex items-start justify-between gap-2 pt-1 border-t border-border/40">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase">Banco</span>
+                          <span className="text-[9px] text-muted-foreground">{formatDate(p.bank.transactionDate)}</span>
+                          {p.bank.channel && (
+                            <span className="text-[9px] text-muted-foreground bg-muted/30 px-1 rounded">{p.bank.channel}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-foreground truncate">{p.bank.description || "Sem descrição"}</p>
+                      </div>
+                      <span className={cn("font-mono text-xs font-bold shrink-0",
+                        p.bank.type === "credit" ? "text-emerald-400" : "text-red-400")}>
+                        {formatCurrency(p.bank.amount)}
+                      </span>
+                    </div>
+                    {/* API */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase">API</span>
+                          <span className="text-[9px] text-muted-foreground">{formatDate(p.api.transactionDate)}</span>
+                        </div>
+                        <p className="text-[11px] text-foreground truncate">
+                          {p.api.clientName || p.api.description || "Sem cliente"}
+                        </p>
+                      </div>
+                      <span className={cn("font-mono text-xs font-bold shrink-0",
+                        p.api.type === "credit" ? "text-emerald-400" : "text-red-400")}>
+                        {formatCurrency(p.api.amount)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Tratativa */}
           <div className="space-y-3">

@@ -2290,6 +2290,120 @@ export async function postCounterpartEntry(params: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── BUSCA DE PARES SUSPEITOS ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Dado uma divergência, busca pares já conciliados na mesma sessão que
+ * possam estar errados — ou seja, com valor e data próximos ao da divergência.
+ * Tolerância fixa: R$ 2,00 de diferença de valor e ±3 dias de data.
+ *
+ * Cenário: usuário vê uma divergência de "Sobra no banco" R$ 14.999,01 do
+ * Sicoob e suspeita que aquele valor talvez tenha sido pareado errado com
+ * outro PIX próximo. Esta função lista esses pares para o usuário avaliar.
+ */
+export async function findSuspiciousPairsForDivergence(divergenceId: number): Promise<{
+  divergenceAmount: number;
+  divergenceDate: string;
+  sessionId: number;
+  pairs: Array<{
+    bank: any;
+    api: any;
+    amountDiff: number;
+    dayDiff: number;
+  }>;
+}> {
+  const db = await getDb();
+  if (!db) {
+    return { divergenceAmount: 0, divergenceDate: '', sessionId: 0, pairs: [] };
+  }
+
+  // Busca a divergência
+  const divRows = await db.select().from(divergences)
+    .where(eq(divergences.id, divergenceId)).limit(1);
+  const div = divRows[0];
+  if (!div) {
+    throw new Error("Divergência não encontrada.");
+  }
+
+  const divAmount = parseFloat(String(div.amount));
+  const sessionId = div.sessionId;
+  const divDateStr = toMysqlDate(div.divergenceDate);
+
+  // Tolerâncias (fixas e generosas — podem ser ajustadas no futuro)
+  const AMOUNT_TOLERANCE = 2.00;     // até R$ 2,00 de diferença
+  const DATE_TOLERANCE_DAYS = 3;     // ±3 dias
+
+  // Busca pares conciliados na mesma sessão com valor próximo.
+  // Faz JOIN entre bank_transactions e api_transactions pelo matchedApiTransactionId.
+  const result = await db.execute(sql`
+    SELECT
+      bt.id           AS bank_id,
+      bt.transactionDate AS bank_date,
+      bt.type         AS bank_type,
+      bt.description  AS bank_description,
+      bt.amount       AS bank_amount,
+      bt.channel      AS bank_channel,
+      bt.bankName     AS bank_bankName,
+      bt.matchType    AS bank_matchType,
+      bt.matchStatus  AS bank_matchStatus,
+      at.id           AS api_id,
+      at.transactionDate AS api_date,
+      at.type         AS api_type,
+      at.description  AS api_description,
+      at.amount       AS api_amount,
+      at.channel      AS api_channel,
+      at.clientName   AS api_clientName,
+      at.matchType    AS api_matchType,
+      ABS(bt.amount - ${divAmount}) AS amount_diff,
+      DATEDIFF(bt.transactionDate, ${divDateStr}) AS day_diff
+    FROM bank_transactions bt
+    INNER JOIN api_transactions at
+      ON at.id = bt.matchedApiTransactionId
+    WHERE bt.sessionId = ${sessionId}
+      AND bt.matchStatus IN ('matched','manual')
+      AND ABS(bt.amount - ${divAmount}) <= ${AMOUNT_TOLERANCE}
+      AND ABS(DATEDIFF(bt.transactionDate, ${divDateStr})) <= ${DATE_TOLERANCE_DAYS}
+    ORDER BY ABS(bt.amount - ${divAmount}) ASC, ABS(DATEDIFF(bt.transactionDate, ${divDateStr})) ASC
+    LIMIT 20
+  `);
+
+  const rows = (result as any)[0] ?? [];
+
+  const pairs = rows.map((r: any) => ({
+    bank: {
+      id: r.bank_id,
+      transactionDate: r.bank_date,
+      type: r.bank_type,
+      description: r.bank_description,
+      amount: r.bank_amount,
+      channel: r.bank_channel,
+      bankName: r.bank_bankName,
+      matchType: r.bank_matchType,
+      matchStatus: r.bank_matchStatus,
+    },
+    api: {
+      id: r.api_id,
+      transactionDate: r.api_date,
+      type: r.api_type,
+      description: r.api_description,
+      amount: r.api_amount,
+      channel: r.api_channel,
+      clientName: r.api_clientName,
+      matchType: r.api_matchType,
+    },
+    amountDiff: parseFloat(String(r.amount_diff ?? 0)),
+    dayDiff: parseInt(String(r.day_diff ?? 0)),
+  }));
+
+  return {
+    divergenceAmount: divAmount,
+    divergenceDate: divDateStr,
+    sessionId: sessionId ?? 0,
+    pairs,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ─── DESCONCILIAR PAR ──────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 /**

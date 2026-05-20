@@ -954,6 +954,16 @@ const reconciliationRouter = router({
       return result;
     }),
 
+  // ── Busca pares já conciliados que possam estar errados ─────────────────
+  // Útil quando uma divergência parece ter um par certo em outro lugar do
+  // sistema. Retorna pares com valor próximo (até R$ 2,00) e data próxima
+  // (±3 dias) ao da divergência informada, dentro da mesma sessão.
+  findSuspiciousPairsForDivergence: protectedProcedure
+    .input(z.object({ divergenceId: z.number() }))
+    .query(async ({ input }) => {
+      return db.findSuspiciousPairsForDivergence(input.divergenceId);
+    }),
+
   // ═════════════════════════════════════════════════════════════════════════
   // ─── BOLETOS — Compensação diária BB x API (Camada 1) ──────────────────
   // ═════════════════════════════════════════════════════════════════════════
