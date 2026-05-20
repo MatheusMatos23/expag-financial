@@ -49633,6 +49633,7 @@ __export(schema_exports, {
   apiTransactions: () => apiTransactions,
   auditLogs: () => auditLogs,
   bankTransactions: () => bankTransactions,
+  boletoDailyBalances: () => boletoDailyBalances,
   cashFlow: () => cashFlow,
   costCenters: () => costCenters,
   creditInstallments: () => creditInstallments,
@@ -49648,7 +49649,7 @@ __export(schema_exports, {
   systemConfig: () => systemConfig,
   users: () => users
 });
-var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, dre, cashFlow, alerts, systemConfig, auditLogs;
+var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, dre, cashFlow, alerts, boletoDailyBalances, systemConfig, auditLogs;
 var init_schema2 = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -50066,6 +50067,22 @@ var init_schema2 = __esm({
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
+    boletoDailyBalances = mysqlTable("boleto_daily_balances", {
+      id: int("id").autoincrement().primaryKey(),
+      entryDate: date("entryDate").notNull().unique(),
+      bankName: varchar("bankName", { length: 80 }).default("Banco do Brasil").notNull(),
+      bankAmount: decimal("bankAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+      apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+      difference: decimal("difference", { precision: 18, scale: 2 }).default("0").notNull(),
+      // IDs das divergências que originaram a linha (JSON array) — para rastreabilidade
+      originDivergenceIds: text("originDivergenceIds"),
+      // Observação livre do usuário
+      observation: text("observation"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      dateIdx: index("boleto_date_idx").on(table.entryDate)
+    }));
     systemConfig = mysqlTable("system_config", {
       id: int("id").autoincrement().primaryKey(),
       key: varchar("key", { length: 100 }).notNull().unique(),
@@ -108593,6 +108610,157 @@ async function unmatchPair(params) {
     deletedManualEntry
   };
 }
+var BOLETO_INITIAL_BALANCE_KEY = "boleto_initial_balance";
+async function getBoletoInitialBalance() {
+  const cfg = await getSystemConfig(BOLETO_INITIAL_BALANCE_KEY);
+  return parseFloat(String(cfg ?? "0"));
+}
+async function setBoletoInitialBalance(value) {
+  await setSystemConfig(
+    BOLETO_INITIAL_BALANCE_KEY,
+    String(value),
+    "Saldo inicial da aba Boletos (BB x API) \u2014 base do c\xE1lculo acumulado"
+  );
+  await recalculateBoletoDifferences();
+}
+async function recalculateBoletoDifferences() {
+  const db = await getDb();
+  if (!db) return;
+  const initialBalance = await getBoletoInitialBalance();
+  const rows = await db.select().from(boletoDailyBalances).orderBy(boletoDailyBalances.entryDate);
+  let runningDifference = initialBalance;
+  for (const row of rows) {
+    const bank = parseFloat(String(row.bankAmount));
+    const api = parseFloat(String(row.apiAmount));
+    runningDifference = runningDifference + (bank - api);
+    await db.execute(sql`
+      UPDATE boleto_daily_balances
+      SET difference = ${runningDifference.toFixed(2)}
+      WHERE id = ${row.id}
+    `);
+  }
+  _cache.delete("boleto_daily_balances");
+}
+async function getBoletoDailyBalances() {
+  const db = await getDb();
+  if (!db) return { initialBalance: 0, rows: [], totals: { totalBank: 0, totalApi: 0, currentDifference: 0 } };
+  const initialBalance = await getBoletoInitialBalance();
+  const rows = await db.select().from(boletoDailyBalances).orderBy(boletoDailyBalances.entryDate);
+  let totalBank = 0;
+  let totalApi = 0;
+  for (const r of rows) {
+    totalBank += parseFloat(String(r.bankAmount));
+    totalApi += parseFloat(String(r.apiAmount));
+  }
+  const currentDifference = rows.length > 0 ? parseFloat(String(rows[rows.length - 1].difference)) : initialBalance;
+  return {
+    initialBalance,
+    rows,
+    totals: { totalBank, totalApi, currentDifference }
+  };
+}
+async function upsertBoletoEntry(params) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const mode = params.mode ?? "add";
+  const dateStr = toMysqlDate(params.entryDate);
+  const existing = await db.select().from(boletoDailyBalances).where(sql`entryDate = ${dateStr}`).limit(1);
+  const current = existing[0];
+  if (current) {
+    const newBank = mode === "add" ? parseFloat(String(current.bankAmount)) + (params.bankAmount ?? 0) : params.bankAmount ?? parseFloat(String(current.bankAmount));
+    const newApi = mode === "add" ? parseFloat(String(current.apiAmount)) + (params.apiAmount ?? 0) : params.apiAmount ?? parseFloat(String(current.apiAmount));
+    let mergedIds = [];
+    try {
+      const existingIds = current.originDivergenceIds ? JSON.parse(current.originDivergenceIds) : [];
+      mergedIds = Array.from(/* @__PURE__ */ new Set([...existingIds, ...params.divergenceIds ?? []]));
+    } catch {
+      mergedIds = params.divergenceIds ?? [];
+    }
+    await db.execute(sql`
+      UPDATE boleto_daily_balances
+      SET bankAmount = ${newBank.toFixed(2)},
+          apiAmount = ${newApi.toFixed(2)},
+          originDivergenceIds = ${mergedIds.length > 0 ? JSON.stringify(mergedIds) : null},
+          observation = ${params.observation ?? current.observation ?? null}
+      WHERE id = ${current.id}
+    `);
+  } else {
+    await db.insert(boletoDailyBalances).values({
+      entryDate: dateStr,
+      bankName: params.bankName ?? "Banco do Brasil",
+      bankAmount: String((params.bankAmount ?? 0).toFixed(2)),
+      apiAmount: String((params.apiAmount ?? 0).toFixed(2)),
+      difference: "0",
+      // será calculado pela cascata
+      originDivergenceIds: params.divergenceIds && params.divergenceIds.length > 0 ? JSON.stringify(params.divergenceIds) : null,
+      observation: params.observation ?? null
+    });
+  }
+  await recalculateBoletoDifferences();
+  const result = await db.select().from(boletoDailyBalances).where(sql`entryDate = ${dateStr}`).limit(1);
+  return result[0];
+}
+async function deleteBoletoEntry(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`DELETE FROM boleto_daily_balances WHERE id = ${id}`);
+  await recalculateBoletoDifferences();
+  return { success: true };
+}
+async function moveDivergencesToBoleto(params) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  if (params.divergenceIds.length === 0) {
+    throw new Error("Nenhuma diverg\xEAncia selecionada.");
+  }
+  const divs = await db.select().from(divergences).where(inArray(divergences.id, params.divergenceIds));
+  if (divs.length === 0) throw new Error("Diverg\xEAncias n\xE3o encontradas.");
+  const byDate = /* @__PURE__ */ new Map();
+  let totalMoved = 0;
+  for (const div of divs) {
+    const dateStr = toMysqlDate(div.divergenceDate);
+    const amount = parseFloat(String(div.amount));
+    totalMoved += amount;
+    if (!byDate.has(dateStr)) {
+      byDate.set(dateStr, { amount: 0, ids: [], bankName: div.bankName ?? "Banco do Brasil" });
+    }
+    const e = byDate.get(dateStr);
+    e.amount += amount;
+    e.ids.push(div.id);
+  }
+  for (const [dateStr, info] of Array.from(byDate.entries())) {
+    await upsertBoletoEntry({
+      entryDate: dateStr,
+      bankAmount: info.amount,
+      bankName: info.bankName,
+      divergenceIds: info.ids,
+      mode: "add"
+    });
+  }
+  const observation = `Movido para a aba Boletos por ${params.userName}`;
+  for (const id of params.divergenceIds) {
+    await db.execute(sql`
+      UPDATE divergences
+      SET status = 'regularizado',
+          observation = COALESCE(CONCAT(observation, ' | ', ${observation}), ${observation}),
+          actionTaken = 'movido_para_boleto'
+      WHERE id = ${id}
+    `);
+  }
+  _cache.clear();
+  return {
+    movedCount: divs.length,
+    daysAffected: byDate.size,
+    totalMoved
+  };
+}
+async function setBoletoApiAmount(params) {
+  return upsertBoletoEntry({
+    entryDate: params.entryDate,
+    apiAmount: params.apiAmount,
+    mode: "set"
+  });
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -129129,6 +129297,74 @@ var dashboardRouter = router({
     limit: external_exports.number().optional()
   })).query(async ({ input }) => getAuditLogs(input)),
   getAuditStats: protectedProcedure.query(async () => getAuditStats()),
+  // ═════════════════════════════════════════════════════════════════════════
+  // ─── BOLETOS — Compensação diária BB x API (Camada 1) ──────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  getBoletoDaily: protectedProcedure.query(async () => {
+    return getBoletoDailyBalances();
+  }),
+  setBoletoInitialBalance: protectedProcedure.input(external_exports.object({ value: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    await setBoletoInitialBalance(input.value);
+    await audit(ctx, {
+      action: "boleto.set_initial_balance",
+      category: "conciliacao",
+      entityType: "boleto",
+      entityId: "initial_balance",
+      summary: `Definiu o saldo inicial dos Boletos para R$ ${input.value.toFixed(2)}`,
+      metadata: { value: input.value }
+    });
+    return { success: true };
+  }),
+  setBoletoApiAmount: protectedProcedure.input(external_exports.object({
+    entryDate: external_exports.string(),
+    apiAmount: external_exports.number().min(0, "O valor n\xE3o pode ser negativo.")
+  })).mutation(async ({ input, ctx }) => {
+    const result = await setBoletoApiAmount({
+      entryDate: input.entryDate,
+      apiAmount: input.apiAmount
+    });
+    await audit(ctx, {
+      action: "boleto.set_api_amount",
+      category: "conciliacao",
+      entityType: "boleto",
+      entityId: input.entryDate,
+      summary: `Lan\xE7ou saldo API de R$ ${input.apiAmount.toFixed(2)} para ${input.entryDate}`,
+      metadata: { entryDate: input.entryDate, apiAmount: input.apiAmount }
+    });
+    return result;
+  }),
+  deleteBoletoEntry: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    const result = await deleteBoletoEntry(input.id);
+    await audit(ctx, {
+      action: "boleto.delete_entry",
+      category: "conciliacao",
+      entityType: "boleto",
+      entityId: String(input.id),
+      summary: `Excluiu entrada #${input.id} da aba Boletos`
+    });
+    return result;
+  }),
+  moveDivergencesToBoleto: protectedProcedure.input(external_exports.object({
+    divergenceIds: external_exports.array(external_exports.number()).min(1)
+  })).mutation(async ({ input, ctx }) => {
+    const result = await moveDivergencesToBoleto({
+      divergenceIds: input.divergenceIds,
+      userName: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+    });
+    await audit(ctx, {
+      action: "boleto.move_from_divergences",
+      category: "conciliacao",
+      entityType: "boleto",
+      entityId: input.divergenceIds.join(","),
+      summary: `Moveu ${result.movedCount} diverg\xEAncia(s) para a aba Boletos (R$ ${result.totalMoved.toFixed(2)} em ${result.daysAffected} dia(s))`,
+      metadata: {
+        divergenceIds: input.divergenceIds,
+        totalMoved: result.totalMoved,
+        daysAffected: result.daysAffected
+      }
+    });
+    return result;
+  }),
   // ── Backup completo dos dados (somente admin) ──────────────────────────────
   exportBackup: adminProcedure.mutation(async ({ ctx }) => {
     const backup = await exportFullBackup();

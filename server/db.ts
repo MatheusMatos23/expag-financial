@@ -5,7 +5,7 @@ import {
   reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances,
   revenues, expenses, payables, creditPortfolio, creditInstallments,
   costCenters, dre, cashFlow, alerts, systemConfig,
-  manualAdjustments, auditLogs,
+  manualAdjustments, auditLogs, boletoDailyBalances,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -2463,4 +2463,276 @@ export async function unmatchPair(params: {
     apiTxId: apiTx.id,
     deletedManualEntry,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ─── BOLETOS — Compensação diária BB x API ─────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Trata o caso específico do BB que credita "cobrança" como valor agregado.
+// Cada linha é um dia. A coluna `difference` é ACUMULATIVA entre dias:
+//   difference[d] = difference[d-1] + (bankAmount[d] - apiAmount[d])
+// Por isso qualquer alteração precisa cascatear para todos os dias seguintes.
+// O saldo inicial fica em system_config (key='boleto_initial_balance').
+
+const BOLETO_INITIAL_BALANCE_KEY = 'boleto_initial_balance';
+
+/**
+ * Lê o saldo inicial configurado. Esse valor é o ponto de partida para a
+ * primeira diferença acumulada — equivalente ao "Saldo Inicial BB x CINQ"
+ * do Excel do cliente.
+ */
+export async function getBoletoInitialBalance(): Promise<number> {
+  const cfg = await getSystemConfig(BOLETO_INITIAL_BALANCE_KEY);
+  return parseFloat(String(cfg ?? '0'));
+}
+
+export async function setBoletoInitialBalance(value: number): Promise<void> {
+  await setSystemConfig(
+    BOLETO_INITIAL_BALANCE_KEY,
+    String(value),
+    'Saldo inicial da aba Boletos (BB x API) — base do cálculo acumulado'
+  );
+  // Saldo inicial mudou → recalcula tudo
+  await recalculateBoletoDifferences();
+}
+
+/**
+ * Recalcula a coluna `difference` em CASCATA, do dia mais antigo ao mais novo.
+ *
+ * Regra: difference[d] = difference[d-1] + (bankAmount[d] - apiAmount[d])
+ *        difference[primeiro_dia] = saldo_inicial + (bank - api)
+ *
+ * Chamado sempre que: alguém edita uma linha antiga, adiciona uma linha nova,
+ * ou muda o saldo inicial. Sem isso, a coluna fica inconsistente.
+ */
+export async function recalculateBoletoDifferences(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const initialBalance = await getBoletoInitialBalance();
+  const rows = await db.select().from(boletoDailyBalances)
+    .orderBy(boletoDailyBalances.entryDate);
+
+  let runningDifference = initialBalance;
+  for (const row of rows) {
+    const bank = parseFloat(String(row.bankAmount));
+    const api = parseFloat(String(row.apiAmount));
+    runningDifference = runningDifference + (bank - api);
+    await db.execute(sql`
+      UPDATE boleto_daily_balances
+      SET difference = ${runningDifference.toFixed(2)}
+      WHERE id = ${row.id}
+    `);
+  }
+  _cache.delete('boleto_daily_balances');
+}
+
+/**
+ * Lista todas as entradas de boleto, ordenadas por data crescente.
+ * Acrescenta o saldo inicial como metadado (útil para o frontend renderizar).
+ */
+export async function getBoletoDailyBalances(): Promise<{
+  initialBalance: number;
+  rows: any[];
+  totals: { totalBank: number; totalApi: number; currentDifference: number };
+}> {
+  const db = await getDb();
+  if (!db) return { initialBalance: 0, rows: [], totals: { totalBank: 0, totalApi: 0, currentDifference: 0 } };
+
+  const initialBalance = await getBoletoInitialBalance();
+  const rows = await db.select().from(boletoDailyBalances)
+    .orderBy(boletoDailyBalances.entryDate);
+
+  let totalBank = 0;
+  let totalApi = 0;
+  for (const r of rows) {
+    totalBank += parseFloat(String(r.bankAmount));
+    totalApi += parseFloat(String(r.apiAmount));
+  }
+  const currentDifference = rows.length > 0
+    ? parseFloat(String(rows[rows.length - 1].difference))
+    : initialBalance;
+
+  return {
+    initialBalance,
+    rows,
+    totals: { totalBank, totalApi, currentDifference },
+  };
+}
+
+/**
+ * Cria ou atualiza uma entrada diária. Se a entrada já existir (mesma data),
+ * soma os valores (caso de múltiplas cobranças no mesmo dia). Recalcula
+ * difference em cascata ao final.
+ *
+ * Retorna a linha resultante.
+ */
+export async function upsertBoletoEntry(params: {
+  entryDate: string;
+  bankAmount?: number;       // valor a adicionar/setar (ver mode)
+  apiAmount?: number;
+  bankName?: string;
+  observation?: string;
+  divergenceIds?: number[];  // origens; serão acumuladas na coluna JSON
+  mode?: 'add' | 'set';      // add = soma ao existente; set = substitui
+}): Promise<any> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  const mode = params.mode ?? 'add';
+  const dateStr = toMysqlDate(params.entryDate);
+
+  // Verifica se já existe entrada para este dia
+  const existing = await db.select().from(boletoDailyBalances)
+    .where(sql`entryDate = ${dateStr}`).limit(1);
+  const current = existing[0];
+
+  if (current) {
+    // Atualiza a entrada existente
+    const newBank = mode === 'add'
+      ? parseFloat(String(current.bankAmount)) + (params.bankAmount ?? 0)
+      : (params.bankAmount ?? parseFloat(String(current.bankAmount)));
+    const newApi = mode === 'add'
+      ? parseFloat(String(current.apiAmount)) + (params.apiAmount ?? 0)
+      : (params.apiAmount ?? parseFloat(String(current.apiAmount)));
+
+    // Acumula IDs de divergência (sem duplicar)
+    let mergedIds: number[] = [];
+    try {
+      const existingIds = current.originDivergenceIds ? JSON.parse(current.originDivergenceIds) : [];
+      mergedIds = Array.from(new Set([...existingIds, ...(params.divergenceIds ?? [])]));
+    } catch {
+      mergedIds = params.divergenceIds ?? [];
+    }
+
+    await db.execute(sql`
+      UPDATE boleto_daily_balances
+      SET bankAmount = ${newBank.toFixed(2)},
+          apiAmount = ${newApi.toFixed(2)},
+          originDivergenceIds = ${mergedIds.length > 0 ? JSON.stringify(mergedIds) : null},
+          observation = ${params.observation ?? current.observation ?? null}
+      WHERE id = ${current.id}
+    `);
+  } else {
+    // Cria nova entrada
+    await db.insert(boletoDailyBalances).values({
+      entryDate: dateStr,
+      bankName: params.bankName ?? 'Banco do Brasil',
+      bankAmount: String((params.bankAmount ?? 0).toFixed(2)),
+      apiAmount: String((params.apiAmount ?? 0).toFixed(2)),
+      difference: '0',  // será calculado pela cascata
+      originDivergenceIds: params.divergenceIds && params.divergenceIds.length > 0
+        ? JSON.stringify(params.divergenceIds) : null,
+      observation: params.observation ?? null,
+    } as any);
+  }
+
+  // Recalcula em cascata
+  await recalculateBoletoDifferences();
+
+  // Retorna a linha resultante
+  const result = await db.select().from(boletoDailyBalances)
+    .where(sql`entryDate = ${dateStr}`).limit(1);
+  return result[0];
+}
+
+/**
+ * Apaga uma entrada e recalcula em cascata.
+ */
+export async function deleteBoletoEntry(id: number): Promise<{ success: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`DELETE FROM boleto_daily_balances WHERE id = ${id}`);
+  await recalculateBoletoDifferences();
+  return { success: true };
+}
+
+/**
+ * Move uma ou mais divergências para a aba Boletos.
+ * Soma os valores de todas as divergências (mesmo dia ou dias diferentes)
+ * agrupando por data, regulariza as divergências e cria/atualiza as
+ * entradas diárias correspondentes.
+ *
+ * Cenário típico: usuário identifica que aquelas linhas de "cobrança" do
+ * BB são valores agregados de boletos e clica em "Mover para Boletos".
+ */
+export async function moveDivergencesToBoleto(params: {
+  divergenceIds: number[];
+  userName: string;
+}): Promise<{
+  movedCount: number;
+  daysAffected: number;
+  totalMoved: number;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  if (params.divergenceIds.length === 0) {
+    throw new Error("Nenhuma divergência selecionada.");
+  }
+
+  // Busca as divergências
+  const divs = await db.select().from(divergences)
+    .where(inArray(divergences.id, params.divergenceIds));
+  if (divs.length === 0) throw new Error("Divergências não encontradas.");
+
+  // Agrupa por data
+  const byDate = new Map<string, { amount: number; ids: number[]; bankName: string }>();
+  let totalMoved = 0;
+  for (const div of divs) {
+    const dateStr = toMysqlDate(div.divergenceDate);
+    const amount = parseFloat(String(div.amount));
+    totalMoved += amount;
+    if (!byDate.has(dateStr)) {
+      byDate.set(dateStr, { amount: 0, ids: [], bankName: div.bankName ?? 'Banco do Brasil' });
+    }
+    const e = byDate.get(dateStr)!;
+    e.amount += amount;
+    e.ids.push(div.id);
+  }
+
+  // Cria/atualiza as entradas diárias somando ao bankAmount
+  for (const [dateStr, info] of Array.from(byDate.entries())) {
+    await upsertBoletoEntry({
+      entryDate: dateStr,
+      bankAmount: info.amount,
+      bankName: info.bankName,
+      divergenceIds: info.ids,
+      mode: 'add',
+    });
+  }
+
+  // Regulariza as divergências (igual ao fluxo do NDI)
+  const observation = `Movido para a aba Boletos por ${params.userName}`;
+  for (const id of params.divergenceIds) {
+    await db.execute(sql`
+      UPDATE divergences
+      SET status = 'regularizado',
+          observation = COALESCE(CONCAT(observation, ' | ', ${observation}), ${observation}),
+          actionTaken = 'movido_para_boleto'
+      WHERE id = ${id}
+    `);
+  }
+
+  _cache.clear();
+  return {
+    movedCount: divs.length,
+    daysAffected: byDate.size,
+    totalMoved,
+  };
+}
+
+/**
+ * Atualiza apenas o valor manual da API de uma entrada existente.
+ * Use principalmente para o lançamento diário do usuário.
+ */
+export async function setBoletoApiAmount(params: {
+  entryDate: string;
+  apiAmount: number;
+}): Promise<any> {
+  return upsertBoletoEntry({
+    entryDate: params.entryDate,
+    apiAmount: params.apiAmount,
+    mode: 'set',
+  });
 }

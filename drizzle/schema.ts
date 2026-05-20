@@ -451,6 +451,28 @@ export const alerts = mysqlTable("alerts", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// ─── BOLETOS — Compensação diária BB x API (Camada 1) ─────────────────────────
+// Trata o caso específico do BB lançar "cobrança" como valor agregado de boletos
+// pagos. Cada linha representa um dia: o valor que veio do banco (somado das
+// divergências regularizadas) vs o valor que o usuário lança manualmente do
+// sistema. A coluna `difference` é acumulativa entre dias.
+export const boletoDailyBalances = mysqlTable("boleto_daily_balances", {
+  id: int("id").autoincrement().primaryKey(),
+  entryDate: date("entryDate").notNull().unique(),
+  bankName: varchar("bankName", { length: 80 }).default("Banco do Brasil").notNull(),
+  bankAmount: decimal("bankAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+  apiAmount: decimal("apiAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+  difference: decimal("difference", { precision: 18, scale: 2 }).default("0").notNull(),
+  // IDs das divergências que originaram a linha (JSON array) — para rastreabilidade
+  originDivergenceIds: text("originDivergenceIds"),
+  // Observação livre do usuário
+  observation: text("observation"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  dateIdx: index("boleto_date_idx").on(table.entryDate),
+}));
+
 // ─── CONFIGURAÇÕES ────────────────────────────────────────────────────────────
 export const systemConfig = mysqlTable("system_config", {
   id: int("id").autoincrement().primaryKey(),
@@ -486,6 +508,7 @@ export type BankTransaction = typeof bankTransactions.$inferSelect;
 export type ApiTransaction = typeof apiTransactions.$inferSelect;
 export type Divergence = typeof divergences.$inferSelect;
 export type ManagerialBalance = typeof managerialBalances.$inferSelect;
+export type BoletoDailyBalance = typeof boletoDailyBalances.$inferSelect;
 export type Revenue = typeof revenues.$inferSelect;
 export type Expense = typeof expenses.$inferSelect;
 export type Payable = typeof payables.$inferSelect;

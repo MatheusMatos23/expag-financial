@@ -1655,6 +1655,80 @@ const dashboardRouter = router({
   getAuditStats: protectedProcedure
     .query(async () => db.getAuditStats()),
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // ─── BOLETOS — Compensação diária BB x API (Camada 1) ──────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+
+  getBoletoDaily: protectedProcedure.query(async () => {
+    return db.getBoletoDailyBalances();
+  }),
+
+  setBoletoInitialBalance: protectedProcedure
+    .input(z.object({ value: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await db.setBoletoInitialBalance(input.value);
+      await audit(ctx, {
+        action: "boleto.set_initial_balance", category: "conciliacao",
+        entityType: "boleto", entityId: "initial_balance",
+        summary: `Definiu o saldo inicial dos Boletos para R$ ${input.value.toFixed(2)}`,
+        metadata: { value: input.value },
+      });
+      return { success: true };
+    }),
+
+  setBoletoApiAmount: protectedProcedure
+    .input(z.object({
+      entryDate: z.string(),
+      apiAmount: z.number().min(0, "O valor não pode ser negativo."),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.setBoletoApiAmount({
+        entryDate: input.entryDate,
+        apiAmount: input.apiAmount,
+      });
+      await audit(ctx, {
+        action: "boleto.set_api_amount", category: "conciliacao",
+        entityType: "boleto", entityId: input.entryDate,
+        summary: `Lançou saldo API de R$ ${input.apiAmount.toFixed(2)} para ${input.entryDate}`,
+        metadata: { entryDate: input.entryDate, apiAmount: input.apiAmount },
+      });
+      return result;
+    }),
+
+  deleteBoletoEntry: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.deleteBoletoEntry(input.id);
+      await audit(ctx, {
+        action: "boleto.delete_entry", category: "conciliacao",
+        entityType: "boleto", entityId: String(input.id),
+        summary: `Excluiu entrada #${input.id} da aba Boletos`,
+      });
+      return result;
+    }),
+
+  moveDivergencesToBoleto: protectedProcedure
+    .input(z.object({
+      divergenceIds: z.array(z.number()).min(1),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.moveDivergencesToBoleto({
+        divergenceIds: input.divergenceIds,
+        userName: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
+      });
+      await audit(ctx, {
+        action: "boleto.move_from_divergences", category: "conciliacao",
+        entityType: "boleto", entityId: input.divergenceIds.join(","),
+        summary: `Moveu ${result.movedCount} divergência(s) para a aba Boletos (R$ ${result.totalMoved.toFixed(2)} em ${result.daysAffected} dia(s))`,
+        metadata: {
+          divergenceIds: input.divergenceIds,
+          totalMoved: result.totalMoved,
+          daysAffected: result.daysAffected,
+        },
+      });
+      return result;
+    }),
+
   // ── Backup completo dos dados (somente admin) ──────────────────────────────
   exportBackup: adminProcedure
     .mutation(async ({ ctx }) => {
