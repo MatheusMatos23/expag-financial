@@ -133778,6 +133778,28 @@ async function processReconciliationJob(sessionId, input, ctx) {
     const realDivergentCount = divRows.length;
     const realMatchedCount = bankRows.filter((r) => r.matchStatus === "matched" || r.matchStatus === "manual").length;
     const realTotalBank = bankRows.length;
+    const engineMatched = result.matches.filter((m) => m.status === "matched").length;
+    const engineDivergent = result.matches.filter((m) => m.status === "divergent").length;
+    const engineUnmatched = result.matches.filter((m) => m.status === "unmatched_bank").length;
+    const engineTariffSkip = result.matches.filter((m) => m.status === "unmatched_bank" && isBankTariff(m.bankTx.description)).length;
+    const bankMatchedRows = bankRows.filter((r) => r.matchStatus === "matched").length;
+    const bankManualRows = bankRows.filter((r) => r.matchStatus === "manual").length;
+    const bankDivergentRows = bankRows.filter((r) => r.matchStatus === "divergent").length;
+    const divBankSurplus = divRows.filter((r) => r.divergenceType === "bank_surplus").length;
+    const divBankShortage = divRows.filter((r) => r.divergenceType === "bank_shortage").length;
+    console.log(`[RECONCILIATION] \u2550\u2550\u2550 Sess\xE3o #${sessionId} \u2014 Diagn\xF3stico \u2550\u2550\u2550`);
+    console.log(`[RECONCILIATION] Engine: ${engineMatched} matched + ${engineDivergent} divergent + ${engineUnmatched} unmatched_bank = ${result.matches.length} total`);
+    console.log(`[RECONCILIATION] Engine unmatched_bank: ${engineUnmatched} total, ${engineTariffSkip} tariff-skipped \u2192 ${engineUnmatched - engineTariffSkip} created as divergences`);
+    console.log(`[RECONCILIATION] Engine unmatched_api: ${result.unmatchedApi.length}`);
+    console.log(`[RECONCILIATION] bankRows: ${bankMatchedRows} matched + ${bankManualRows} manual + ${bankDivergentRows} divergent = ${bankRows.length} total`);
+    console.log(`[RECONCILIATION] Tarifas: pre-filtered=${bankTariffTxs.length} bank + ${apiTariffTxs.length} API`);
+    console.log(`[RECONCILIATION] divRows: ${divBankSurplus} bank_surplus + ${divBankShortage} bank_shortage = ${divRows.length} total`);
+    console.log(`[RECONCILIATION] matchRate: ${realMatchedCount}/${realTotalBank} = ${Math.round(realMatchedCount / realTotalBank * 100)}%`);
+    if (bankDivergentRows !== divBankSurplus) {
+      console.warn(`[RECONCILIATION] \u26A0\uFE0F INCONSIST\xCANCIA: ${bankDivergentRows} bank_transactions divergent mas ${divBankSurplus} diverg\xEAncias bank_surplus. Gap: ${bankDivergentRows - divBankSurplus}`);
+      const orphanDescriptions = bankRows.filter((r) => r.matchStatus === "divergent").slice(0, 10).map((r) => `[${r.bankName}] ${r.type} R$${r.amount} ${(r.description || "").slice(0, 40)}`);
+      console.warn(`[RECONCILIATION] Orphan samples: ${JSON.stringify(orphanDescriptions)}`);
+    }
     await updateReconciliationSession(sessionId, {
       status: "completed",
       totalBankCredits: result.summary.totalBankCredits.toFixed(2),
