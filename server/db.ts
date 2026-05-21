@@ -2637,22 +2637,21 @@ export async function findSuspiciousPairsForDivergence(divergenceId: number): Pr
  */
 /**
  * Desconcilia a partir de uma DIVERGÊNCIA — caso típico: divergência de
- * "diferença de centavos" onde o motor conciliou bank + api mas reconheceu
- * que os valores não batem exatamente, gravando a divergência só como
- * "lembrete". O usuário quer dizer: "esse par está errado, separa os dois".
+ * "diferença de centavos" onde o motor tentou conciliar bank + api mas
+ * reconheceu que os valores não batem, gravando ambos como 'divergent'
+ * e criando uma divergência informativa com bankAmount + apiAmount.
+ *
+ * IMPORTANTE: o engine NÃO faz vínculo real (matchedApiTransactionId é null)
+ * nesse caso — ele só grava a divergência. Logo, "desconciliar" aqui
+ * significa: separar o registro em duas divergências limpas e apagar a
+ * divergência original.
  *
  * Fluxo:
- * 1. Encontra a transação bancária associada (mesmo sessionId, mesmo amount,
- *    mesma data, status matched/manual)
- * 2. Encontra a transação API pareada com ela (matchedApiTransactionId)
- * 3. Desfaz o vínculo, marca ambos como pending
- * 4. Cria divergências limpas para cada lado (Sobra puro + Falta pura)
- * 5. Remove a divergência original (a de "diferença")
- *
- * Diferente de unmatchPair, esta função:
- * - Recebe um ID de divergência (não de transação)
- * - Resolve a divergência original (apaga ela)
- * - Cria duas novas divergências (uma de cada lado, sem diferença)
+ * 1. Localiza bank tx (por externalId ou sessionId+amount+date)
+ * 2. Localiza api tx correspondente (por sessionId+amount+date e clientName)
+ * 3. Garante que ambos estão como pending (já podem estar como divergent)
+ * 4. Cria duas divergências limpas (Sobra puro + Falta pura)
+ * 5. Apaga a divergência original
  */
 export async function unmatchFromDivergence(divergenceId: number): Promise<{
   success: boolean;
@@ -2661,14 +2660,14 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
 
-  // 1. Busca a divergência
+  // 1. Busca a divergência original
   const divRows = await db.select().from(divergences)
     .where(eq(divergences.id, divergenceId)).limit(1);
   const div = divRows[0];
   if (!div) throw new Error("Divergência não encontrada.");
   if (!div.sessionId) throw new Error("Divergência sem sessão — não há par para desfazer.");
   if (!div.bankAmount || !div.apiAmount) {
-    throw new Error("Esta divergência não tem par conciliado — não há nada para desconciliar.");
+    throw new Error("Esta divergência não tem dois lados (banco + API) — não há nada para desconciliar.");
   }
 
   const sessionId = div.sessionId;
@@ -2676,36 +2675,60 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
   const apiAmountStr = String(div.apiAmount);
   const divDate = toMysqlDate(div.divergenceDate);
 
-  // 2. Encontra a transação bancária correspondente
-  // Critério: mesma sessão, mesmo amount, mesma data, conciliada
-  const bankRes = await db.execute(sql`
-    SELECT id, matchedApiTransactionId, transactionDate, amount, type, description, bankName, channel
-    FROM bank_transactions
-    WHERE sessionId = ${sessionId}
-      AND amount = ${bankAmountStr}
-      AND transactionDate = ${divDate}
-      AND matchStatus IN ('matched','manual')
-      AND matchedApiTransactionId IS NOT NULL
-    LIMIT 1
-  `);
-  const bankTx: any = ((bankRes as any)[0] ?? [])[0];
+  // 2. Localiza a transação bancária — primeiro tenta por externalId
+  let bankTx: any = null;
+  if (div.externalId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, bankName, channel, matchStatus
+      FROM bank_transactions
+      WHERE sessionId = ${sessionId} AND externalId = ${div.externalId}
+      LIMIT 1
+    `);
+    bankTx = ((r as any)[0] ?? [])[0] ?? null;
+  }
+  // Fallback: por sessionId + amount + data (qualquer matchStatus)
   if (!bankTx) {
-    throw new Error("Transação bancária pareada não encontrada — o par pode já ter sido desfeito.");
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, bankName, channel, matchStatus
+      FROM bank_transactions
+      WHERE sessionId = ${sessionId}
+        AND amount = ${bankAmountStr}
+        AND transactionDate = ${divDate}
+      LIMIT 1
+    `);
+    bankTx = ((r as any)[0] ?? [])[0] ?? null;
+  }
+  if (!bankTx) {
+    throw new Error("Transação bancária correspondente não encontrada nesta sessão.");
   }
 
-  // 3. Busca a transação API pareada
-  const apiRes = await db.execute(sql`
-    SELECT id, transactionDate, amount, type, description, clientName
+  // 3. Localiza a transação API correspondente
+  // Tenta por sessionId + amount + data; se vier mais de um, prefere por clientName
+  let apiTx: any = null;
+  const apiSearch = await db.execute(sql`
+    SELECT id, transactionDate, amount, type, description, clientName, matchStatus
     FROM api_transactions
-    WHERE id = ${bankTx.matchedApiTransactionId}
-    LIMIT 1
+    WHERE sessionId = ${sessionId}
+      AND amount = ${apiAmountStr}
+      AND transactionDate = ${divDate}
+    LIMIT 10
   `);
-  const apiTx: any = ((apiRes as any)[0] ?? [])[0];
+  const apiCandidates: any[] = (apiSearch as any)[0] ?? [];
+  if (apiCandidates.length === 1) {
+    apiTx = apiCandidates[0];
+  } else if (apiCandidates.length > 1 && div.clientName) {
+    // Tenta refinar pelo clientName
+    apiTx = apiCandidates.find((c: any) =>
+      String(c.clientName ?? "").trim().toLowerCase() === String(div.clientName).trim().toLowerCase()
+    ) ?? apiCandidates[0];
+  } else if (apiCandidates.length > 0) {
+    apiTx = apiCandidates[0];
+  }
   if (!apiTx) {
-    throw new Error("Transação API pareada não encontrada.");
+    throw new Error("Transação API correspondente não encontrada nesta sessão.");
   }
 
-  // 4. Desfaz o vínculo
+  // 4. Garante que ambos estão como pending (limpa qualquer vínculo residual)
   await db.execute(sql`
     UPDATE bank_transactions
     SET matchStatus = 'pending', matchType = NULL, matchedApiTransactionId = NULL
@@ -2717,31 +2740,31 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
     WHERE id = ${apiTx.id}
   `);
 
-  // 5. Cria duas novas divergências (Sobra do banco + Falta do banco/Sobra da API)
+  // 5. Cria duas novas divergências limpas
   const newIds: number[] = [];
-
   const bankAmountNum = parseFloat(String(bankTx.amount));
+  const apiAmountNum = parseFloat(String(apiTx.amount));
 
-  // Sobra no banco (banco tem transação que API não tem)
+  // Sobra no banco
   const r1 = await db.execute(sql`
     INSERT INTO divergences (
       sessionId, divergenceDate, bankName, divergenceType, amount,
       category, priority, status, bankAmount, transactionType,
-      bankDescription, observation
+      bankDescription, observation, externalId
     ) VALUES (
       ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
       'bank_surplus', ${String(bankAmountNum.toFixed(2))},
       'outros', 'medium', 'pendente',
       ${String(bankAmountNum.toFixed(2))}, ${bankTx.type},
       ${bankTx.description || null},
-      CONCAT('Desconciliado da divergência #', ${divergenceId}, ' (diferença de centavos)')
+      ${`Desconciliado da divergência #${divergenceId} (diferença de R$ ${(Math.abs(bankAmountNum - apiAmountNum)).toFixed(2)})`},
+      ${div.externalId || null}
     )
   `);
   const id1 = Number((r1 as any)[0]?.insertId ?? 0);
   if (id1 > 0) newIds.push(id1);
 
-  // Falta no banco / Sobra na API (API tem transação que banco não tem)
-  const apiAmountNum = parseFloat(String(apiTx.amount));
+  // Falta no banco / Sobra na API
   const r2 = await db.execute(sql`
     INSERT INTO divergences (
       sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
@@ -2753,13 +2776,13 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
       'outros', 'medium', 'pendente',
       ${String(apiAmountNum.toFixed(2))}, ${apiTx.type},
       ${apiTx.description || null},
-      CONCAT('Desconciliado da divergência #', ${divergenceId}, ' (diferença de centavos)')
+      ${`Desconciliado da divergência #${divergenceId} (diferença de R$ ${(Math.abs(bankAmountNum - apiAmountNum)).toFixed(2)})`}
     )
   `);
   const id2 = Number((r2 as any)[0]?.insertId ?? 0);
   if (id2 > 0) newIds.push(id2);
 
-  // 6. Remove a divergência original (a de "diferença de centavos")
+  // 6. Remove a divergência original
   await db.execute(sql`DELETE FROM divergences WHERE id = ${divergenceId}`);
 
   // 7. Invalida caches

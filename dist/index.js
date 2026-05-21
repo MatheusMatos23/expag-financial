@@ -108735,35 +108735,57 @@ async function unmatchFromDivergence(divergenceId) {
   if (!div) throw new Error("Diverg\xEAncia n\xE3o encontrada.");
   if (!div.sessionId) throw new Error("Diverg\xEAncia sem sess\xE3o \u2014 n\xE3o h\xE1 par para desfazer.");
   if (!div.bankAmount || !div.apiAmount) {
-    throw new Error("Esta diverg\xEAncia n\xE3o tem par conciliado \u2014 n\xE3o h\xE1 nada para desconciliar.");
+    throw new Error("Esta diverg\xEAncia n\xE3o tem dois lados (banco + API) \u2014 n\xE3o h\xE1 nada para desconciliar.");
   }
   const sessionId = div.sessionId;
   const bankAmountStr = String(div.bankAmount);
   const apiAmountStr = String(div.apiAmount);
   const divDate = toMysqlDate(div.divergenceDate);
-  const bankRes = await db.execute(sql`
-    SELECT id, matchedApiTransactionId, transactionDate, amount, type, description, bankName, channel
-    FROM bank_transactions
-    WHERE sessionId = ${sessionId}
-      AND amount = ${bankAmountStr}
-      AND transactionDate = ${divDate}
-      AND matchStatus IN ('matched','manual')
-      AND matchedApiTransactionId IS NOT NULL
-    LIMIT 1
-  `);
-  const bankTx = (bankRes[0] ?? [])[0];
-  if (!bankTx) {
-    throw new Error("Transa\xE7\xE3o banc\xE1ria pareada n\xE3o encontrada \u2014 o par pode j\xE1 ter sido desfeito.");
+  let bankTx = null;
+  if (div.externalId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, bankName, channel, matchStatus
+      FROM bank_transactions
+      WHERE sessionId = ${sessionId} AND externalId = ${div.externalId}
+      LIMIT 1
+    `);
+    bankTx = (r[0] ?? [])[0] ?? null;
   }
-  const apiRes = await db.execute(sql`
-    SELECT id, transactionDate, amount, type, description, clientName
+  if (!bankTx) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, bankName, channel, matchStatus
+      FROM bank_transactions
+      WHERE sessionId = ${sessionId}
+        AND amount = ${bankAmountStr}
+        AND transactionDate = ${divDate}
+      LIMIT 1
+    `);
+    bankTx = (r[0] ?? [])[0] ?? null;
+  }
+  if (!bankTx) {
+    throw new Error("Transa\xE7\xE3o banc\xE1ria correspondente n\xE3o encontrada nesta sess\xE3o.");
+  }
+  let apiTx = null;
+  const apiSearch = await db.execute(sql`
+    SELECT id, transactionDate, amount, type, description, clientName, matchStatus
     FROM api_transactions
-    WHERE id = ${bankTx.matchedApiTransactionId}
-    LIMIT 1
+    WHERE sessionId = ${sessionId}
+      AND amount = ${apiAmountStr}
+      AND transactionDate = ${divDate}
+    LIMIT 10
   `);
-  const apiTx = (apiRes[0] ?? [])[0];
+  const apiCandidates = apiSearch[0] ?? [];
+  if (apiCandidates.length === 1) {
+    apiTx = apiCandidates[0];
+  } else if (apiCandidates.length > 1 && div.clientName) {
+    apiTx = apiCandidates.find(
+      (c) => String(c.clientName ?? "").trim().toLowerCase() === String(div.clientName).trim().toLowerCase()
+    ) ?? apiCandidates[0];
+  } else if (apiCandidates.length > 0) {
+    apiTx = apiCandidates[0];
+  }
   if (!apiTx) {
-    throw new Error("Transa\xE7\xE3o API pareada n\xE3o encontrada.");
+    throw new Error("Transa\xE7\xE3o API correspondente n\xE3o encontrada nesta sess\xE3o.");
   }
   await db.execute(sql`
     UPDATE bank_transactions
@@ -108777,23 +108799,24 @@ async function unmatchFromDivergence(divergenceId) {
   `);
   const newIds = [];
   const bankAmountNum = parseFloat(String(bankTx.amount));
+  const apiAmountNum = parseFloat(String(apiTx.amount));
   const r1 = await db.execute(sql`
     INSERT INTO divergences (
       sessionId, divergenceDate, bankName, divergenceType, amount,
       category, priority, status, bankAmount, transactionType,
-      bankDescription, observation
+      bankDescription, observation, externalId
     ) VALUES (
       ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
       'bank_surplus', ${String(bankAmountNum.toFixed(2))},
       'outros', 'medium', 'pendente',
       ${String(bankAmountNum.toFixed(2))}, ${bankTx.type},
       ${bankTx.description || null},
-      CONCAT('Desconciliado da divergência #', ${divergenceId}, ' (diferença de centavos)')
+      ${`Desconciliado da diverg\xEAncia #${divergenceId} (diferen\xE7a de R$ ${Math.abs(bankAmountNum - apiAmountNum).toFixed(2)})`},
+      ${div.externalId || null}
     )
   `);
   const id1 = Number(r1[0]?.insertId ?? 0);
   if (id1 > 0) newIds.push(id1);
-  const apiAmountNum = parseFloat(String(apiTx.amount));
   const r2 = await db.execute(sql`
     INSERT INTO divergences (
       sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
@@ -108805,7 +108828,7 @@ async function unmatchFromDivergence(divergenceId) {
       'outros', 'medium', 'pendente',
       ${String(apiAmountNum.toFixed(2))}, ${apiTx.type},
       ${apiTx.description || null},
-      CONCAT('Desconciliado da divergência #', ${divergenceId}, ' (diferença de centavos)')
+      ${`Desconciliado da diverg\xEAncia #${divergenceId} (diferen\xE7a de R$ ${Math.abs(bankAmountNum - apiAmountNum).toFixed(2)})`}
     )
   `);
   const id2 = Number(r2[0]?.insertId ?? 0);
