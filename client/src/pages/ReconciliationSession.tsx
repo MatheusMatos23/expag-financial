@@ -856,7 +856,14 @@ export default function ReconciliationSession() {
           <MatchedPairsAudit
             sessionId={id}
             prefilledAmount={auditPrefilledAmount}
-            onUnmatch={(bank, api) => setUnmatchTarget({ bank, api })}
+            onUnmatch={(bank, _api) => {
+              // O componente Audit já fez a confirmação inline ("Sim/Não"),
+              // então aqui pulamos o dialog e desconciliamos direto.
+              unmatchMutation.mutate({
+                bankTransactionId: bank.id,
+                deleteManualEntry: false,
+              });
+            }}
           />
         )}
       </div>

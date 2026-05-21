@@ -108516,6 +108516,19 @@ async function postCounterpartEntry(params) {
   _cache.clear();
   return { success: true, newTransactionId, sessionId };
 }
+async function getSessionBanks(sessionId) {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT DISTINCT bankName
+    FROM bank_transactions
+    WHERE sessionId = ${sessionId}
+      AND bankName IS NOT NULL
+      AND bankName != ''
+    ORDER BY bankName ASC
+  `);
+  return (result[0] ?? []).map((r) => String(r.bankName));
+}
 async function getMatchedPairs(params) {
   const db = await getDb();
   if (!db) {
@@ -108558,6 +108571,22 @@ async function getMatchedPairs(params) {
     WHERE ${whereClause}
   `);
   const totalCount = parseInt(String((countRes[0] ?? [])[0]?.total ?? 0));
+  let orderClause = sql`bt.transactionDate DESC, bt.id DESC`;
+  switch (params.sortBy) {
+    case "amount_desc":
+      orderClause = sql`bt.amount DESC, bt.transactionDate DESC`;
+      break;
+    case "amount_asc":
+      orderClause = sql`bt.amount ASC, bt.transactionDate DESC`;
+      break;
+    case "date_asc":
+      orderClause = sql`bt.transactionDate ASC, bt.id ASC`;
+      break;
+    case "date_desc":
+    default:
+      orderClause = sql`bt.transactionDate DESC, bt.id DESC`;
+      break;
+  }
   const result = await db.execute(sql`
     SELECT
       bt.id              AS bank_id,
@@ -108582,7 +108611,7 @@ async function getMatchedPairs(params) {
     FROM bank_transactions bt
     INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
     WHERE ${whereClause}
-    ORDER BY bt.transactionDate DESC, bt.id DESC
+    ORDER BY ${orderClause}
     LIMIT ${pageSize} OFFSET ${offset}
   `);
   const rows = (result[0] ?? []).map((r) => ({
@@ -128878,10 +128907,15 @@ var reconciliationRouter = router({
     type: external_exports.enum(["credit", "debit"]).optional(),
     bankName: external_exports.string().optional(),
     matchType: external_exports.string().optional(),
+    sortBy: external_exports.enum(["amount_desc", "amount_asc", "date_desc", "date_asc"]).optional(),
     page: external_exports.number().optional(),
     pageSize: external_exports.number().optional()
   })).query(async ({ input }) => {
     return getMatchedPairs(input);
+  }),
+  // ── Bancos distintos numa sessão (para popular o dropdown de filtro) ──
+  getSessionBanks: protectedProcedure.input(external_exports.object({ sessionId: external_exports.number() })).query(async ({ input }) => {
+    return getSessionBanks(input.sessionId);
   }),
   // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
   unmatchPair: protectedProcedure.input(external_exports.object({

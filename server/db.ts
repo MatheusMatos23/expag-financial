@@ -2330,6 +2330,24 @@ export async function postCounterpartEntry(params: {
 // ─── PARES CONCILIADOS — VISÃO DEDICADA ────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 /**
+ * Retorna a lista de bancos distintos (não nulos) presentes nas transações
+ * de uma sessão — usado para popular o dropdown de filtro na aba auditoria.
+ */
+export async function getSessionBanks(sessionId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT DISTINCT bankName
+    FROM bank_transactions
+    WHERE sessionId = ${sessionId}
+      AND bankName IS NOT NULL
+      AND bankName != ''
+    ORDER BY bankName ASC
+  `);
+  return ((result as any)[0] ?? []).map((r: any) => String(r.bankName));
+}
+
+/**
  * Lista todos os pares conciliados de uma sessão. Retorna os dois lados
  * (banco + API) lado a lado, com paginação e filtros.
  *
@@ -2347,6 +2365,7 @@ export async function getMatchedPairs(params: {
   type?: 'credit' | 'debit';
   bankName?: string;
   matchType?: string;    // exact, approximate, manual, etc
+  sortBy?: 'amount_desc' | 'amount_asc' | 'date_desc' | 'date_asc';
   page?: number;
   pageSize?: number;
 }): Promise<{
@@ -2408,6 +2427,24 @@ export async function getMatchedPairs(params: {
   `);
   const totalCount = parseInt(String(((countRes as any)[0] ?? [])[0]?.total ?? 0));
 
+  // Determina a ordenação dinâmica
+  let orderClause = sql`bt.transactionDate DESC, bt.id DESC`; // default
+  switch (params.sortBy) {
+    case 'amount_desc':
+      orderClause = sql`bt.amount DESC, bt.transactionDate DESC`;
+      break;
+    case 'amount_asc':
+      orderClause = sql`bt.amount ASC, bt.transactionDate DESC`;
+      break;
+    case 'date_asc':
+      orderClause = sql`bt.transactionDate ASC, bt.id ASC`;
+      break;
+    case 'date_desc':
+    default:
+      orderClause = sql`bt.transactionDate DESC, bt.id DESC`;
+      break;
+  }
+
   // Lista paginada
   const result = await db.execute(sql`
     SELECT
@@ -2433,7 +2470,7 @@ export async function getMatchedPairs(params: {
     FROM bank_transactions bt
     INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
     WHERE ${whereClause}
-    ORDER BY bt.transactionDate DESC, bt.id DESC
+    ORDER BY ${orderClause}
     LIMIT ${pageSize} OFFSET ${offset}
   `);
 

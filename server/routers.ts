@@ -929,11 +929,19 @@ const reconciliationRouter = router({
       type: z.enum(['credit', 'debit']).optional(),
       bankName: z.string().optional(),
       matchType: z.string().optional(),
+      sortBy: z.enum(['amount_desc', 'amount_asc', 'date_desc', 'date_asc']).optional(),
       page: z.number().optional(),
       pageSize: z.number().optional(),
     }))
     .query(async ({ input }) => {
       return db.getMatchedPairs(input);
+    }),
+
+  // ── Bancos distintos numa sessão (para popular o dropdown de filtro) ──
+  getSessionBanks: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .query(async ({ input }) => {
+      return db.getSessionBanks(input.sessionId);
     }),
 
   // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
