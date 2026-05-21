@@ -141,11 +141,11 @@ export const divergences = mysqlTable("divergences", {
   evidence: text("evidence"),
   observation: text("observation"),
   actionTaken: text("actionTaken"),
-  // NDI — Não Identificado: entrada no banco sem correspondência na API
-  isNdi: boolean("isNdi").default(false),
-  ndiNote: text("ndiNote"),
-  ndiFoundDate: date("ndiFoundDate"),       // data em que foi identificado
-  ndiClientName: varchar("ndiClientName", { length: 200 }), // cliente identificado
+  // NID — Não Identificado: entrada no banco sem correspondência na API
+  isNid: boolean("isNid").default(false),
+  nidNote: text("nidNote"),
+  nidFoundDate: date("nidFoundDate"),       // data em que foi identificado
+  nidClientName: varchar("nidClientName", { length: 200 }), // cliente identificado
   // Estorno: transação estornada automaticamente detectada
   isEstorno: boolean("isEstorno").default(false),
   bankTransactionId: int("bankTransactionId"),

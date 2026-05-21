@@ -360,7 +360,7 @@ const menuGroups = [
     items: [
       { icon: ArrowLeftRight, labelKey: "nav.reconciliation" as const, path: "/conciliacao" },
       { icon: FileText, labelKey: "nav.divergences" as const, path: "/divergencias" },
-      { icon: AlertTriangle, labelKey: "nav.ndi" as const, path: "/ndi" },
+      { icon: AlertTriangle, labelKey: "nav.nid" as const, path: "/nid" },
       { icon: ReceiptText, labelKey: "nav.boletos" as const, path: "/boletos" },
       { icon: Wallet, labelKey: "nav.managerialBalance" as const, path: "/saldo-gerencial" },
     ],

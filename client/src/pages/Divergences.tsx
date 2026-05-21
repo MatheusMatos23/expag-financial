@@ -593,7 +593,7 @@ export default function Divergences() {
 
   // Hook que invalida todas as queries financeiras em cascata.
   // Usado em mutations que mudam estado visível em outras telas (Dashboard,
-  // Receitas, Despesas, NDI, Boletos, etc).
+  // Receitas, Despesas, NID, Boletos, etc).
   const invalidateAll = useInvalidateFinancialData();
 
   const updateMutation = trpc.reconciliation.updateDivergence.useMutation({
@@ -613,7 +613,7 @@ export default function Divergences() {
       );
       setSelected(null);
       // Invalida queries de todas as telas para que dados estejam frescos
-      // (Dashboard, Receitas, Despesas, NDI, Boletos, Saldo Gerencial).
+      // (Dashboard, Receitas, Despesas, NID, Boletos, Saldo Gerencial).
       invalidateAll();
     },
     onError: (e) => toast.error(e.message),
@@ -650,17 +650,17 @@ export default function Divergences() {
     onError: (e) => toast.error(e.message),
   });
 
-  const [ndiNote, setNdiNote] = useState("");
-  const [ndiOpen, setNdiOpen] = useState(false);
+  const [nidNote, setNidNote] = useState("");
+  const [nidOpen, setNidOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustApiAmount, setAdjustApiAmount] = useState("");
   const [adjustDesc, setAdjustDesc] = useState("");
   const [adjustType, setAdjustType] = useState("bank_split");
 
-  const markNdiMutation = trpc.reconciliation.markAsNdi.useMutation({
+  const markNidMutation = trpc.reconciliation.markAsNid.useMutation({
     onSuccess: () => {
-      toast.success(`${selectedIds.size} item${selectedIds.size > 1 ? "s" : ""} marcado${selectedIds.size > 1 ? "s" : ""} como NDI!`);
-      setSelectedIds(new Set()); setNdiOpen(false); setNdiNote(""); invalidateAll();
+      toast.success(`${selectedIds.size} item${selectedIds.size > 1 ? "s" : ""} marcado${selectedIds.size > 1 ? "s" : ""} como NID!`);
+      setSelectedIds(new Set()); setNidOpen(false); setNidNote(""); invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -834,8 +834,8 @@ export default function Divergences() {
             <Button size="sm" className="text-xs gap-1.5 bg-red-600 hover:bg-red-700" onClick={() => setMoveToExpenseOpen(true)}>
               <TrendingDown className="w-3.5 h-3.5" /> Despesas
             </Button>
-            <Button size="sm" className="text-xs gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => setNdiOpen(true)}>
-              <Tag className="w-3.5 h-3.5" /> Marcar NDI
+            <Button size="sm" className="text-xs gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => setNidOpen(true)}>
+              <Tag className="w-3.5 h-3.5" /> Marcar NID
             </Button>
             <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10" onClick={() => setAdjustOpen(true)}>
               <Wrench className="w-3.5 h-3.5" /> Ajuste Manual
@@ -880,7 +880,7 @@ export default function Divergences() {
                     banco: d.bankName ?? "",
                     tipo: d.divergenceType ?? "",
                     descricao: d.bankDescription ?? "",
-                    cliente: d.clientName ?? d.ndiClientName ?? "",
+                    cliente: d.clientName ?? d.nidClientName ?? "",
                     end2end: d.externalId ?? "",
                     vlrBanco: d.bankAmount ?? "",
                     vlrApi: d.apiAmount ?? "",
@@ -1107,16 +1107,16 @@ export default function Divergences() {
         </div>
       )}
 
-      {/* Modal NDI */}
-      {ndiOpen && (
+      {/* Modal NID */}
+      {nidOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="card-premium rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Tag className="w-5 h-5 text-orange-400" />
-                <h3 className="font-bold text-foreground">Marcar como NDI</h3>
+                <h3 className="font-bold text-foreground">Marcar como NID</h3>
               </div>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setNdiOpen(false)}><X className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setNidOpen(false)}><X className="w-4 h-4" /></Button>
             </div>
             <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 text-center">
               <p className="text-xs text-muted-foreground">{selectedIds.size} divergência{selectedIds.size > 1 ? "s" : ""} · Entradas não identificadas</p>
@@ -1124,14 +1124,14 @@ export default function Divergences() {
             </div>
             <div>
               <Label className="text-xs">Anotação (opcional)</Label>
-              <Textarea className="mt-1.5 text-xs resize-none h-20" placeholder="Ex: Aguardando confirmação do cliente, possível devolução..." value={ndiNote} onChange={e => setNdiNote(e.target.value)} />
+              <Textarea className="mt-1.5 text-xs resize-none h-20" placeholder="Ex: Aguardando confirmação do cliente, possível devolução..." value={nidNote} onChange={e => setNidNote(e.target.value)} />
             </div>
             <p className="text-[10px] text-muted-foreground">NDIs ficam visíveis na aba "Não Identificados" e continuam no saldo divergente até serem identificados.</p>
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 text-xs" onClick={() => setNdiOpen(false)}>Cancelar</Button>
-              <Button className="flex-1 text-xs bg-orange-600 hover:bg-orange-700 gap-1.5" disabled={markNdiMutation.isPending}
-                onClick={() => markNdiMutation.mutate({ ids: Array.from(selectedIds), ndiNote: ndiNote || undefined })}>
-                <Tag className="w-3.5 h-3.5" /> {markNdiMutation.isPending ? "Marcando..." : "Confirmar NDI"}
+              <Button variant="outline" className="flex-1 text-xs" onClick={() => setNidOpen(false)}>Cancelar</Button>
+              <Button className="flex-1 text-xs bg-orange-600 hover:bg-orange-700 gap-1.5" disabled={markNidMutation.isPending}
+                onClick={() => markNidMutation.mutate({ ids: Array.from(selectedIds), nidNote: nidNote || undefined })}>
+                <Tag className="w-3.5 h-3.5" /> {markNidMutation.isPending ? "Marcando..." : "Confirmar NID"}
               </Button>
             </div>
           </div>

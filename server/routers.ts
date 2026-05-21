@@ -1294,36 +1294,36 @@ const reconciliationRouter = router({
   getBankBalancesByBank: protectedProcedure
     .query(async () => db.getBankBalancesByBank()),
 
-  // ── Resolver NDI (identificar cliente) ───────────────────────────────────
-  resolveNdi: protectedProcedure
+  // ── Resolver NID (identificar cliente) ───────────────────────────────────
+  resolveNid: protectedProcedure
     .input(z.object({
       id: z.number(),
       clientName: z.string().min(1),
       description: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const r = await db.resolveNdi(input.id, {
+      const r = await db.resolveNid(input.id, {
         clientName: input.clientName,
         description: input.description ?? '',
         createdByName: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
       });
       await audit(ctx, {
-        action: "ndi.resolve", category: "ndi",
+        action: "ndi.resolve", category: "nid",
         entityType: "divergence", entityId: input.id,
-        summary: `Identificou NDI #${input.id} — cliente: ${input.clientName}`,
+        summary: `Identificou NID #${input.id} — cliente: ${input.clientName}`,
         metadata: { clientName: input.clientName },
       });
       return r;
     }),
 
-  // ── NDI — Não Identificados ───────────────────────────────────────────────
-  // ── Editar NDI (nota, data encontrada) ───────────────────────────────────
-  updateNdi: protectedProcedure
+  // ── NID — Não Identificados ───────────────────────────────────────────────
+  // ── Editar NID (nota, data encontrada) ───────────────────────────────────
+  updateNid: protectedProcedure
     .input(z.object({
       id: z.number(),
-      ndiNote: z.string().optional(),
-      ndiFoundDate: z.string().optional(),   // data em que o valor foi identificado
-      ndiClientName: z.string().optional(),  // cliente suspeito (sem confirmar)
+      nidNote: z.string().optional(),
+      nidFoundDate: z.string().optional(),   // data em que o valor foi identificado
+      nidClientName: z.string().optional(),  // cliente suspeito (sem confirmar)
       priority: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
@@ -1332,40 +1332,66 @@ const reconciliationRouter = router({
       const { sql: sqlTag } = await import("drizzle-orm");
       await dbConn.execute(sqlTag`
         UPDATE divergences SET
-          ndiNote       = ${input.ndiNote ?? null},
-          ndiFoundDate  = ${input.ndiFoundDate ?? null},
-          ndiClientName = ${input.ndiClientName ?? null},
+          nidNote       = ${input.nidNote ?? null},
+          nidFoundDate  = ${input.nidFoundDate ?? null},
+          nidClientName = ${input.nidClientName ?? null},
           priority      = ${input.priority as any ?? 'high'}
         WHERE id = ${input.id}
       `);
       return { success: true };
     }),
 
-  markAsNdi: protectedProcedure
+  markAsNid: protectedProcedure
     .input(z.object({
       ids: z.array(z.number()).min(1),
-      ndiNote: z.string().optional(),
+      nidNote: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      await db.markDivergencesAsNdi(input.ids, input.ndiNote);
+      await db.markDivergencesAsNid(input.ids, input.nidNote);
       await audit(ctx, {
-        action: "ndi.mark", category: "ndi",
+        action: "ndi.mark", category: "nid",
         entityType: "divergence", entityId: input.ids.join(","),
-        summary: `Marcou ${input.ids.length} divergência(s) como NDI`,
+        summary: `Marcou ${input.ids.length} divergência(s) como NID`,
         metadata: { ids: input.ids },
       });
       return { success: true };
     }),
 
-  unmarkNdi: protectedProcedure
+  unmarkNid: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await db.unmarkNdi(input.id);
+      await db.unmarkNid(input.id);
       return { success: true };
     }),
 
-  getNdiDivergences: protectedProcedure
-    .query(async () => db.getNdiDivergences()),
+  getNidDivergences: protectedProcedure
+    .query(async () => db.getNidDivergences()),
+
+  // Lista candidatos (divergências bank_shortage) para conciliar com uma NID
+  getNidReconcileCandidates: protectedProcedure
+    .input(z.object({ nidId: z.number() }))
+    .query(async ({ input }) => db.getNidReconcileCandidates(input.nidId)),
+
+  // Concilia NID com divergência bank_shortage existente em outra sessão
+  reconcileNidWithDivergence: protectedProcedure
+    .input(z.object({
+      nidId: z.number(),
+      targetDivergenceId: z.number(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.reconcileNidWithDivergence({
+        nidId: input.nidId,
+        targetDivergenceId: input.targetDivergenceId,
+        createdByName: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
+      });
+      await audit(ctx, {
+        action: "nid.reconcile", category: "nid",
+        entityType: "divergence", entityId: `${input.nidId},${input.targetDivergenceId}`,
+        summary: `Conciliou NID #${input.nidId} com divergência #${input.targetDivergenceId}`,
+        metadata: { nidId: input.nidId, targetDivergenceId: input.targetDivergenceId },
+      });
+      return result;
+    }),
 
   // ── Ajuste Manual de Saldo ────────────────────────────────────────────────
   createManualAdjustment: protectedProcedure
