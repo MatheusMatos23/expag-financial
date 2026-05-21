@@ -30,8 +30,15 @@ export interface ReconciliationResult {
   };
 }
 
-const AMOUNT_TOLERANCE = 0.01;
-const APPROX_TOLERANCE = 1.00; // R$1.00 tolerance for approximate matches
+// Tolerância exata: diferenças ≤ R$1,00 são consideradas "matched" (arredondamento,
+// centavos de tarifa absorvida, etc). Antes era R$0,01 o que gerava divergências
+// para diferenças de centavos que na prática são arredondamento.
+const AMOUNT_TOLERANCE = 1.00;
+
+// Tolerância aproximada: o engine ainda ENCONTRA o par correto para diferenças de
+// até R$5,00 (mesmo que marque como divergent se > AMOUNT_TOLERANCE). Sem isso,
+// transações com diff de R$2-5 ficam como "unmatched" sem nem encontrar o par.
+const APPROX_TOLERANCE = 5.00;
 
 /** Returns an ISO date string offset by `days` days */
 function offsetDate(isoDate: string, days: number): string {
@@ -42,14 +49,17 @@ function offsetDate(isoDate: string, days: number): string {
 
 /**
  * Build an index key for date+type matching.
- * Returns ALL candidate keys for a given bank transaction (same-day + D±1)
- * to handle settlement lag (bank records D+1 while API records on transaction date).
+ * Returns ALL candidate keys for a given bank transaction (same-day + D±2)
+ * to handle settlement lag. Expandido de D±1 para D±2 porque Sicoob e BB
+ * podem ter lag de 2 dias úteis em liquidações de TED/DOC.
  */
 function dateTypeKeys(date: string, type: string): string[] {
   return [
     `${date}|${type}`,
     `${offsetDate(date, -1)}|${type}`,
     `${offsetDate(date, +1)}|${type}`,
+    `${offsetDate(date, -2)}|${type}`,
+    `${offsetDate(date, +2)}|${type}`,
   ];
 }
 

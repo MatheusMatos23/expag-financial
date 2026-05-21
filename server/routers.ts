@@ -91,17 +91,18 @@ async function processReconciliationJob(
         };
       });
 
-      // Detectar datas presentes nos extratos bancários (expandido para ±1 dia de lag de liquidação)
+      // Detectar datas presentes nos extratos bancários (expandido para ±2 dias de lag de liquidação)
+      // Antes era ±1, mas Sicoob e BB podem ter lag de 2 dias úteis em TED/DOC.
       const bankDatesRaw = new Set(parsedBanks.flatMap(b => b.txs.map(t => t.date)));
       const bankDates = new Set<string>();
       for (const d of Array.from(bankDatesRaw)) {
         bankDates.add(d);
-        // D-1 e D+1 para cobrir lag de liquidação
         const dt = new Date(d + "T12:00:00Z");
-        const dm1 = new Date(dt); dm1.setUTCDate(dt.getUTCDate() - 1);
-        const dp1 = new Date(dt); dp1.setUTCDate(dt.getUTCDate() + 1);
-        bankDates.add(dm1.toISOString().slice(0, 10));
-        bankDates.add(dp1.toISOString().slice(0, 10));
+        for (const offset of [-2, -1, 1, 2]) {
+          const shifted = new Date(dt);
+          shifted.setUTCDate(dt.getUTCDate() + offset);
+          bankDates.add(shifted.toISOString().slice(0, 10));
+        }
       }
 
       // ── Palavras-chave de tarifa bancária ────────────────────────────────────

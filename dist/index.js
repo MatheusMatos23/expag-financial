@@ -88771,7 +88771,9 @@ function dateTypeKeys(date6, type) {
   return [
     `${date6}|${type}`,
     `${offsetDate(date6, -1)}|${type}`,
-    `${offsetDate(date6, 1)}|${type}`
+    `${offsetDate(date6, 1)}|${type}`,
+    `${offsetDate(date6, -2)}|${type}`,
+    `${offsetDate(date6, 2)}|${type}`
   ];
 }
 function reconcileMultiBank(banks, apiTxs) {
@@ -88988,8 +88990,8 @@ var AMOUNT_TOLERANCE, APPROX_TOLERANCE;
 var init_engine = __esm({
   "server/reconciliation/engine.ts"() {
     "use strict";
-    AMOUNT_TOLERANCE = 0.01;
-    APPROX_TOLERANCE = 1;
+    AMOUNT_TOLERANCE = 1;
+    APPROX_TOLERANCE = 5;
   }
 });
 
@@ -133470,12 +133472,11 @@ async function processReconciliationJob(sessionId, input, ctx) {
     for (const d of Array.from(bankDatesRaw)) {
       bankDates.add(d);
       const dt = /* @__PURE__ */ new Date(d + "T12:00:00Z");
-      const dm1 = new Date(dt);
-      dm1.setUTCDate(dt.getUTCDate() - 1);
-      const dp1 = new Date(dt);
-      dp1.setUTCDate(dt.getUTCDate() + 1);
-      bankDates.add(dm1.toISOString().slice(0, 10));
-      bankDates.add(dp1.toISOString().slice(0, 10));
+      for (const offset of [-2, -1, 1, 2]) {
+        const shifted = new Date(dt);
+        shifted.setUTCDate(dt.getUTCDate() + offset);
+        bankDates.add(shifted.toISOString().slice(0, 10));
+      }
     }
     const BANK_TARIFF_KEYWORDS = [
       "tarifa",
