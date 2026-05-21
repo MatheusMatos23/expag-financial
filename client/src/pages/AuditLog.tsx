@@ -107,8 +107,21 @@ export default function AuditLog() {
       toast.success(`Dados limpos — ${data.totalRows} registro(s) removido(s).`);
       setClearOpen(false);
       setClearConfirm("");
-      // Limpeza apaga TUDO — qualquer tela aberta tem dados obsoletos.
       invalidateAll();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // ── Factory Reset (limpa TUDO incluindo usuários) ──
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState("");
+  const resetMutation = trpc.dashboard.factoryReset.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(`Reset completo — ${data.totalRows} registro(s) removido(s) de ${data.clearedTables.length} tabelas. Faça login novamente.`);
+      setResetOpen(false);
+      setResetConfirm("");
+      // Redireciona para login (usuário foi apagado)
+      window.location.href = "/";
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -189,6 +202,14 @@ export default function AuditLog() {
               onClick={() => setClearOpen(true)}>
               <Eraser className="w-3.5 h-3.5" />
               Limpar dados
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="outline" size="sm"
+              className="h-8 gap-1.5 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-400"
+              onClick={() => setResetOpen(true)}>
+              <Eraser className="w-3.5 h-3.5" />
+              Factory Reset
             </Button>
           )}
         </div>
@@ -391,6 +412,53 @@ export default function AuditLog() {
               disabled={clearConfirm !== "LIMPAR TUDO" || clearMutation.isPending}
               onClick={() => clearMutation.mutate({ confirmation: clearConfirm })}>
               {clearMutation.isPending ? "Limpando..." : "Limpar dados"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ Dialog: Factory Reset ════ */}
+      <Dialog open={resetOpen} onOpenChange={v => { setResetOpen(v); if (!v) setResetConfirm(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Eraser className="w-4 h-4 text-red-400" />
+              Factory Reset — Zerar Sistema
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
+              <p className="text-sm text-red-400 font-semibold">⚠️ ATENÇÃO: Ação irreversível</p>
+              <p className="text-xs text-muted-foreground">
+                Remove <strong>TODOS</strong> os dados do sistema incluindo usuários, sessões, transações,
+                divergências, receitas, despesas, auditoria e configurações.
+                O sistema volta ao estado de fábrica — como se o cliente estivesse entrando pela primeira vez.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Após o reset, você precisará <strong>fazer login novamente</strong> com as credenciais
+                de administrador padrão.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Digite <span className="text-red-400 font-mono">RESETAR SISTEMA</span> para confirmar
+              </Label>
+              <Input
+                value={resetConfirm}
+                onChange={e => setResetConfirm(e.target.value)}
+                placeholder="RESETAR SISTEMA"
+                className="h-10 text-sm font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setResetOpen(false)}>
+              Cancelar
+            </Button>
+            <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white"
+              disabled={resetConfirm !== "RESETAR SISTEMA" || resetMutation.isPending}
+              onClick={() => resetMutation.mutate({ confirmation: resetConfirm })}>
+              {resetMutation.isPending ? "Resetando..." : "Resetar Sistema"}
             </Button>
           </DialogFooter>
         </DialogContent>

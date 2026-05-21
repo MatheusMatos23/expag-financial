@@ -110602,6 +110602,12 @@ async function exportFullBackup() {
   };
 }
 async function clearOperationalData() {
+  return _clearTables(false);
+}
+async function factoryReset() {
+  return _clearTables(true);
+}
+async function _clearTables(includeSystemTables) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const tablesToClear = [
@@ -110619,22 +110625,29 @@ async function clearOperationalData() {
     "dre",
     "cash_flow",
     "cost_centers",
-    "alerts"
+    "alerts",
+    "boleto_daily_balances"
   ];
+  if (includeSystemTables) {
+    tablesToClear.push("audit_logs", "system_config", "users");
+  }
   const clearedTables = [];
   let totalRows = 0;
+  await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 0"));
   for (const tableName of tablesToClear) {
     try {
       const countRes = await db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM ${tableName}`));
       const rowCount = parseInt(String(countRes[0]?.[0]?.cnt ?? 0));
-      await db.execute(sql.raw(`DELETE FROM ${tableName}`));
+      await db.execute(sql.raw(`TRUNCATE TABLE ${tableName}`));
       clearedTables.push(tableName);
       totalRows += rowCount;
     } catch (err) {
       console.error(`[CLEANUP] Falha ao limpar tabela ${tableName}:`, err);
     }
   }
+  await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 1"));
   _cache.clear();
+  console.log(`[FACTORY RESET] ${includeSystemTables ? "COMPLETO" : "OPERACIONAL"}: ${clearedTables.length} tabelas, ${totalRows} registros removidos`);
   return { clearedTables, totalRows };
 }
 async function postCounterpartEntry(params) {
@@ -135086,6 +135099,15 @@ var dashboardRouter = router({
       summary: `Limpou todos os dados operacionais (${result.totalRows} registros removidos de ${result.clearedTables.length} tabelas)`,
       metadata: { clearedTables: result.clearedTables, totalRows: result.totalRows }
     });
+    return result;
+  }),
+  factoryReset: adminProcedure.input(external_exports.object({
+    confirmation: external_exports.string()
+  })).mutation(async ({ input }) => {
+    if (input.confirmation !== "RESETAR SISTEMA") {
+      throw new Error("Confirma\xE7\xE3o inv\xE1lida. Digite exatamente: RESETAR SISTEMA");
+    }
+    const result = await factoryReset();
     return result;
   }),
   getSystemConfig: protectedProcedure.input(external_exports.object({ key: external_exports.string() })).query(async ({ input }) => getSystemConfig(input.key)),

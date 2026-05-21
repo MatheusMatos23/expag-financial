@@ -25,7 +25,7 @@ const dbSource = readFileSync(join(__dirname, "..", "server", "db.ts"), "utf-8")
 /** Recorta o corpo de uma função `export async function NAME`.
  *  Precisa pular tipos de retorno como `: Promise<{...}>` antes do corpo. */
 function extractFunctionBody(src: string, fnName: string): string | null {
-  const startRe = new RegExp(`export async function ${fnName}\\s*\\(`);
+  const startRe = new RegExp(`(?:export\\s+)?async\\s+function\\s+${fnName}\\s*\\(`);
   const m = startRe.exec(src);
   if (!m) return null;
 
@@ -80,7 +80,7 @@ const REQUIRES_INVALIDATION = [
   "moveDivergencesToBoleto",
   "updateDivergenceStatus",
   "postCounterpartEntry",
-  "clearOperationalData",
+  "_clearTables",
 ];
 
 describe("Cache invalidation guardrails — server/db.ts", () => {

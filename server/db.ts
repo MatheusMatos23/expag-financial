@@ -2248,6 +2248,16 @@ export async function exportFullBackup(): Promise<{
  * É uma operação destrutiva e irreversível — exige confirmação explícita.
  */
 export async function clearOperationalData(): Promise<{ clearedTables: string[]; totalRows: number }> {
+  return _clearTables(false);
+}
+
+/** Reset completo de fábrica — limpa TUDO incluindo usuários, audit, config.
+ *  O admin padrão é recriado automaticamente no próximo login. */
+export async function factoryReset(): Promise<{ clearedTables: string[]; totalRows: number }> {
+  return _clearTables(true);
+}
+
+async function _clearTables(includeSystemTables: boolean): Promise<{ clearedTables: string[]; totalRows: number }> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
 
@@ -2268,17 +2278,25 @@ export async function clearOperationalData(): Promise<{ clearedTables: string[];
     "cash_flow",
     "cost_centers",
     "alerts",
+    "boleto_daily_balances",
   ];
+
+  if (includeSystemTables) {
+    tablesToClear.push("audit_logs", "system_config", "users");
+  }
 
   const clearedTables: string[] = [];
   let totalRows = 0;
 
+  // Desativa FK checks temporariamente para poder truncar em qualquer ordem
+  await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 0"));
+
   for (const tableName of tablesToClear) {
     try {
-      // Conta antes de apagar (para o relatório)
       const countRes = await db.execute(sql.raw(`SELECT COUNT(*) as cnt FROM ${tableName}`));
       const rowCount = parseInt(String((countRes as any)[0]?.[0]?.cnt ?? 0));
-      await db.execute(sql.raw(`DELETE FROM ${tableName}`));
+      // TRUNCATE é mais rápido que DELETE e reseta auto-increment
+      await db.execute(sql.raw(`TRUNCATE TABLE ${tableName}`));
       clearedTables.push(tableName);
       totalRows += rowCount;
     } catch (err) {
@@ -2286,9 +2304,10 @@ export async function clearOperationalData(): Promise<{ clearedTables: string[];
     }
   }
 
-  // Limpa o cache para os dados removidos não reaparecerem
-  _cache.clear();
+  await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 1"));
 
+  _cache.clear();
+  console.log(`[FACTORY RESET] ${includeSystemTables ? 'COMPLETO' : 'OPERACIONAL'}: ${clearedTables.length} tabelas, ${totalRows} registros removidos`);
   return { clearedTables, totalRows };
 }
 

@@ -1889,6 +1889,19 @@ const dashboardRouter = router({
       return result;
     }),
 
+  factoryReset: adminProcedure
+    .input(z.object({
+      confirmation: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.confirmation !== "RESETAR SISTEMA") {
+        throw new Error("Confirmação inválida. Digite exatamente: RESETAR SISTEMA");
+      }
+      // Não grava audit porque a tabela audit_logs também é apagada
+      const result = await db.factoryReset();
+      return result;
+    }),
+
   getSystemConfig: protectedProcedure
     .input(z.object({ key: z.string() }))
     .query(async ({ input }) => db.getSystemConfig(input.key)),
