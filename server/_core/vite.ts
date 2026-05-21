@@ -58,10 +58,27 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Assets com hash no nome (gerados pelo Vite) podem ser cacheados por muito
+  // tempo. Mas o index.html NUNCA pode ser cacheado — senão o navegador continua
+  // pedindo JavaScript com hash antigo mesmo após deploy novo.
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      } else if (/\.(js|css|woff2?|svg|png|jpg|jpeg|gif|ico)$/.test(filePath)) {
+        // Assets já têm hash no nome — podem ser cacheados por 1 ano com segurança
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

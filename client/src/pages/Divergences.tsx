@@ -600,6 +600,7 @@ export default function Divergences() {
     onError: (e) => toast.error(e.message),
   });
 
+  const utilsForUnmatch = trpc.useUtils();
   const unmatchFromDivMutation = trpc.reconciliation.unmatchFromDivergence.useMutation({
     onSuccess: ({ newDivergenceIds }) => {
       toast.success(
@@ -607,6 +608,10 @@ export default function Divergences() {
       );
       refetch();
       setSelected(null);
+      // Invalida queries de outras telas (Dashboard, sessões) para que
+      // dados estejam frescos quando o usuário navegar
+      utilsForUnmatch.reconciliation.invalidate();
+      utilsForUnmatch.controllership.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });

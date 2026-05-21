@@ -77,9 +77,10 @@ export default function Dashboard() {
     { dateFrom, dateTo }, { refetchOnWindowFocus: false }
   );
   const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery(undefined, { refetchInterval: 10000 });
-  const { data: bankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 10000 });
-  const { data: divAll } = trpc.reconciliation.getDivergences.useQuery({}, { refetchInterval: 30000, staleTime: 15000 });
-  const { data: dailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: bankByBank, refetch: refetchBankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: divAll, refetch: refetchDivAll } = trpc.reconciliation.getDivergences.useQuery({}, { refetchInterval: 30000, staleTime: 15000 });
+  const { data: dailyBal, refetch: refetchDailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
+  const utils = trpc.useUtils();
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const totalRevenue  = ctrlData?.totalRevenue  ?? 0;
@@ -149,7 +150,17 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-foreground">{t("dashboard.title")}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{t("dashboard.subtitle")}</p>
         </div>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => { refetchCtrl(); refetchSessions(); }}>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+          onClick={() => {
+            // Invalida TODAS as queries do dashboard de uma vez — o React Query
+            // se encarrega de refazer todas as que estão na tela.
+            utils.invalidate();
+            refetchCtrl();
+            refetchSessions();
+            refetchBankByBank();
+            refetchDivAll();
+            refetchDailyBal();
+          }}>
           <RefreshCw className="w-3.5 h-3.5" /> Atualizar
         </Button>
       </div>
