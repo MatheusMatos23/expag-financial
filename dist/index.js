@@ -110386,6 +110386,7 @@ async function updateCreditPortfolio(id, data) {
 async function deleteCreditPortfolio(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`DELETE FROM credit_installments WHERE creditId = ${id}`);
   await db.execute(sql`DELETE FROM credit_portfolio WHERE id = ${id}`);
 }
 async function updatePayable(id, data) {
@@ -134757,7 +134758,6 @@ var controllershipRouter = router({
     await createCreditInstallments(installments);
     return { creditId };
   }),
-  getCreditPortfolio: protectedProcedure.input(external_exports.object({ status: external_exports.string().optional() })).query(async ({ input }) => getCreditPortfolio(input)),
   // Registrar pagamento de parcela da carteira de crédito
   recordInstallmentPayment: protectedProcedure.input(external_exports.object({
     installmentId: external_exports.number(),

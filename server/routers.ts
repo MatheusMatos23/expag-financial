@@ -1509,10 +1509,6 @@ const controllershipRouter = router({
       return { creditId };
     }),
 
-  getCreditPortfolio: protectedProcedure
-    .input(z.object({ status: z.string().optional() }))
-    .query(async ({ input }) => db.getCreditPortfolio(input)),
-
   // Registrar pagamento de parcela da carteira de crédito
   recordInstallmentPayment: protectedProcedure
     .input(z.object({

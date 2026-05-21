@@ -1898,6 +1898,12 @@ export async function updateCreditPortfolio(id: number, data: {
 export async function deleteCreditPortfolio(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  // credit_installments.creditId não tem FK com ON DELETE CASCADE no schema atual,
+  // então apagamos as parcelas manualmente antes do empréstimo para evitar
+  // órfãs. Bug anterior: deletar via API REST direta deixava installments
+  // pendurados sem dono, que continuavam aparecendo em getCreditInstallments
+  // se alguém consultasse pelo creditId antigo.
+  await db.execute(sql`DELETE FROM credit_installments WHERE creditId = ${id}`);
   await db.execute(sql`DELETE FROM credit_portfolio WHERE id = ${id}`);
 }
 

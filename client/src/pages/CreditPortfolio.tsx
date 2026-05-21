@@ -5,12 +5,13 @@ import { useState } from "react";
 import {
   Plus, CreditCard, TrendingUp, AlertTriangle, CheckCircle,
   Users, Trash2, ChevronDown, ChevronUp, DollarSign, Calendar,
-  X, Percent,
+  X, Percent, Edit2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -173,6 +174,20 @@ export default function CreditPortfolio() {
   const [payingInst, setPayingInst] = useState<any>(null);
   const [form, setForm] = useState({ clientId: "", clientName: "", principal: "", interestRate: "", totalInstallments: "12", startDate: new Date().toISOString().slice(0,10), expectedEndDate: "", fundingSource: "", notes: "" });
 
+  // ── Edição/Exclusão de empréstimo ────────────────────────────────────────
+  // O backend já expunha updateLoan e deleteLoan via tRPC mas o frontend
+  // não tinha UI para chamar essas mutations. Empréstimos eram efetivamente
+  // imutáveis depois de criados — só dava para registrar pagamento de parcela.
+  // Adicionado: dialog de edição (status, taxa, notas, fonte) e botão de
+  // excluir com confirmação dupla.
+  const [editingLoan, setEditingLoan] = useState<any>(null);
+  const [editForm, setEditForm] = useState({
+    status: "ativo",
+    interestRate: "",
+    notes: "",
+    fundingSource: "",
+  });
+
   const { data: loans, refetch, isLoading } = trpc.controllership.getLoans.useQuery({ status: statusFilter !== "all" ? statusFilter : undefined });
   const { data: summary } = trpc.controllership.getLoanSummary.useQuery();
   const { data: installments, refetch: refetchInst } = trpc.controllership.getCreditInstallments.useQuery(
@@ -185,6 +200,47 @@ export default function CreditPortfolio() {
     onSuccess: () => { toast.success("Crédito criado com parcelas calculadas!"); setNewOpen(false); refetch(); invalidateAcrossScreens(); },
     onError: e => toast.error(e.message),
   });
+
+  const updateLoanMutation = trpc.controllership.updateLoan.useMutation({
+    onSuccess: () => {
+      toast.success("Empréstimo atualizado.");
+      setEditingLoan(null);
+      refetch();
+      invalidateAcrossScreens();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const deleteLoanMutation = trpc.controllership.deleteLoan.useMutation({
+    onSuccess: () => {
+      toast.success("Empréstimo removido junto com suas parcelas.");
+      refetch();
+      if (expanded) setExpanded(null);
+      invalidateAcrossScreens();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleEditLoan = (loan: any) => {
+    setEditingLoan(loan);
+    setEditForm({
+      status: String(loan.status ?? "ativo"),
+      interestRate: String(loan.interestRate ?? ""),
+      notes: String(loan.notes ?? ""),
+      fundingSource: String(loan.fundingSource ?? ""),
+    });
+  };
+
+  const handleDeleteLoan = (loan: any) => {
+    // Confirmação dupla porque exclusão é destrutiva — também apaga as parcelas
+    // (FK cascade no schema).
+    const paid = (((loan.totalInstallments ?? 0) as number) > 0)
+      ? `\n\nEsse empréstimo tem ${loan.totalInstallments} parcelas configuradas — todas serão removidas.`
+      : "";
+    if (!confirm(`Excluir empréstimo de ${loan.clientName} (${formatCurrency(loan.principal)})?${paid}`)) return;
+    if (!confirm("Ação IRREVERSÍVEL. Confirmar?")) return;
+    deleteLoanMutation.mutate({ id: loan.id });
+  };
 
 
 
@@ -260,8 +316,8 @@ export default function CreditPortfolio() {
 
             return (
               <div key={loan.id} className="card-premium rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-accent/10" onClick={() => setExpanded(isExp ? null : loan.id)}>
-                  <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center justify-between px-5 py-4 hover:bg-accent/10">
+                  <div className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer" onClick={() => setExpanded(isExp ? null : loan.id)}>
                     <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
                       <Users className="w-4 h-4 text-blue-400" />
                     </div>
@@ -271,12 +327,12 @@ export default function CreditPortfolio() {
                     </div>
                   </div>
                   <div className="flex items-center gap-6 shrink-0">
-                    <div className="text-right">
+                    <div className="text-right cursor-pointer" onClick={() => setExpanded(isExp ? null : loan.id)}>
                       <p className="text-sm font-bold font-mono text-blue-400">{formatCurrency(loan.principal)}</p>
                       <p className="text-[10px] text-muted-foreground">{loan.totalInstallments}x parcelas</p>
                     </div>
                     {nextDue && (
-                      <div className="text-right hidden md:block">
+                      <div className="text-right hidden md:block cursor-pointer" onClick={() => setExpanded(isExp ? null : loan.id)}>
                         <p className="text-xs text-muted-foreground">Próximo venc.</p>
                         <p className="text-xs font-mono text-yellow-400">{formatDate(nextDue.dueDate)}</p>
                       </div>
@@ -284,7 +340,26 @@ export default function CreditPortfolio() {
                     <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-semibold", STATUS_COLORS[loan.status] ?? "text-muted-foreground")}>
                       {loan.status}
                     </span>
-                    {isExp ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                    {/* Ações inline: editar / excluir.
+                        stopPropagation evita que o click vaze para o handler
+                        de expandir/colapsar do card. */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleEditLoan(loan); }}
+                      title="Editar empréstimo"
+                      className="text-muted-foreground hover:text-foreground transition-colors opacity-60 hover:opacity-100 p-1"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteLoan(loan); }}
+                      title="Excluir empréstimo (também remove parcelas)"
+                      className="text-red-400 hover:text-red-300 transition-colors opacity-60 hover:opacity-100 p-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="cursor-pointer" onClick={() => setExpanded(isExp ? null : loan.id)}>
+                      {isExp ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                    </span>
                   </div>
                 </div>
 
@@ -403,6 +478,88 @@ export default function CreditPortfolio() {
           })}
         />
       )}
+
+      {/* Dialog de edição do empréstimo.
+          Mostra apenas os campos mais úteis para ajuste pós-criação:
+          status, taxa de juros (em casos de renegociação), fonte e notas.
+          Mudar principal/parcelas após criar gera inconsistência com as
+          installments já calculadas — não exponho na UI para evitar foot-gun. */}
+      <Dialog open={!!editingLoan} onOpenChange={(o) => !o && setEditingLoan(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Editar Empréstimo {editingLoan && `— ${editingLoan.clientName}`}
+            </DialogTitle>
+          </DialogHeader>
+          {editingLoan && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-lg bg-accent/5 border border-border p-3 text-xs space-y-1">
+                <div className="flex justify-between"><span className="text-muted-foreground">Cliente</span><span className="font-mono">{editingLoan.clientId}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Principal</span><span className="font-mono">{formatCurrency(editingLoan.principal)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Parcelas</span><span className="font-mono">{editingLoan.totalInstallments}x</span></div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Status</Label>
+                <select
+                  className="mt-1 w-full h-8 px-2 text-xs rounded-md border border-border bg-background"
+                  value={editForm.status}
+                  onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                >
+                  <option value="ativo">Ativo</option>
+                  <option value="atrasado">Atrasado</option>
+                  <option value="renegociado">Renegociado</option>
+                  <option value="quitado">Quitado</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Taxa de Juros (% a.m.)</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={editForm.interestRate}
+                  onChange={e => setEditForm(f => ({ ...f, interestRate: e.target.value }))}
+                  className="mt-1 h-8 text-xs"
+                  placeholder={String(editingLoan.interestRate ?? "")}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Mudar a taxa não recalcula parcelas já criadas. Use para refletir
+                  renegociação registrada externamente.
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Fonte dos Recursos</Label>
+                <Input
+                  value={editForm.fundingSource}
+                  onChange={e => setEditForm(f => ({ ...f, fundingSource: e.target.value }))}
+                  className="mt-1 h-8 text-xs"
+                  placeholder="Capital próprio"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Notas</Label>
+                <Textarea
+                  value={editForm.notes}
+                  onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                  className="mt-1 text-xs resize-none h-20"
+                  placeholder="Observações sobre o empréstimo…"
+                />
+              </div>
+              <Button
+                onClick={() => updateLoanMutation.mutate({
+                  id: editingLoan.id,
+                  status: editForm.status,
+                  interestRate: editForm.interestRate || undefined,
+                  notes: editForm.notes,
+                  fundingSource: editForm.fundingSource,
+                })}
+                disabled={updateLoanMutation.isPending}
+                className="w-full"
+              >
+                {updateLoanMutation.isPending ? "Salvando…" : "Salvar Alterações"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
