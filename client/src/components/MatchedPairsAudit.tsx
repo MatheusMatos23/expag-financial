@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { useState, useMemo } from "react";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import {
-  Search, Unlink, ChevronLeft, ChevronRight, X, AlertTriangle,
+  Search, Unlink, ChevronLeft, ChevronRight, X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -65,6 +65,7 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
   const { data, isLoading, refetch } = trpc.reconciliation.getMatchedPairs.useQuery(
     {
       sessionId,
+      exactOnly: true, // só pares com valor idêntico (Δ = 0)
       search: parsedAmount === undefined ? (search || undefined) : undefined,
       amount: parsedAmount,
       amountTolerance: parsedAmount ? 2 : undefined,
@@ -238,7 +239,6 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
                   <th className="text-left px-3 py-2">Cliente (API)</th>
                   <th className="text-right px-3 py-2 w-32">Vlr Banco</th>
                   <th className="text-right px-3 py-2 w-32">Vlr API</th>
-                  <th className="text-right px-3 py-2 w-20">Δ</th>
                   <th className="text-right px-3 py-2 w-48">Ação</th>
                 </tr>
               </thead>
@@ -247,14 +247,10 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
                   const key = `${pair.bank.id}-${pair.api.id}`;
                   const isConfirming = confirmingId === key;
                   const isPending = unmatchMutation.isPending && confirmingId === key;
-                  const hasDiff = pair.amountDiff > 0.01;
                   return (
                     <tr
                       key={key}
-                      className={cn(
-                        "border-b border-border/40 hover:bg-muted/10 transition-colors",
-                        hasDiff && "bg-amber-500/[0.03]"
-                      )}
+                      className="border-b border-border/40 hover:bg-muted/10 transition-colors"
                     >
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                         {formatDate(pair.bank.transactionDate)}
@@ -279,16 +275,6 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
                         pair.api.type === "credit" ? "text-emerald-400" : "text-red-400"
                       )}>
                         {pair.api.type === "debit" ? "−" : ""}{formatCurrency(pair.api.amount)}
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        {hasDiff ? (
-                          <span className="inline-flex items-center gap-1 text-amber-400 font-semibold">
-                            <AlertTriangle className="w-3 h-3" />
-                            {formatCurrency(pair.amountDiff)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/40">—</span>
-                        )}
                       </td>
                       <td className="px-3 py-2 text-right">
                         {isConfirming ? (

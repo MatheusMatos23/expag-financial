@@ -108563,6 +108563,7 @@ async function getMatchedPairs(params) {
   if (params.type) conditions.push(sql`bt.type = ${params.type}`);
   if (params.bankName) conditions.push(sql`bt.bankName = ${params.bankName}`);
   if (params.matchType) conditions.push(sql`bt.matchType = ${params.matchType}`);
+  if (params.exactOnly) conditions.push(sql`bt.amount = at.amount`);
   const whereClause = sql.join(conditions, sql` AND `);
   const countRes = await db.execute(sql`
     SELECT COUNT(*) AS total
@@ -108725,6 +108726,93 @@ async function findSuspiciousPairsForDivergence(divergenceId) {
     sessionId: sessionId ?? 0,
     pairs
   };
+}
+async function unmatchFromDivergence(divergenceId) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const divRows = await db.select().from(divergences).where(eq(divergences.id, divergenceId)).limit(1);
+  const div = divRows[0];
+  if (!div) throw new Error("Diverg\xEAncia n\xE3o encontrada.");
+  if (!div.sessionId) throw new Error("Diverg\xEAncia sem sess\xE3o \u2014 n\xE3o h\xE1 par para desfazer.");
+  if (!div.bankAmount || !div.apiAmount) {
+    throw new Error("Esta diverg\xEAncia n\xE3o tem par conciliado \u2014 n\xE3o h\xE1 nada para desconciliar.");
+  }
+  const sessionId = div.sessionId;
+  const bankAmountStr = String(div.bankAmount);
+  const apiAmountStr = String(div.apiAmount);
+  const divDate = toMysqlDate(div.divergenceDate);
+  const bankRes = await db.execute(sql`
+    SELECT id, matchedApiTransactionId, transactionDate, amount, type, description, bankName, channel
+    FROM bank_transactions
+    WHERE sessionId = ${sessionId}
+      AND amount = ${bankAmountStr}
+      AND transactionDate = ${divDate}
+      AND matchStatus IN ('matched','manual')
+      AND matchedApiTransactionId IS NOT NULL
+    LIMIT 1
+  `);
+  const bankTx = (bankRes[0] ?? [])[0];
+  if (!bankTx) {
+    throw new Error("Transa\xE7\xE3o banc\xE1ria pareada n\xE3o encontrada \u2014 o par pode j\xE1 ter sido desfeito.");
+  }
+  const apiRes = await db.execute(sql`
+    SELECT id, transactionDate, amount, type, description, clientName
+    FROM api_transactions
+    WHERE id = ${bankTx.matchedApiTransactionId}
+    LIMIT 1
+  `);
+  const apiTx = (apiRes[0] ?? [])[0];
+  if (!apiTx) {
+    throw new Error("Transa\xE7\xE3o API pareada n\xE3o encontrada.");
+  }
+  await db.execute(sql`
+    UPDATE bank_transactions
+    SET matchStatus = 'pending', matchType = NULL, matchedApiTransactionId = NULL
+    WHERE id = ${bankTx.id}
+  `);
+  await db.execute(sql`
+    UPDATE api_transactions
+    SET matchStatus = 'pending', matchType = NULL, matchedBankTransactionId = NULL
+    WHERE id = ${apiTx.id}
+  `);
+  const newIds = [];
+  const bankAmountNum = parseFloat(String(bankTx.amount));
+  const r1 = await db.execute(sql`
+    INSERT INTO divergences (
+      sessionId, divergenceDate, bankName, divergenceType, amount,
+      category, priority, status, bankAmount, transactionType,
+      bankDescription, observation
+    ) VALUES (
+      ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
+      'bank_surplus', ${String(bankAmountNum.toFixed(2))},
+      'outros', 'medium', 'pendente',
+      ${String(bankAmountNum.toFixed(2))}, ${bankTx.type},
+      ${bankTx.description || null},
+      CONCAT('Desconciliado da divergência #', ${divergenceId}, ' (diferença de centavos)')
+    )
+  `);
+  const id1 = Number(r1[0]?.insertId ?? 0);
+  if (id1 > 0) newIds.push(id1);
+  const apiAmountNum = parseFloat(String(apiTx.amount));
+  const r2 = await db.execute(sql`
+    INSERT INTO divergences (
+      sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
+      category, priority, status, apiAmount, transactionType,
+      apiDescription, observation
+    ) VALUES (
+      ${sessionId}, ${toMysqlDate(apiTx.transactionDate)}, 'API', ${apiTx.clientName || null},
+      'bank_shortage', ${String(apiAmountNum.toFixed(2))},
+      'outros', 'medium', 'pendente',
+      ${String(apiAmountNum.toFixed(2))}, ${apiTx.type},
+      ${apiTx.description || null},
+      CONCAT('Desconciliado da divergência #', ${divergenceId}, ' (diferença de centavos)')
+    )
+  `);
+  const id2 = Number(r2[0]?.insertId ?? 0);
+  if (id2 > 0) newIds.push(id2);
+  await db.execute(sql`DELETE FROM divergences WHERE id = ${divergenceId}`);
+  invalidateReconciliationCaches();
+  return { success: true, newDivergenceIds: newIds };
 }
 async function unmatchPair(params) {
   const db = await getDb();
@@ -128907,6 +128995,7 @@ var reconciliationRouter = router({
     type: external_exports.enum(["credit", "debit"]).optional(),
     bankName: external_exports.string().optional(),
     matchType: external_exports.string().optional(),
+    exactOnly: external_exports.boolean().optional(),
     sortBy: external_exports.enum(["amount_desc", "amount_asc", "date_desc", "date_asc"]).optional(),
     page: external_exports.number().optional(),
     pageSize: external_exports.number().optional()
@@ -128918,6 +129007,22 @@ var reconciliationRouter = router({
     return getSessionBanks(input.sessionId);
   }),
   // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
+  // ── Desconciliar a partir de uma divergência (caso "diferença de centavos") ──
+  // Recebe o ID da divergência, encontra o par conciliado correspondente,
+  // desfaz o vínculo, e cria duas divergências limpas (Sobra + Falta).
+  // A divergência original é removida.
+  unmatchFromDivergence: protectedProcedure.input(external_exports.object({ divergenceId: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    const result = await unmatchFromDivergence(input.divergenceId);
+    await audit(ctx, {
+      action: "divergence.unmatch",
+      category: "divergencia",
+      entityType: "divergence",
+      entityId: String(input.divergenceId),
+      summary: `Desconciliou par a partir da diverg\xEAncia #${input.divergenceId} \u2014 geradas ${result.newDivergenceIds.length} novas diverg\xEAncias limpas`,
+      metadata: { divergenceId: input.divergenceId, newDivergenceIds: result.newDivergenceIds }
+    });
+    return result;
+  }),
   unmatchPair: protectedProcedure.input(external_exports.object({
     bankTransactionId: external_exports.number().optional(),
     apiTransactionId: external_exports.number().optional(),

@@ -1,7 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate, exportToCsv } from "@/lib/utils";
 import { useState } from "react";
-import { useLocation } from "wouter";
 import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
@@ -572,7 +571,6 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Divergences() {
-  const [, setLocation] = useLocation();
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -599,6 +597,17 @@ export default function Divergences() {
 
   const deleteMutation = trpc.reconciliation.deleteDivergence.useMutation({
     onSuccess: () => { toast.success("Divergência removida."); refetch(); setSelected(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const unmatchFromDivMutation = trpc.reconciliation.unmatchFromDivergence.useMutation({
+    onSuccess: ({ newDivergenceIds }) => {
+      toast.success(
+        `Par desconciliado — ${newDivergenceIds.length} nova(s) divergência(s) criada(s).`
+      );
+      refetch();
+      setSelected(null);
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -986,14 +995,21 @@ export default function Divergences() {
                                   onClick={() => setSelected(d)}>
                                   <Edit2 className="w-3 h-3" />
                                 </Button>
-                                {d.sessionId && (
+                                {d.sessionId && d.bankAmount && d.apiAmount && (
                                   <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-amber-400"
-                                    title="Investigar pares conciliados — pode haver um match errado por aqui"
-                                    onClick={() => {
-                                      const amt = parseFloat(String(d.amount ?? 0)).toFixed(2);
-                                      // Usa window.location pra garantir que o ?audit=1&amount=X é preservado
-                                      // (wouter strip query strings em navigation interna)
-                                      window.location.href = `/conciliacao/${d.sessionId}?audit=1&amount=${amt}`;
+                                    title="Desconciliar este par — os dois lados voltam para divergências limpas"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const bankAmt = parseFloat(String(d.bankAmount));
+                                      const apiAmt = parseFloat(String(d.apiAmount));
+                                      if (confirm(
+                                        `Desconciliar este par?\n\n` +
+                                        `Banco: ${formatCurrency(bankAmt)}\n` +
+                                        `API: ${formatCurrency(apiAmt)}\n\n` +
+                                        `Os dois lados voltarão para divergências separadas e a diferença atual será removida.`
+                                      )) {
+                                        unmatchFromDivMutation.mutate({ divergenceId: d.id });
+                                      }
                                     }}>
                                     <Unlink className="w-3 h-3" />
                                   </Button>

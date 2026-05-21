@@ -929,6 +929,7 @@ const reconciliationRouter = router({
       type: z.enum(['credit', 'debit']).optional(),
       bankName: z.string().optional(),
       matchType: z.string().optional(),
+      exactOnly: z.boolean().optional(),
       sortBy: z.enum(['amount_desc', 'amount_asc', 'date_desc', 'date_asc']).optional(),
       page: z.number().optional(),
       pageSize: z.number().optional(),
@@ -945,6 +946,23 @@ const reconciliationRouter = router({
     }),
 
   // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
+  // ── Desconciliar a partir de uma divergência (caso "diferença de centavos") ──
+  // Recebe o ID da divergência, encontra o par conciliado correspondente,
+  // desfaz o vínculo, e cria duas divergências limpas (Sobra + Falta).
+  // A divergência original é removida.
+  unmatchFromDivergence: protectedProcedure
+    .input(z.object({ divergenceId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.unmatchFromDivergence(input.divergenceId);
+      await audit(ctx, {
+        action: "divergence.unmatch", category: "divergencia",
+        entityType: "divergence", entityId: String(input.divergenceId),
+        summary: `Desconciliou par a partir da divergência #${input.divergenceId} — geradas ${result.newDivergenceIds.length} novas divergências limpas`,
+        metadata: { divergenceId: input.divergenceId, newDivergenceIds: result.newDivergenceIds },
+      });
+      return result;
+    }),
+
   unmatchPair: protectedProcedure
     .input(z.object({
       bankTransactionId: z.number().optional(),
