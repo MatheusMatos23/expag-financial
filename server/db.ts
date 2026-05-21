@@ -957,6 +957,8 @@ export async function upsertDRE(data: {
       taxes = VALUES(taxes), operationalResult = VALUES(operationalResult),
       netProfit = VALUES(netProfit), margin = VALUES(margin)
   `);
+  // Override de DRE afeta cálculos do Dashboard de Controladoria
+  invalidateReconciliationCaches();
 }
 
 // ─── FLUXO DE CAIXA ───────────────────────────────────────────────────────────
@@ -1051,6 +1053,8 @@ export async function upsertCashFlow(data: {
       freeCash = VALUES(freeCash), fundingNeeded = VALUES(fundingNeeded),
       projectionD7 = VALUES(projectionD7), projectionD15 = VALUES(projectionD15), projectionD30 = VALUES(projectionD30)
   `);
+  // Override de fluxo de caixa afeta saldos e indicadores no Dashboard
+  invalidateReconciliationCaches();
 }
 
 // ─── ALERTAS ──────────────────────────────────────────────────────────────────

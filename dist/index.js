@@ -109621,6 +109621,7 @@ async function upsertDRE(data) {
       taxes = VALUES(taxes), operationalResult = VALUES(operationalResult),
       netProfit = VALUES(netProfit), margin = VALUES(margin)
   `);
+  invalidateReconciliationCaches();
 }
 async function getCashFlow(days = 30) {
   const db = await getDb();
@@ -109710,6 +109711,7 @@ async function upsertCashFlow(data) {
       freeCash = VALUES(freeCash), fundingNeeded = VALUES(fundingNeeded),
       projectionD7 = VALUES(projectionD7), projectionD15 = VALUES(projectionD15), projectionD30 = VALUES(projectionD30)
   `);
+  invalidateReconciliationCaches();
 }
 async function generateSystemAlerts() {
   const db = await getDb();

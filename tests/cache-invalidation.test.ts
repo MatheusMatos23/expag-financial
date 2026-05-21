@@ -71,6 +71,8 @@ const REQUIRES_INVALIDATION = [
   "markDivergencesAsNdi",
   "unmarkNdi",
   "createManualAdjustment",
+  "upsertDRE",
+  "upsertCashFlow",
   // funções que já tinham invalidação — verifica que continuam tendo
   "manualReconcileDivergences",
   "unmatchFromDivergence",
