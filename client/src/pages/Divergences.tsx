@@ -789,7 +789,7 @@ export default function Divergences() {
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos os status</SelectItem>
+              <SelectItem value="all" className="text-xs">Ativos (excl. regularizados)</SelectItem>
               {Object.entries(STATUS_LABELS).map(([v, l]) => <SelectItem key={v} value={v} className="text-xs">{l}</SelectItem>)}
             </SelectContent>
           </Select>

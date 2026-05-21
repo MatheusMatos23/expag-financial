@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql, between, like, or, isNotNull, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql, between, like, or, isNotNull, inArray, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -531,12 +531,13 @@ export async function createDivergence(data: {
 
 export async function getDivergences(filters?: {
   sessionId?: number; status?: string; priority?: string; dateFrom?: string; dateTo?: string;
+  includeResolved?: boolean; // true para incluir regularizado/reclassificado/baixado
 }) {
   // Caso especial: chamada sem filtros (do Dashboard) é a mais pesada e a mais
   // repetida. Vale a pena cachear por alguns segundos.
   const isUnfiltered = !filters || (
     !filters.sessionId && !filters.status && !filters.priority &&
-    !filters.dateFrom && !filters.dateTo
+    !filters.dateFrom && !filters.dateTo && !filters.includeResolved
   );
   if (isUnfiltered) {
     const cached = cacheGet<any[]>('divergences_all');
@@ -550,6 +551,15 @@ export async function getDivergences(filters?: {
   if (filters?.priority) conditions.push(eq(divergences.priority, filters.priority as any));
   if (filters?.dateFrom) conditions.push(gte(divergences.divergenceDate, filters.dateFrom as unknown as Date));
   if (filters?.dateTo) conditions.push(lte(divergences.divergenceDate, filters.dateTo as unknown as Date));
+
+  // Por padrão, exclui divergências já resolvidas (regularizado/reclassificado/baixado).
+  // Sem isso, o Dashboard e a tela de Divergências mostravam itens "fantasma"
+  // que já tinham sido tratados mas ainda apareciam nas contagens.
+  // Para ver tudo (auditoria), passe includeResolved: true ou um status explícito.
+  if (!filters?.status && !filters?.includeResolved) {
+    conditions.push(notInArray(divergences.status, ['regularizado', 'reclassificado', 'baixado']));
+  }
+
   const result = await db.select().from(divergences)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(divergences.createdAt))

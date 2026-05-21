@@ -752,6 +752,7 @@ const reconciliationRouter = router({
       priority: z.string().optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
+      includeResolved: z.boolean().optional(),
     }))
     .query(async ({ input }) => {
       return db.getDivergences(input);

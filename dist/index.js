@@ -109294,7 +109294,7 @@ async function createDivergence(data) {
   return result[0]?.insertId ?? 0;
 }
 async function getDivergences(filters) {
-  const isUnfiltered = !filters || !filters.sessionId && !filters.status && !filters.priority && !filters.dateFrom && !filters.dateTo;
+  const isUnfiltered = !filters || !filters.sessionId && !filters.status && !filters.priority && !filters.dateFrom && !filters.dateTo && !filters.includeResolved;
   if (isUnfiltered) {
     const cached2 = cacheGet("divergences_all");
     if (cached2) return cached2;
@@ -109307,6 +109307,9 @@ async function getDivergences(filters) {
   if (filters?.priority) conditions.push(eq(divergences.priority, filters.priority));
   if (filters?.dateFrom) conditions.push(gte(divergences.divergenceDate, filters.dateFrom));
   if (filters?.dateTo) conditions.push(lte(divergences.divergenceDate, filters.dateTo));
+  if (!filters?.status && !filters?.includeResolved) {
+    conditions.push(notInArray(divergences.status, ["regularizado", "reclassificado", "baixado"]));
+  }
   const result = await db.select().from(divergences).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(divergences.createdAt)).limit(1e3);
   if (isUnfiltered) {
     cacheSet("divergences_all", result, 1e4);
@@ -134118,7 +134121,8 @@ var reconciliationRouter = router({
     status: external_exports.string().optional(),
     priority: external_exports.string().optional(),
     dateFrom: external_exports.string().optional(),
-    dateTo: external_exports.string().optional()
+    dateTo: external_exports.string().optional(),
+    includeResolved: external_exports.boolean().optional()
   })).query(async ({ input }) => {
     return getDivergences(input);
   }),
