@@ -141,11 +141,14 @@ export const divergences = mysqlTable("divergences", {
   evidence: text("evidence"),
   observation: text("observation"),
   actionTaken: text("actionTaken"),
-  // NDI — Não Identificado: entrada no banco sem correspondência na API
-  isNdi: boolean("isNdi").default(false),
-  ndiNote: text("ndiNote"),
-  ndiFoundDate: date("ndiFoundDate"),       // data em que foi identificado
-  ndiClientName: varchar("ndiClientName", { length: 200 }), // cliente identificado
+  // NID — Não Identificado: entrada no banco sem correspondência na API.
+  // Propriedade TS = isNid (sigla correta), mas coluna SQL mantém o nome
+  // antigo "isNdi" para evitar migration de rename (drizzle-kit push é
+  // interativo nesse caso e quebra o deploy do Railway).
+  isNid: boolean("isNdi").default(false),
+  nidNote: text("ndiNote"),
+  nidFoundDate: date("ndiFoundDate"),       // data em que foi identificado
+  nidClientName: varchar("ndiClientName", { length: 200 }), // cliente identificado
   // Estorno: transação estornada automaticamente detectada
   isEstorno: boolean("isEstorno").default(false),
   bankTransactionId: int("bankTransactionId"),
