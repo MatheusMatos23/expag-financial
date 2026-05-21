@@ -137,19 +137,17 @@ export default function Dashboard() {
       },
     };
   }
-  // Usa stats ao vivo se disponível (mais preciso), fallback para sessão
+  // ── Stats ao vivo da sessão mais recente ──
+  // getSessionStats agora retorna matchRate = (matchedBank + resolvedDivs) / (matchedBank + totalDivs)
+  // Regularizar QUALQUER divergência (banco, API, diferença) aumenta a taxa → caminho ao 100%.
   const liveMatched    = (lastSessionStats as any)?.matchedCount  ?? lastSession?.matchedCount  ?? 0;
-  const liveTotal      = (lastSessionStats as any)?.totalCount    ?? 0;
-  const liveUnmatched  = (lastSessionStats as any)?.unmatchedBankCount ?? Math.max(0, liveTotal - liveMatched);
-  const liveDivCount   = (lastSessionStats as any)?.divergenceCount ?? (lastSessionStats as any)?.pendingCount ?? lastSession?.pendingCount ?? 0;
+  const liveDivCount   = (lastSessionStats as any)?.pendingCount  ?? lastSession?.pendingCount  ?? 0;
   const liveMatchRate  = (lastSessionStats as any)?.matchRate;
+  const liveTotalBank  = (lastSessionStats as any)?.totalCount    ?? 0;
 
-  // ── Universo BANCO (para o card "Taxa de Conciliação") ──
-  // Estes 3 DEVEM fechar: matchedCount + unmatchedCount = totalCount
   const lastMatched    = liveMatched;
-  const lastUnmatched  = liveUnmatched;
-  const lastTotal      = liveTotal > 0 ? liveTotal : (liveMatched + liveUnmatched);
-  const matchRate      = liveMatchRate ?? (lastTotal > 0 ? Math.round((lastMatched / lastTotal) * 100) : 0);
+  const lastTotal      = liveTotalBank > 0 ? liveTotalBank : (lastSession?.matchedCount ?? 0);
+  const matchRate      = liveMatchRate ?? 0;
 
   // ── Universo DIVERGÊNCIAS (para cards de pendências, volume, sobra/falta) ──
   // Divergências ≥ unmatchedCount porque incluem API-only + diferenças
@@ -219,7 +217,7 @@ export default function Dashboard() {
         <KpiCard label="Despesas"     value={formatCurrency(totalExpenses)} color="text-red-400"     icon={TrendingDown} onClick={() => navigate("/despesas")} sub={`${ctrlData?.recentExpenses?.length ?? 0} lançamentos`} />
         <KpiCard label="Resultado"    value={formatCurrency(netResult)}     color={netResult >= 0 ? "text-emerald-400" : "text-red-400"} icon={DollarSign} sub={`Margem ${margin.toFixed(1)}%`} />
         <KpiCard label="Pendente"     value={formatCurrency(pendingAmt)}    color="text-yellow-400"  icon={AlertTriangle} onClick={() => navigate("/divergencias")} sub={`${pendingDivs.length} itens · ${criticalDivs.length} críticos`} />
-        <KpiCard label="Conciliação"  value={`${matchRate}%`}     color={matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400"} icon={CheckCircle2} onClick={() => navigate("/conciliacao")} sub={`${lastMatched.toLocaleString()} de ${lastTotal.toLocaleString()} transações`} />
+        <KpiCard label="Conciliação"  value={`${matchRate}%`}     color={matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400"} icon={CheckCircle2} onClick={() => navigate("/conciliacao")} sub={liveDivCount > 0 ? `${liveDivCount} pendente${liveDivCount !== 1 ? "s" : ""}` : "Tudo conciliado!"} />
       </div>
 
       {/* ── Faixa 2: Divergências pendentes resumo ───────────────────────── */}
@@ -435,15 +433,9 @@ export default function Dashboard() {
           <div className="flex items-center gap-3 mb-4">
             <p className={cn("text-4xl font-bold font-mono", matchRate>=90?"text-emerald-400":matchRate>=70?"text-yellow-400":"text-red-400")}>{matchRate}%</p>
             <div className="flex-1 text-xs text-muted-foreground space-y-0.5">
-              <div className="flex justify-between"><span>Conciliados</span><span className="text-emerald-400 font-mono">{lastMatched.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>Não conciliados</span><span className="text-yellow-400 font-mono">{lastUnmatched.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>Conciliados (engine)</span><span className="text-emerald-400 font-mono">{lastMatched.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span>Divergências pendentes</span><span className="text-yellow-400 font-mono">{liveDivCount.toLocaleString()}</span></div>
               <div className="flex justify-between"><span>Total banco</span><span className="text-muted-foreground font-mono">{lastTotal.toLocaleString()}</span></div>
-              {liveDivCount > lastUnmatched && (
-                <div className="flex justify-between mt-1 pt-1 border-t border-border/50 text-[10px]">
-                  <span className="text-muted-foreground">Divergências (incl. API)</span>
-                  <span className="text-orange-400 font-mono">{liveDivCount.toLocaleString()}</span>
-                </div>
-              )}
             </div>
           </div>
           <div className="w-full bg-accent/20 rounded-full h-2 overflow-hidden mb-4">

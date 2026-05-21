@@ -108943,6 +108943,41 @@ function invalidateReconciliationCaches() {
   _cache.delete("boleto_daily_balances");
   cacheInvalidate("reconciliation_sessions_");
 }
+async function markResolvedBankTransactions(divergenceIds) {
+  if (divergenceIds.length === 0) return;
+  const dbConn = await getDb();
+  if (!dbConn) return;
+  const rows = await dbConn.execute(sql`
+    SELECT bankTransactionId, apiTransactionId
+    FROM divergences
+    WHERE id IN (${sql.raw(divergenceIds.join(","))})
+    AND bankTransactionId IS NOT NULL
+  `);
+  const bankTxIds = (rows[0] ?? []).map((r) => r.bankTransactionId).filter(Boolean);
+  if (bankTxIds.length > 0) {
+    await dbConn.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'manual'
+      WHERE id IN (${sql.raw(bankTxIds.join(","))})
+      AND matchStatus NOT IN ('matched')
+    `);
+  }
+  const apiRows = await dbConn.execute(sql`
+    SELECT apiTransactionId
+    FROM divergences
+    WHERE id IN (${sql.raw(divergenceIds.join(","))})
+    AND apiTransactionId IS NOT NULL
+  `);
+  const apiTxIds = (apiRows[0] ?? []).map((r) => r.apiTransactionId).filter(Boolean);
+  if (apiTxIds.length > 0) {
+    await dbConn.execute(sql`
+      UPDATE api_transactions
+      SET matchStatus = 'manual'
+      WHERE id IN (${sql.raw(apiTxIds.join(","))})
+      AND matchStatus NOT IN ('matched')
+    `);
+  }
+}
 function toISODate(val) {
   if (!val) return "";
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -109413,6 +109448,7 @@ async function moveDivergencesToRevenue(ids, data) {
     revenueIds.push(revId);
   }
   await dbConn.update(divergences).set({ status: "regularizado", actionTaken: "Movido para Receitas" }).where(inArray(divergences.id, ids));
+  await markResolvedBankTransactions(ids);
   invalidateReconciliationCaches();
   return revenueIds;
 }
@@ -109437,6 +109473,7 @@ async function moveDivergencesToExpense(ids, data) {
     expenseIds.push(expId);
   }
   await dbConn.update(divergences).set({ status: "regularizado", actionTaken: "Movido para Despesas" }).where(inArray(divergences.id, ids));
+  await markResolvedBankTransactions(ids);
   invalidateReconciliationCaches();
   return expenseIds;
 }
@@ -111277,6 +111314,7 @@ async function moveDivergencesToBoleto(params) {
       WHERE id = ${id}
     `);
   }
+  await markResolvedBankTransactions(params.divergenceIds);
   _cache.clear();
   return {
     movedCount: divs.length,

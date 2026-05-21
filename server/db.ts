@@ -61,6 +61,66 @@ function invalidateReconciliationCaches() {
 }
 
 /** Converte Date do MySQL (ou string) para ISO YYYY-MM-DD de forma segura */
+
+/**
+ * Quando uma divergência é regularizada (movida pra Receita, Despesa, Boleto,
+ * resolvida como NDI, etc.), a bank_transaction correspondente TAMBÉM precisa
+ * ser marcada como resolvida. Sem isso, getSessionStats continua contando ela
+ * como 'divergent' e a taxa de matching nunca sobe — impossível chegar em 100%.
+ *
+ * Esta função lê o bankTransactionId de cada divergência e atualiza o
+ * matchStatus para 'manual' (que já é contado em getSessionStats como
+ * conciliado). Apenas atualiza transações que ainda estão 'divergent' ou
+ * 'pending' — não toca em transações já 'matched' pelo engine.
+ */
+async function markResolvedBankTransactions(divergenceIds: number[]) {
+  if (divergenceIds.length === 0) return;
+  const dbConn = await getDb();
+  if (!dbConn) return;
+
+  // Busca bankTransactionId e apiTransactionId das divergências
+  const rows = await dbConn.execute(sql`
+    SELECT bankTransactionId, apiTransactionId
+    FROM divergences
+    WHERE id IN (${sql.raw(divergenceIds.join(','))})
+    AND bankTransactionId IS NOT NULL
+  `);
+
+  const bankTxIds = ((rows as any)[0] ?? [])
+    .map((r: any) => r.bankTransactionId)
+    .filter(Boolean);
+
+  if (bankTxIds.length > 0) {
+    await dbConn.execute(sql`
+      UPDATE bank_transactions
+      SET matchStatus = 'manual'
+      WHERE id IN (${sql.raw(bankTxIds.join(','))})
+      AND matchStatus NOT IN ('matched')
+    `);
+  }
+
+  // Para divergências com apiTransactionId (bank_shortage), marca a API tx também
+  const apiRows = await dbConn.execute(sql`
+    SELECT apiTransactionId
+    FROM divergences
+    WHERE id IN (${sql.raw(divergenceIds.join(','))})
+    AND apiTransactionId IS NOT NULL
+  `);
+
+  const apiTxIds = ((apiRows as any)[0] ?? [])
+    .map((r: any) => r.apiTransactionId)
+    .filter(Boolean);
+
+  if (apiTxIds.length > 0) {
+    await dbConn.execute(sql`
+      UPDATE api_transactions
+      SET matchStatus = 'manual'
+      WHERE id IN (${sql.raw(apiTxIds.join(','))})
+      AND matchStatus NOT IN ('matched')
+    `);
+  }
+}
+
 function toISODate(val: Date | string | null | undefined): string {
   if (!val) return '';
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -686,6 +746,9 @@ export async function moveDivergencesToRevenue(
     .set({ status: 'regularizado', actionTaken: 'Movido para Receitas' })
     .where(inArray(divergences.id, ids));
 
+  // Atualiza bank_transactions correspondentes → taxa de matching sobe
+  await markResolvedBankTransactions(ids);
+
   // Invalida cache: divergências mudaram + saldos podem ter sido afetados
   invalidateReconciliationCaches();
 
@@ -725,6 +788,9 @@ export async function moveDivergencesToExpense(
   await dbConn.update(divergences)
     .set({ status: 'regularizado', actionTaken: 'Movido para Despesas' })
     .where(inArray(divergences.id, ids));
+
+  // Atualiza bank_transactions correspondentes → taxa de matching sobe
+  await markResolvedBankTransactions(ids);
 
   // Invalida cache: divergências mudaram + saldos podem ter sido afetados
   invalidateReconciliationCaches();
@@ -3247,6 +3313,9 @@ export async function moveDivergencesToBoleto(params: {
       WHERE id = ${id}
     `);
   }
+
+  // Atualiza bank_transactions correspondentes → taxa de matching sobe
+  await markResolvedBankTransactions(params.divergenceIds);
 
   _cache.clear();
   return {
