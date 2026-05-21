@@ -2761,14 +2761,18 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
   const apiAmountNum = parseFloat(String(apiTx.amount));
   const preservedBankName = div.bankName ?? bankTx.bankName ?? null;
 
-  // Sobra no banco
+  // Sobra no banco — preserva o clientName da divergência original
+  // (que veio da API pareada antes do desfazer) para manter o contexto
+  // que o usuário já via. Ex: PIX da Gol → clientName='GOL COMBUSTIVEIS SA'
+  // tanto na divergência banco quanto na divergência API.
   const r1 = await db.execute(sql`
     INSERT INTO divergences (
-      sessionId, divergenceDate, bankName, divergenceType, amount,
+      sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
       category, priority, status, bankAmount, transactionType,
       bankDescription, observation, externalId
     ) VALUES (
       ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${preservedBankName},
+      ${div.clientName ?? apiTx.clientName ?? null},
       'bank_surplus', ${String(bankAmountNum.toFixed(2))},
       'outros', 'medium', 'pendente',
       ${String(bankAmountNum.toFixed(2))}, ${bankTx.type},

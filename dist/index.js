@@ -108810,11 +108810,12 @@ async function unmatchFromDivergence(divergenceId) {
   const preservedBankName = div.bankName ?? bankTx.bankName ?? null;
   const r1 = await db.execute(sql`
     INSERT INTO divergences (
-      sessionId, divergenceDate, bankName, divergenceType, amount,
+      sessionId, divergenceDate, bankName, clientName, divergenceType, amount,
       category, priority, status, bankAmount, transactionType,
       bankDescription, observation, externalId
     ) VALUES (
       ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${preservedBankName},
+      ${div.clientName ?? apiTx.clientName ?? null},
       'bank_surplus', ${String(bankAmountNum.toFixed(2))},
       'outros', 'medium', 'pendente',
       ${String(bankAmountNum.toFixed(2))}, ${bankTx.type},
