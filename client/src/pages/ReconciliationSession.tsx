@@ -230,18 +230,25 @@ export default function ReconciliationSession() {
 
   // Detecta se chegou aqui via "Investigar pares" da aba Divergências
   // (URL: /conciliacao/{id}?audit=1&amount=X)
+  // Roda no mount e quando a URL muda (caso o usuário use o botão voltar).
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("audit") === "1") {
-      setView("audit");
-      const amt = parseFloat(url.searchParams.get("amount") ?? "");
-      if (!isNaN(amt) && amt > 0) setAuditPrefilledAmount(amt);
-      // Limpa os params para não reativar em reload
-      url.searchParams.delete("audit");
-      url.searchParams.delete("amount");
-      window.history.replaceState({}, "", url.pathname);
-    }
+    // Pequeno delay para garantir que o wouter já registrou a URL.
+    const t = setTimeout(() => {
+      const search = window.location.search;
+      if (!search) return;
+      const params = new URLSearchParams(search);
+      if (params.get("audit") === "1") {
+        console.log("[Audit Pares] URL detectada, abrindo view audit", { search });
+        setView("audit");
+        const amt = parseFloat(params.get("amount") ?? "");
+        if (!isNaN(amt) && amt > 0) setAuditPrefilledAmount(amt);
+        // Limpa os params para não reativar em reload
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, "", newUrl);
+      }
+    }, 50);
+    return () => clearTimeout(t);
   }, []);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const id = parseInt(params.id ?? "0");

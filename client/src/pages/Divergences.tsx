@@ -991,7 +991,9 @@ export default function Divergences() {
                                     title="Investigar pares conciliados — pode haver um match errado por aqui"
                                     onClick={() => {
                                       const amt = parseFloat(String(d.amount ?? 0)).toFixed(2);
-                                      setLocation(`/conciliacao/${d.sessionId}?audit=1&amount=${amt}`);
+                                      // Usa window.location pra garantir que o ?audit=1&amount=X é preservado
+                                      // (wouter strip query strings em navigation interna)
+                                      window.location.href = `/conciliacao/${d.sessionId}?audit=1&amount=${amt}`;
                                     }}>
                                     <Unlink className="w-3 h-3" />
                                   </Button>
