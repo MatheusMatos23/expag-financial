@@ -233,9 +233,9 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
           <p className="text-2xl font-bold text-emerald-400">{liveMatchedCount}</p>
         </div>
         <div className="card-premium rounded-xl p-4">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Divergentes</p>
-          <p className="text-2xl font-bold text-yellow-400">{liveDivergentCount}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{livePendingCount} pendentes</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Divergências</p>
+          <p className="text-2xl font-bold text-yellow-400">{livePendingCount}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{liveDivergentCount} sem par no banco</p>
         </div>
         <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Valor em Aberto</p>
@@ -541,7 +541,7 @@ export default function Reconciliation() {
               {(sessions as any[]).filter((s: any) => s.id !== selectedSession).slice(0, 10).map((s: any) => (
                 <div key={s.id} className="flex items-center gap-3 px-5 py-2.5 hover:bg-accent/20 text-xs cursor-pointer"
                   onClick={() => setSelectedSession(s.id)}>
-                  <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", s.divergentCount > 0 ? "bg-yellow-400" : "bg-emerald-400")} />
+                  <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", (s.pendingCount ?? s.divergentCount ?? 0) > 0 ? "bg-yellow-400" : "bg-emerald-400")} />
                   <span className="text-muted-foreground w-24 shrink-0">{formatDate(s.referenceDate)}</span>
                   <span className="text-emerald-400">✅ {s.matchedCount}</span>
                   <span className="text-yellow-400">⚠️ {s.pendingCount ?? s.divergentCount ?? 0} pend.</span>
