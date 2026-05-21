@@ -2686,20 +2686,32 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
     `);
     bankTx = ((r as any)[0] ?? [])[0] ?? null;
   }
-  // Fallback: por sessionId + amount + data (qualquer matchStatus)
+  // Fallback: por sessionId + amount + data — SEMPRE filtrando por bankName
+  // (sem isso, podia pegar transação de outro banco com mesmo valor/data)
   if (!bankTx) {
+    // Tenta vários "matchers" de bankName: o label completo da divergência
+    // ("Sicoob"), o código em minúsculas ("sicoob"), ou início do label
+    // (caso o banco esteja salvo como código no bank_transactions e como
+    //  label na divergência ou vice-versa)
+    const divBankName = String(div.bankName ?? "").trim();
+    const divBankCode = divBankName.toLowerCase().split(" ")[0]; // "JD (Expag)" → "jd"
     const r = await db.execute(sql`
       SELECT id, transactionDate, amount, type, description, bankName, channel, matchStatus
       FROM bank_transactions
       WHERE sessionId = ${sessionId}
         AND amount = ${bankAmountStr}
         AND transactionDate = ${divDate}
+        AND (
+          bankName = ${divBankName}
+          OR LOWER(bankName) = ${divBankCode}
+          OR LOWER(bankName) = ${divBankName.toLowerCase()}
+        )
       LIMIT 1
     `);
     bankTx = ((r as any)[0] ?? [])[0] ?? null;
   }
   if (!bankTx) {
-    throw new Error("Transação bancária correspondente não encontrada nesta sessão.");
+    throw new Error(`Transação bancária correspondente não encontrada nesta sessão (banco: ${div.bankName}, valor: ${div.bankAmount}, data: ${divDate}).`);
   }
 
   // 3. Localiza a transação API correspondente
@@ -2741,9 +2753,13 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
   `);
 
   // 5. Cria duas novas divergências limpas
+  // IMPORTANTE: usa o `bankName` da divergência ORIGINAL (que está com o
+  // label correto, ex: "Sicoob") em vez de `bankTx.bankName` (que pode estar
+  // com o código bruto, ex: "sicoob"). Isso preserva o que o usuário já via.
   const newIds: number[] = [];
   const bankAmountNum = parseFloat(String(bankTx.amount));
   const apiAmountNum = parseFloat(String(apiTx.amount));
+  const preservedBankName = div.bankName ?? bankTx.bankName ?? null;
 
   // Sobra no banco
   const r1 = await db.execute(sql`
@@ -2752,7 +2768,7 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
       category, priority, status, bankAmount, transactionType,
       bankDescription, observation, externalId
     ) VALUES (
-      ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${bankTx.bankName || null},
+      ${sessionId}, ${toMysqlDate(bankTx.transactionDate)}, ${preservedBankName},
       'bank_surplus', ${String(bankAmountNum.toFixed(2))},
       'outros', 'medium', 'pendente',
       ${String(bankAmountNum.toFixed(2))}, ${bankTx.type},

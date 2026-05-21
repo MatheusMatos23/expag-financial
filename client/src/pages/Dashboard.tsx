@@ -95,6 +95,24 @@ export default function Dashboard() {
     { id: lastSession?.id ?? 0 },
     { enabled: !!lastSession?.id, refetchInterval: 8000 }
   );
+
+  // DEBUG temporário — ajuda a diagnosticar delay de atualização
+  // Remove depois que confirmarmos que o problema está resolvido
+  if (typeof window !== "undefined") {
+    (window as any).__dashboardDebug = {
+      timestamp: new Date().toISOString(),
+      sessionsCount: sessionList.length,
+      lastSession: lastSession ? {
+        id: lastSession.id,
+        matchedCount: lastSession.matchedCount,
+        divergentCount: lastSession.divergentCount,
+        pendingCount: lastSession.pendingCount,
+      } : null,
+      liveStats: lastSessionStats,
+      divAllCount: (divAll as any[])?.length ?? 0,
+      bankByBankCount: (bankByBank as any[])?.length ?? 0,
+    };
+  }
   // Usa stats ao vivo se disponível (mais preciso), fallback para sessão
   const liveMatched    = (lastSessionStats as any)?.matchedCount  ?? lastSession?.matchedCount  ?? 0;
   const liveTotal      = (lastSessionStats as any)?.totalCount    ?? 0;
