@@ -134154,15 +134154,21 @@ var reconciliationRouter = router({
     const dbConn = await getDb();
     if (!dbConn) return null;
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
-    const [totalAllRes, matchedRes, pendingRes, sessionRes] = await Promise.all([
+    const [totalAllRes, matchedRes, pendingRes, surplusRes, shortageRes, sessionRes] = await Promise.all([
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id}`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM bank_transactions WHERE sessionId = ${input.id} AND matchStatus IN ('matched','manual')`),
       dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND status NOT IN ('regularizado','reclassificado','baixado')`),
+      // bank_surplus = transação só existe no banco (não tem par na API)
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND divergenceType = 'bank_surplus' AND status NOT IN ('regularizado','reclassificado','baixado')`),
+      // bank_shortage = transação só existe na API (não tem par no banco)
+      dbConn.execute(sqlTag`SELECT COUNT(*) as cnt FROM divergences WHERE sessionId = ${input.id} AND divergenceType = 'bank_shortage' AND status NOT IN ('regularizado','reclassificado','baixado')`),
       dbConn.execute(sqlTag`SELECT matchedCount, divergentCount, pendingCount FROM reconciliation_sessions WHERE id = ${input.id} LIMIT 1`)
     ]);
     const totalAllTxs = parseInt(String(totalAllRes[0]?.[0]?.cnt ?? 0));
     const matchedBankTxs = parseInt(String(matchedRes[0]?.[0]?.cnt ?? 0));
     const pendingDivs = parseInt(String(pendingRes[0]?.[0]?.cnt ?? 0));
+    const surplusDivs = parseInt(String(surplusRes[0]?.[0]?.cnt ?? 0));
+    const shortageDivs = parseInt(String(shortageRes[0]?.[0]?.cnt ?? 0));
     const sessionRow = sessionRes[0]?.[0];
     const sessionMatched = parseInt(String(sessionRow?.matchedCount ?? 0));
     const sessionDivergent = parseInt(String(sessionRow?.divergentCount ?? 0));
@@ -134176,13 +134182,23 @@ var reconciliationRouter = router({
       effectiveTotal = sessionMatched + sessionDivergent;
     }
     const matchRate = effectiveTotal > 0 ? Math.round(effectiveMatched / effectiveTotal * 100) : 0;
-    const realDivergent = effectiveTotal - effectiveMatched;
+    const unmatchedBankCount = Math.max(0, effectiveTotal - effectiveMatched);
     return {
+      // Universo BANCO (tudo fecha: matchedCount + unmatchedBankCount = totalCount)
       totalCount: effectiveTotal,
       matchedCount: effectiveMatched,
-      pendingCount: pendingDivs,
+      unmatchedBankCount,
       matchRate,
-      divergentCount: Math.max(0, realDivergent)
+      // Universo DIVERGÊNCIAS (diferente! inclui API-only + bank-only + diferenças)
+      // pendingCount >= unmatchedBankCount porque inclui divergências de API sem par
+      divergenceCount: pendingDivs,
+      surplusDivCount: surplusDivs,
+      // banco sem par na API
+      shortageDivCount: shortageDivs,
+      // API sem par no banco
+      // Legacy (mantido para compatibilidade com ReconciliationSession.tsx)
+      pendingCount: pendingDivs,
+      divergentCount: unmatchedBankCount
     };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────

@@ -630,7 +630,7 @@ export default function ReconciliationSession() {
         >
           <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="clique para auditar →" highlight />
         </button>
-        <KPI label="Divergências"  value={livePendingCount}  color="text-amber-400" sub={`${liveDivergentCount} total · ${liveMatchedCount} conciliados`} />
+        <KPI label="Divergências"  value={livePendingCount}  color="text-amber-400" sub={`${liveDivergentCount} não conciliados banco`} />
         <KPI label="Taxa Matching"
           value={`${matchRate}%`}
           color={matchRate >= 90 ? "text-emerald-400" : matchRate >= 70 ? "text-amber-400" : "text-red-400"}
