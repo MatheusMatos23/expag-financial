@@ -50842,12 +50842,12 @@ var init_schema2 = __esm({
       evidence: text("evidence"),
       observation: text("observation"),
       actionTaken: text("actionTaken"),
-      // NID — Não Identificado: entrada no banco sem correspondência na API
-      isNid: boolean("isNid").default(false),
-      nidNote: text("nidNote"),
-      nidFoundDate: date("nidFoundDate"),
+      // NDI — Não Identificado: entrada no banco sem correspondência na API
+      isNdi: boolean("isNdi").default(false),
+      ndiNote: text("ndiNote"),
+      ndiFoundDate: date("ndiFoundDate"),
       // data em que foi identificado
-      nidClientName: varchar("nidClientName", { length: 200 }),
+      ndiClientName: varchar("ndiClientName", { length: 200 }),
       // cliente identificado
       // Estorno: transação estornada automaticamente detectada
       isEstorno: boolean("isEstorno").default(false),
@@ -109808,19 +109808,19 @@ async function generateSystemAlerts() {
       ) AND status = 'ativo'
     `);
   }
-  const oldNid = await db.execute(sql`
+  const oldNdi = await db.execute(sql`
     SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
     FROM divergences
-    WHERE isNid = 1
+    WHERE isNdi = 1
     AND status NOT IN ('regularizado','reclassificado','baixado')
     AND divergenceDate < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
   `);
-  const nidData = oldNid[0]?.[0];
-  if (parseInt(String(nidData?.cnt ?? 0)) > 0) {
+  const ndiData = oldNdi[0]?.[0];
+  if (parseInt(String(ndiData?.cnt ?? 0)) > 0) {
     await upsertAlert(
-      "nid_aging",
-      "NID com mais de 30 dias sem identifica\xE7\xE3o",
-      `${nidData.cnt} entrada(s) n\xE3o identificada(s) com mais de 30 dias \u2014 R$ ${parseFloat(String(nidData.total)).toFixed(2)}`,
+      "ndi_aging",
+      "NDI com mais de 30 dias sem identifica\xE7\xE3o",
+      `${ndiData.cnt} entrada(s) n\xE3o identificada(s) com mais de 30 dias \u2014 R$ ${parseFloat(String(ndiData.total)).toFixed(2)}`,
       "warning"
     );
   }
@@ -109947,147 +109947,78 @@ async function setSystemConfig(key, value, description) {
   if (!db) return;
   await db.insert(systemConfig).values({ key, value, description }).onDuplicateKeyUpdate({ set: { value } });
 }
-async function resolveNid(id, data) {
+async function resolveNdi(id, data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const divs = await db.select().from(divergences).where(eq(divergences.id, id)).limit(1);
   if (!divs[0]) throw new Error("Diverg\xEAncia n\xE3o encontrada");
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const div = divs[0];
+  if (div.sessionId) {
+    const dateStr = toMysqlDate(div.divergenceDate);
+    await db.execute(sql`
+      INSERT INTO api_transactions
+        (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus, matchType)
+      VALUES
+        (${div.sessionId}, 'credit', ${dateStr}, ${data.description || `PIX identificado: ${data.clientName}`},
+         ${String(div.amount)}, 'PIX', ${data.clientName}, ${div.externalId ?? null}, 'manual', 'manual')
+    `);
+    if (div.bankTransactionId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE id = ${div.bankTransactionId}
+      `);
+    } else if (div.externalId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE sessionId = ${div.sessionId} AND externalId = ${div.externalId}
+      `);
+    }
+  }
   await db.update(divergences).set({
-    // Mantém isNid=true e status='em_analise' — NID continua visível
-    // na aba NID até o pagamento real ser conciliado.
-    nidClientName: data.clientName,
-    nidFoundDate: today,
+    status: "regularizado",
+    isNdi: false,
     clientName: data.clientName,
-    // também na coluna principal
-    nidNote: data.description || null,
-    responsible: data.createdByName,
-    actionTaken: `NID identificado: ${data.clientName} (por ${data.createdByName}) \u2014 aguardando entrada do pagamento na API`
+    actionTaken: `NDI identificado: ${data.clientName} (por ${data.createdByName})`,
+    responsible: data.createdByName
   }).where(eq(divergences.id, id));
+  if (div.sessionId) {
+    const pending = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM divergences
+      WHERE sessionId = ${div.sessionId}
+      AND status NOT IN ('regularizado','reclassificado','baixado')
+    `);
+    const pendingCount = pending[0]?.[0]?.cnt ?? 0;
+    const matchedTxs = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM bank_transactions
+      WHERE sessionId = ${div.sessionId} AND matchStatus IN ('matched','manual')
+    `);
+    const newMatchedCount = parseInt(String(matchedTxs[0]?.[0]?.cnt ?? 0));
+    await db.update(reconciliationSessions).set({ matchedCount: newMatchedCount, pendingCount }).where(eq(reconciliationSessions.id, div.sessionId));
+  }
   invalidateReconciliationCaches();
   return { success: true };
 }
-async function reconcileNidWithDivergence(params) {
-  const db = await getDb();
-  if (!db) throw new Error("DB unavailable");
-  const [nidRow] = await db.select().from(divergences).where(eq(divergences.id, params.nidId)).limit(1);
-  const [tgtRow] = await db.select().from(divergences).where(eq(divergences.id, params.targetDivergenceId)).limit(1);
-  if (!nidRow) throw new Error("NID n\xE3o encontrada");
-  if (!tgtRow) throw new Error("Diverg\xEAncia alvo n\xE3o encontrada");
-  if (!nidRow.isNid) throw new Error("Diverg\xEAncia de origem n\xE3o \xE9 uma NID");
-  if (tgtRow.divergenceType !== "bank_shortage") {
-    throw new Error("Diverg\xEAncia alvo precisa ser do tipo 'falta no banco' (API sem par no banco)");
-  }
-  if (["regularizado", "reclassificado", "baixado"].includes(String(nidRow.status))) {
-    throw new Error("NID j\xE1 est\xE1 regularizada");
-  }
-  if (["regularizado", "reclassificado", "baixado"].includes(String(tgtRow.status))) {
-    throw new Error("Diverg\xEAncia alvo j\xE1 est\xE1 regularizada");
-  }
-  const nidAmount = parseFloat(String(nidRow.amount));
-  const tgtAmount = parseFloat(String(tgtRow.amount));
-  if (Math.abs(nidAmount - tgtAmount) > 0.01) {
-    throw new Error(
-      `Valores n\xE3o batem: NID R$ ${nidAmount.toFixed(2)} vs Diverg\xEAncia R$ ${tgtAmount.toFixed(2)}`
-    );
-  }
-  if (nidRow.bankTransactionId && tgtRow.apiTransactionId) {
-    await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual',
-          matchType = 'manual',
-          matchedApiTransactionId = ${tgtRow.apiTransactionId}
-      WHERE id = ${nidRow.bankTransactionId}
-    `);
-    await db.execute(sql`
-      UPDATE api_transactions
-      SET matchStatus = 'manual',
-          matchType = 'manual',
-          matchedBankTransactionId = ${nidRow.bankTransactionId}
-      WHERE id = ${tgtRow.apiTransactionId}
-    `);
-  } else {
-    if (nidRow.bankTransactionId) {
-      await db.execute(sql`UPDATE bank_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${nidRow.bankTransactionId}`);
-    }
-    if (tgtRow.apiTransactionId) {
-      await db.execute(sql`UPDATE api_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${tgtRow.apiTransactionId}`);
-    }
-  }
-  const note = `Conciliada com ${tgtRow.divergenceType === "bank_shortage" ? "pagamento da API" : "NID"} #${tgtRow.id === params.targetDivergenceId ? params.targetDivergenceId : params.nidId} por ${params.createdByName}`;
-  await db.execute(sql`
-    UPDATE divergences
-    SET status = 'regularizado',
-        actionTaken = ${`NID \u2194 pagamento conciliados manualmente por ${params.createdByName}`}
-    WHERE id IN (${params.nidId}, ${params.targetDivergenceId})
-  `);
-  const sessionsToUpdate = /* @__PURE__ */ new Set();
-  if (nidRow.sessionId) sessionsToUpdate.add(nidRow.sessionId);
-  if (tgtRow.sessionId) sessionsToUpdate.add(tgtRow.sessionId);
-  for (const sid of Array.from(sessionsToUpdate)) {
-    const pending = await db.execute(sql`
-      SELECT COUNT(*) as cnt FROM divergences
-      WHERE sessionId = ${sid} AND status NOT IN ('regularizado','reclassificado','baixado')
-    `);
-    const matched = await db.execute(sql`
-      SELECT COUNT(*) as cnt FROM bank_transactions
-      WHERE sessionId = ${sid} AND matchStatus IN ('matched','manual')
-    `);
-    const pendingCount = parseInt(String(pending[0]?.[0]?.cnt ?? 0));
-    const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
-    await db.update(reconciliationSessions).set({ matchedCount, pendingCount }).where(eq(reconciliationSessions.id, sid));
-  }
-  invalidateReconciliationCaches();
-  return {
-    success: true,
-    nidSessionId: nidRow.sessionId ?? void 0,
-    targetSessionId: tgtRow.sessionId ?? void 0
-  };
-}
-async function getNidReconcileCandidates(nidId) {
-  const db = await getDb();
-  if (!db) return [];
-  const [nid] = await db.select().from(divergences).where(eq(divergences.id, nidId)).limit(1);
-  if (!nid) return [];
-  const amount = parseFloat(String(nid.amount));
-  const min2 = (amount - 0.01).toFixed(2);
-  const max2 = (amount + 0.01).toFixed(2);
-  const result = await db.execute(sql`
-    SELECT d.id, d.sessionId, d.divergenceDate, d.amount, d.bankName, d.clientName,
-           d.apiDescription, d.bankDescription, d.priority, d.status, d.divergenceType,
-           rs.referenceDate as sessionDate
-    FROM divergences d
-    LEFT JOIN reconciliation_sessions rs ON rs.id = d.sessionId
-    WHERE d.divergenceType = 'bank_shortage'
-      AND d.status NOT IN ('regularizado','reclassificado','baixado')
-      AND CAST(d.amount AS DECIMAL(18,2)) BETWEEN ${min2} AND ${max2}
-      AND d.id != ${nidId}
-    ORDER BY ABS(DATEDIFF(d.divergenceDate, ${nid.divergenceDate})) ASC, d.divergenceDate DESC
-    LIMIT 50
-  `);
-  return result[0] ?? [];
-}
-async function markDivergencesAsNid(ids, nidNote) {
+async function markDivergencesAsNdi(ids, ndiNote) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.execute(sql`
-    UPDATE divergences SET isNid = 1, nidNote = ${nidNote || null},
-    status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NID: aguardando identificação')
+    UPDATE divergences SET isNdi = 1, ndiNote = ${ndiNote || null},
+    status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NDI: aguardando identificação')
     WHERE id IN (${sql.raw(ids.join(","))})
   `);
   invalidateReconciliationCaches();
 }
-async function unmarkNid(id) {
+async function unmarkNdi(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.execute(sql`UPDATE divergences SET isNid = 0, nidNote = NULL WHERE id = ${id}`);
+  await db.execute(sql`UPDATE divergences SET isNdi = 0, ndiNote = NULL WHERE id = ${id}`);
   invalidateReconciliationCaches();
 }
-async function getNidDivergences() {
+async function getNdiDivergences() {
   const db = await getDb();
   if (!db) return [];
   return db.execute(sql`
-    SELECT * FROM divergences WHERE isNid = 1 ORDER BY divergenceDate DESC, amount DESC
+    SELECT * FROM divergences WHERE isNdi = 1 ORDER BY divergenceDate DESC, amount DESC
   `).then((r) => r[0] ?? []);
 }
 async function createManualAdjustment(data) {
@@ -134645,35 +134576,35 @@ var reconciliationRouter = router({
   // ── Saldo diário dos bancos ───────────────────────────────────────────────
   getDailyBankBalances: protectedProcedure.query(async () => getDailyBankBalances()),
   getBankBalancesByBank: protectedProcedure.query(async () => getBankBalancesByBank()),
-  // ── Resolver NID (identificar cliente) ───────────────────────────────────
-  resolveNid: protectedProcedure.input(external_exports.object({
+  // ── Resolver NDI (identificar cliente) ───────────────────────────────────
+  resolveNdi: protectedProcedure.input(external_exports.object({
     id: external_exports.number(),
     clientName: external_exports.string().min(1),
     description: external_exports.string().optional()
   })).mutation(async ({ input, ctx }) => {
-    const r = await resolveNid(input.id, {
+    const r = await resolveNdi(input.id, {
       clientName: input.clientName,
       description: input.description ?? "",
       createdByName: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
     });
     await audit(ctx, {
       action: "ndi.resolve",
-      category: "nid",
+      category: "ndi",
       entityType: "divergence",
       entityId: input.id,
-      summary: `Identificou NID #${input.id} \u2014 cliente: ${input.clientName}`,
+      summary: `Identificou NDI #${input.id} \u2014 cliente: ${input.clientName}`,
       metadata: { clientName: input.clientName }
     });
     return r;
   }),
-  // ── NID — Não Identificados ───────────────────────────────────────────────
-  // ── Editar NID (nota, data encontrada) ───────────────────────────────────
-  updateNid: protectedProcedure.input(external_exports.object({
+  // ── NDI — Não Identificados ───────────────────────────────────────────────
+  // ── Editar NDI (nota, data encontrada) ───────────────────────────────────
+  updateNdi: protectedProcedure.input(external_exports.object({
     id: external_exports.number(),
-    nidNote: external_exports.string().optional(),
-    nidFoundDate: external_exports.string().optional(),
+    ndiNote: external_exports.string().optional(),
+    ndiFoundDate: external_exports.string().optional(),
     // data em que o valor foi identificado
-    nidClientName: external_exports.string().optional(),
+    ndiClientName: external_exports.string().optional(),
     // cliente suspeito (sem confirmar)
     priority: external_exports.string().optional()
   })).mutation(async ({ input }) => {
@@ -134682,56 +134613,34 @@ var reconciliationRouter = router({
     const { sql: sqlTag } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
     await dbConn.execute(sqlTag`
         UPDATE divergences SET
-          nidNote       = ${input.nidNote ?? null},
-          nidFoundDate  = ${input.nidFoundDate ?? null},
-          nidClientName = ${input.nidClientName ?? null},
+          ndiNote       = ${input.ndiNote ?? null},
+          ndiFoundDate  = ${input.ndiFoundDate ?? null},
+          ndiClientName = ${input.ndiClientName ?? null},
           priority      = ${input.priority ?? "high"}
         WHERE id = ${input.id}
       `);
     return { success: true };
   }),
-  markAsNid: protectedProcedure.input(external_exports.object({
+  markAsNdi: protectedProcedure.input(external_exports.object({
     ids: external_exports.array(external_exports.number()).min(1),
-    nidNote: external_exports.string().optional()
+    ndiNote: external_exports.string().optional()
   })).mutation(async ({ input, ctx }) => {
-    await markDivergencesAsNid(input.ids, input.nidNote);
+    await markDivergencesAsNdi(input.ids, input.ndiNote);
     await audit(ctx, {
       action: "ndi.mark",
-      category: "nid",
+      category: "ndi",
       entityType: "divergence",
       entityId: input.ids.join(","),
-      summary: `Marcou ${input.ids.length} diverg\xEAncia(s) como NID`,
+      summary: `Marcou ${input.ids.length} diverg\xEAncia(s) como NDI`,
       metadata: { ids: input.ids }
     });
     return { success: true };
   }),
-  unmarkNid: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
-    await unmarkNid(input.id);
+  unmarkNdi: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
+    await unmarkNdi(input.id);
     return { success: true };
   }),
-  getNidDivergences: protectedProcedure.query(async () => getNidDivergences()),
-  // Lista candidatos (divergências bank_shortage) para conciliar com uma NID
-  getNidReconcileCandidates: protectedProcedure.input(external_exports.object({ nidId: external_exports.number() })).query(async ({ input }) => getNidReconcileCandidates(input.nidId)),
-  // Concilia NID com divergência bank_shortage existente em outra sessão
-  reconcileNidWithDivergence: protectedProcedure.input(external_exports.object({
-    nidId: external_exports.number(),
-    targetDivergenceId: external_exports.number()
-  })).mutation(async ({ input, ctx }) => {
-    const result = await reconcileNidWithDivergence({
-      nidId: input.nidId,
-      targetDivergenceId: input.targetDivergenceId,
-      createdByName: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
-    });
-    await audit(ctx, {
-      action: "nid.reconcile",
-      category: "nid",
-      entityType: "divergence",
-      entityId: `${input.nidId},${input.targetDivergenceId}`,
-      summary: `Conciliou NID #${input.nidId} com diverg\xEAncia #${input.targetDivergenceId}`,
-      metadata: { nidId: input.nidId, targetDivergenceId: input.targetDivergenceId }
-    });
-    return result;
-  }),
+  getNdiDivergences: protectedProcedure.query(async () => getNdiDivergences()),
   // ── Ajuste Manual de Saldo ────────────────────────────────────────────────
   createManualAdjustment: protectedProcedure.input(external_exports.object({
     sessionId: external_exports.number().optional(),

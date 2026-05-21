@@ -64,7 +64,7 @@ function invalidateReconciliationCaches() {
 
 /**
  * Quando uma divergência é regularizada (movida pra Receita, Despesa, Boleto,
- * resolvida como NID, etc.), a bank_transaction correspondente TAMBÉM precisa
+ * resolvida como NDI, etc.), a bank_transaction correspondente TAMBÉM precisa
  * ser marcada como resolvida. Sem isso, getSessionStats continua contando ela
  * como 'divergent' e a taxa de matching nunca sobe — impossível chegar em 100%.
  *
@@ -1191,18 +1191,18 @@ export async function generateSystemAlerts() {
     `);
   }
 
-  // 3. NID acima de 30 dias sem identificação
-  const oldNid = await db.execute(sql`
+  // 3. NDI acima de 30 dias sem identificação
+  const oldNdi = await db.execute(sql`
     SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as total
     FROM divergences
-    WHERE isNid = 1
+    WHERE isNdi = 1
     AND status NOT IN ('regularizado','reclassificado','baixado')
     AND divergenceDate < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
   `);
-  const nidData = (oldNid as any)[0]?.[0];
-  if (parseInt(String(nidData?.cnt ?? 0)) > 0) {
-    await upsertAlert('nid_aging', 'NID com mais de 30 dias sem identificação',
-      `${nidData.cnt} entrada(s) não identificada(s) com mais de 30 dias — R$ ${parseFloat(String(nidData.total)).toFixed(2)}`,
+  const ndiData = (oldNdi as any)[0]?.[0];
+  if (parseInt(String(ndiData?.cnt ?? 0)) > 0) {
+    await upsertAlert('ndi_aging', 'NDI com mais de 30 dias sem identificação',
+      `${ndiData.cnt} entrada(s) não identificada(s) com mais de 30 dias — R$ ${parseFloat(String(ndiData.total)).toFixed(2)}`,
       'warning');
   }
 
@@ -1346,23 +1346,9 @@ export async function setSystemConfig(key: string, value: string, description?: 
 }
 
 // ─── DASHBOARD SUMMARY ────────────────────────────────────────────────────────
-// ─── NID — NÃO IDENTIFICADOS ──────────────────────────────────────────────────
+// ─── NDI — NÃO IDENTIFICADOS ──────────────────────────────────────────────────
 
-/**
- * Identifica uma NID — registra de quem é o dinheiro, MAS não fecha ainda.
- *
- * Mudança em relação à versão anterior: antes, identificar uma NID criava
- * automaticamente uma transação fake na API para conciliar o par. Isso era
- * incorreto — o dinheiro entrou no banco mas a API só recebe a confirmação
- * em dias seguintes. Criar uma transação fake na hora distorcia os totais.
- *
- * Agora: identificar só preenche nidClientName + nidFoundDate. A NID continua
- * pendente (status='em_analise', isNid=true), visível na aba NID. Quando o
- * pagamento real chegar pela API (em outra conciliação, gerando uma divergência
- * bank_shortage), o usuário usa `reconcileNidWithDivergence` para casar os dois
- * lados manualmente.
- */
-export async function resolveNid(id: number, data: {
+export async function resolveNdi(id: number, data: {
   clientName: string;
   description: string;
   createdByName: string;
@@ -1372,198 +1358,97 @@ export async function resolveNid(id: number, data: {
 
   const divs = await db.select().from(divergences).where(eq(divergences.id, id)).limit(1);
   if (!divs[0]) throw new Error("Divergência não encontrada");
+  const div = divs[0];
 
-  const today = new Date().toISOString().slice(0, 10);
+  // NDI é uma entrada no BANCO sem correspondência na API.
+  // Quando identificado, criamos uma transação na API (não receita)
+  // para que o par banco↔API fique conciliado.
+  // A transação de bank_transactions (NDI) já existe — criamos o par na api_transactions.
+  if (div.sessionId) {
+    // Converte a data para AAAA-MM-DD aceito pelo MySQL (trata objeto Date)
+    const dateStr = toMysqlDate(div.divergenceDate);
+    await db.execute(sql`
+      INSERT INTO api_transactions
+        (sessionId, type, transactionDate, description, amount, channel, clientName, externalId, matchStatus, matchType)
+      VALUES
+        (${div.sessionId}, 'credit', ${dateStr}, ${data.description || `PIX identificado: ${data.clientName}`},
+         ${String(div.amount)}, 'PIX', ${data.clientName}, ${div.externalId ?? null}, 'manual', 'manual')
+    `);
+
+    // Atualiza bank_transaction correspondente para matchStatus = manual
+    if (div.bankTransactionId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE id = ${div.bankTransactionId}
+      `);
+    } else if (div.externalId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus = 'manual', matchType = 'manual'
+        WHERE sessionId = ${div.sessionId} AND externalId = ${div.externalId}
+      `);
+    }
+  }
+
+  // Marca NDI como regularizado
   await db.update(divergences)
     .set({
-      // Mantém isNid=true e status='em_analise' — NID continua visível
-      // na aba NID até o pagamento real ser conciliado.
-      nidClientName: data.clientName,
-      nidFoundDate: today as any,
-      clientName: data.clientName,  // também na coluna principal
-      nidNote: data.description || null,
+      status: 'regularizado',
+      isNdi: false,
+      clientName: data.clientName,
+      actionTaken: `NDI identificado: ${data.clientName} (por ${data.createdByName})`,
       responsible: data.createdByName,
-      actionTaken: `NID identificado: ${data.clientName} (por ${data.createdByName}) — aguardando entrada do pagamento na API`,
     })
     .where(eq(divergences.id, id));
 
+  // Recalcula contadores da sessão
+  if (div.sessionId) {
+    const pending = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM divergences
+      WHERE sessionId = ${div.sessionId}
+      AND status NOT IN ('regularizado','reclassificado','baixado')
+    `);
+    const pendingCount = (pending as any)[0]?.[0]?.cnt ?? 0;
+
+    const matchedTxs = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM bank_transactions
+      WHERE sessionId = ${div.sessionId} AND matchStatus IN ('matched','manual')
+    `);
+    const newMatchedCount = parseInt(String((matchedTxs as any)[0]?.[0]?.cnt ?? 0));
+
+    await db.update(reconciliationSessions)
+      .set({ matchedCount: newMatchedCount, pendingCount })
+      .where(eq(reconciliationSessions.id, div.sessionId));
+  }
+
+  // NDI resolvido afeta divergências, sessões e saldos
   invalidateReconciliationCaches();
   return { success: true };
 }
 
-/**
- * Concilia uma NID identificada com uma divergência bank_shortage (API sem
- * par no banco) que apareceu em uma conciliação posterior.
- *
- * Cenário típico:
- *  Dia 1: dinheiro entra no banco sem informação de quem é → vira NID
- *  Dia 1+N: usuário identifica de quem é (resolveNid)
- *  Dia X: na API chega o crédito do mesmo cliente — vira divergência bank_shortage
- *  Dia X: usuário aciona reconcileNidWithDivergence(nidId, bankShortageId)
- *
- * Resultado: ambas as divergências viram 'regularizado'. As transações
- * bank/api correspondentes ficam matchStatus='manual'. A taxa de matching
- * sobe nas duas sessões.
- */
-export async function reconcileNidWithDivergence(params: {
-  nidId: number;
-  targetDivergenceId: number;
-  createdByName: string;
-}): Promise<{ success: true; nidSessionId?: number; targetSessionId?: number }> {
-  const db = await getDb();
-  if (!db) throw new Error("DB unavailable");
-
-  // Carrega as duas divergências
-  const [nidRow] = await db.select().from(divergences).where(eq(divergences.id, params.nidId)).limit(1);
-  const [tgtRow] = await db.select().from(divergences).where(eq(divergences.id, params.targetDivergenceId)).limit(1);
-
-  if (!nidRow) throw new Error("NID não encontrada");
-  if (!tgtRow) throw new Error("Divergência alvo não encontrada");
-
-  // Validações
-  if (!nidRow.isNid) throw new Error("Divergência de origem não é uma NID");
-  if (tgtRow.divergenceType !== 'bank_shortage') {
-    throw new Error("Divergência alvo precisa ser do tipo 'falta no banco' (API sem par no banco)");
-  }
-  if (['regularizado', 'reclassificado', 'baixado'].includes(String(nidRow.status))) {
-    throw new Error("NID já está regularizada");
-  }
-  if (['regularizado', 'reclassificado', 'baixado'].includes(String(tgtRow.status))) {
-    throw new Error("Divergência alvo já está regularizada");
-  }
-
-  // Valores devem ser iguais (tolerância R$ 0,01)
-  const nidAmount = parseFloat(String(nidRow.amount));
-  const tgtAmount = parseFloat(String(tgtRow.amount));
-  if (Math.abs(nidAmount - tgtAmount) > 0.01) {
-    throw new Error(
-      `Valores não batem: NID R$ ${nidAmount.toFixed(2)} vs Divergência R$ ${tgtAmount.toFixed(2)}`
-    );
-  }
-
-  // 1) Liga as transações entre si (bank_tx ↔ api_tx) e marca ambas como 'manual'
-  if (nidRow.bankTransactionId && tgtRow.apiTransactionId) {
-    await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual',
-          matchType = 'manual',
-          matchedApiTransactionId = ${tgtRow.apiTransactionId}
-      WHERE id = ${nidRow.bankTransactionId}
-    `);
-    await db.execute(sql`
-      UPDATE api_transactions
-      SET matchStatus = 'manual',
-          matchType = 'manual',
-          matchedBankTransactionId = ${nidRow.bankTransactionId}
-      WHERE id = ${tgtRow.apiTransactionId}
-    `);
-  } else {
-    // Fallback: se algum lado não tem ID linkado (sessões antigas), atualiza só pelo que tem
-    if (nidRow.bankTransactionId) {
-      await db.execute(sql`UPDATE bank_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${nidRow.bankTransactionId}`);
-    }
-    if (tgtRow.apiTransactionId) {
-      await db.execute(sql`UPDATE api_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${tgtRow.apiTransactionId}`);
-    }
-  }
-
-  // 2) Marca ambas divergências como regularizadas
-  const note = `Conciliada com ${tgtRow.divergenceType === 'bank_shortage' ? 'pagamento da API' : 'NID'} #${tgtRow.id === params.targetDivergenceId ? params.targetDivergenceId : params.nidId} por ${params.createdByName}`;
-  await db.execute(sql`
-    UPDATE divergences
-    SET status = 'regularizado',
-        actionTaken = ${`NID ↔ pagamento conciliados manualmente por ${params.createdByName}`}
-    WHERE id IN (${params.nidId}, ${params.targetDivergenceId})
-  `);
-
-  // 3) Recalcula contadores das sessões afetadas (podem ser 2 sessões diferentes)
-  const sessionsToUpdate = new Set<number>();
-  if (nidRow.sessionId) sessionsToUpdate.add(nidRow.sessionId);
-  if (tgtRow.sessionId) sessionsToUpdate.add(tgtRow.sessionId);
-
-  for (const sid of Array.from(sessionsToUpdate)) {
-    const pending = await db.execute(sql`
-      SELECT COUNT(*) as cnt FROM divergences
-      WHERE sessionId = ${sid} AND status NOT IN ('regularizado','reclassificado','baixado')
-    `);
-    const matched = await db.execute(sql`
-      SELECT COUNT(*) as cnt FROM bank_transactions
-      WHERE sessionId = ${sid} AND matchStatus IN ('matched','manual')
-    `);
-    const pendingCount = parseInt(String((pending as any)[0]?.[0]?.cnt ?? 0));
-    const matchedCount = parseInt(String((matched as any)[0]?.[0]?.cnt ?? 0));
-    await db.update(reconciliationSessions)
-      .set({ matchedCount, pendingCount })
-      .where(eq(reconciliationSessions.id, sid));
-  }
-
-  invalidateReconciliationCaches();
-  return {
-    success: true,
-    nidSessionId: nidRow.sessionId ?? undefined,
-    targetSessionId: tgtRow.sessionId ?? undefined,
-  };
-}
-
-/**
- * Busca candidatos para conciliar com uma NID identificada.
- *
- * Retorna divergências bank_shortage pendentes (API sem par no banco) em
- * qualquer sessão, com valor próximo (tolerância R$ 0,01) ao valor da NID.
- * Ordenadas por proximidade de data (mais recentes primeiro).
- */
-export async function getNidReconcileCandidates(nidId: number) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const [nid] = await db.select().from(divergences).where(eq(divergences.id, nidId)).limit(1);
-  if (!nid) return [];
-
-  const amount = parseFloat(String(nid.amount));
-  const min = (amount - 0.01).toFixed(2);
-  const max = (amount + 0.01).toFixed(2);
-
-  const result = await db.execute(sql`
-    SELECT d.id, d.sessionId, d.divergenceDate, d.amount, d.bankName, d.clientName,
-           d.apiDescription, d.bankDescription, d.priority, d.status, d.divergenceType,
-           rs.referenceDate as sessionDate
-    FROM divergences d
-    LEFT JOIN reconciliation_sessions rs ON rs.id = d.sessionId
-    WHERE d.divergenceType = 'bank_shortage'
-      AND d.status NOT IN ('regularizado','reclassificado','baixado')
-      AND CAST(d.amount AS DECIMAL(18,2)) BETWEEN ${min} AND ${max}
-      AND d.id != ${nidId}
-    ORDER BY ABS(DATEDIFF(d.divergenceDate, ${nid.divergenceDate})) ASC, d.divergenceDate DESC
-    LIMIT 50
-  `);
-
-  return ((result as any)[0] ?? []) as any[];
-}
-
-export async function markDivergencesAsNid(ids: number[], nidNote?: string) {
+export async function markDivergencesAsNdi(ids: number[], ndiNote?: string) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.execute(sql`
-    UPDATE divergences SET isNid = 1, nidNote = ${nidNote || null},
-    status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NID: aguardando identificação')
+    UPDATE divergences SET isNdi = 1, ndiNote = ${ndiNote || null},
+    status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NDI: aguardando identificação')
     WHERE id IN (${sql.raw(ids.join(','))})
   `);
   // Mudança de status afeta a lista de divergências
   invalidateReconciliationCaches();
 }
 
-export async function unmarkNid(id: number) {
+export async function unmarkNdi(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.execute(sql`UPDATE divergences SET isNid = 0, nidNote = NULL WHERE id = ${id}`);
+  await db.execute(sql`UPDATE divergences SET isNdi = 0, ndiNote = NULL WHERE id = ${id}`);
   invalidateReconciliationCaches();
 }
 
-export async function getNidDivergences() {
+export async function getNdiDivergences() {
   const db = await getDb();
   if (!db) return [];
   return db.execute(sql`
-    SELECT * FROM divergences WHERE isNid = 1 ORDER BY divergenceDate DESC, amount DESC
+    SELECT * FROM divergences WHERE isNdi = 1 ORDER BY divergenceDate DESC, amount DESC
   `).then((r: any) => r[0] ?? []);
 }
 
@@ -3446,7 +3331,7 @@ export async function moveDivergencesToBoleto(params: {
     });
   }
 
-  // Regulariza as divergências (igual ao fluxo do NID)
+  // Regulariza as divergências (igual ao fluxo do NDI)
   const observation = `Movido para a aba Boletos por ${params.userName}`;
   for (const id of params.divergenceIds) {
     await db.execute(sql`

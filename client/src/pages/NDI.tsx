@@ -27,33 +27,21 @@ function daysOpen(dateStr: any): number {
   return Math.floor((Date.now() - new Date(iso + "T12:00:00Z").getTime()) / 86400000);
 }
 
-// ── NID Detail Sidebar ────────────────────────────────────────────────────────
-function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }: {
+// ── NDI Detail Sidebar ────────────────────────────────────────────────────────
+function NdiSidebar({ div, onClose, onUpdate, onUnmark, onResolve }: {
   div: any;
   onClose: () => void;
-  onUpdate: (data: { nidNote?: string; nidFoundDate?: string; nidClientName?: string; priority?: string }) => void;
+  onUpdate: (data: { ndiNote?: string; ndiFoundDate?: string; ndiClientName?: string; priority?: string }) => void;
   onUnmark: () => void;
   onResolve: (clientName: string, description: string) => void;
-  onReconcile: (targetDivergenceId: number) => void;
 }) {
-  const [note,        setNote]        = useState(div.nidNote ?? "");
-  const [foundDate,   setFoundDate]   = useState(toISO(div.nidFoundDate) ?? "");
-  const [clientGuess, setClientGuess] = useState(div.nidClientName ?? div.clientName ?? "");
+  const [note,        setNote]        = useState(div.ndiNote ?? "");
+  const [foundDate,   setFoundDate]   = useState(toISO(div.ndiFoundDate) ?? "");
+  const [clientGuess, setClientGuess] = useState(div.ndiClientName ?? div.clientName ?? "");
   const [priority,    setPriority]    = useState(div.priority ?? "high");
-  // NID já identificada = tem nidClientName preenchido. Mostra tab "Conciliar".
-  const isIdentified = !!div.nidClientName;
-  const [tab, setTab] = useState<"info" | "edit" | "resolve" | "reconcile">(
-    isIdentified ? "reconcile" : "info"
-  );
-  const [confirmName, setConfirmName] = useState(div.nidClientName ?? "");
+  const [tab, setTab] = useState<"info" | "edit" | "resolve">("info");
+  const [confirmName, setConfirmName] = useState("");
   const [confirmDesc, setConfirmDesc] = useState("");
-
-  // Busca candidatos de conciliação só quando a tab está aberta
-  const { data: candidates, isLoading: loadingCandidates } =
-    trpc.reconciliation.getNidReconcileCandidates.useQuery(
-      { nidId: div.id },
-      { enabled: tab === "reconcile" && isIdentified }
-    );
 
   const days = daysOpen(div.divergenceDate);
   const isOld = days > 30;
@@ -68,7 +56,7 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
           <div className="flex items-center gap-2.5">
             <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", isOld ? "bg-red-400 animate-pulse" : "bg-orange-400 animate-pulse")} />
             <div>
-              <p className="text-sm font-bold text-foreground">NID #{div.id}</p>
+              <p className="text-sm font-bold text-foreground">NDI #{div.id}</p>
               <p className="text-[10px] text-muted-foreground">
                 {formatDate(div.divergenceDate)} · <span className={isOld ? "text-red-400 font-semibold" : ""}>{days}d em aberto</span>
                 {isOld && " ⚠ vencido"}
@@ -94,12 +82,11 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
 
         {/* Tabs */}
         <div className="flex gap-1 px-5 pt-3 shrink-0">
-          {([
-            { key: "info",      label: "Detalhes",   show: true },
-            { key: "edit",      label: "Editar NID", show: true },
-            { key: "resolve",   label: "Identificar", show: !isIdentified },
-            { key: "reconcile", label: "Conciliar",   show: isIdentified },
-          ] as const).filter(t => t.show).map(t => (
+          {[
+            { key: "info",    label: "Detalhes" },
+            { key: "edit",    label: "Editar NDI" },
+            { key: "resolve", label: "Identificar" },
+          ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as any)}
               className={cn("flex-1 py-1.5 text-xs rounded-lg transition-colors font-medium",
                 tab === t.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/20"
@@ -131,23 +118,23 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
                 ))}
               </div>
 
-              {(div.nidNote || div.nidClientName || div.nidFoundDate) && (
+              {(div.ndiNote || div.ndiClientName || div.ndiFoundDate) && (
                 <div className="bg-accent/10 border border-border rounded-xl p-3 space-y-2">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Investigação NID</p>
-                  {div.nidClientName && (
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Investigação NDI</p>
+                  {div.ndiClientName && (
                     <div className="flex items-center gap-2 text-xs">
                       <UserCheck className="w-3 h-3 text-orange-400 shrink-0" />
-                      <span className="text-foreground">Suspeito: <strong>{div.nidClientName}</strong></span>
+                      <span className="text-foreground">Suspeito: <strong>{div.ndiClientName}</strong></span>
                     </div>
                   )}
-                  {div.nidFoundDate && (
+                  {div.ndiFoundDate && (
                     <div className="flex items-center gap-2 text-xs">
                       <Calendar className="w-3 h-3 text-blue-400 shrink-0" />
-                      <span className="text-muted-foreground">Encontrado em: <span className="text-foreground">{formatDate(div.nidFoundDate)}</span></span>
+                      <span className="text-muted-foreground">Encontrado em: <span className="text-foreground">{formatDate(div.ndiFoundDate)}</span></span>
                     </div>
                   )}
-                  {div.nidNote && (
-                    <p className="text-xs text-foreground whitespace-pre-wrap">{div.nidNote}</p>
+                  {div.ndiNote && (
+                    <p className="text-xs text-foreground whitespace-pre-wrap">{div.ndiNote}</p>
                   )}
                 </div>
               )}
@@ -155,31 +142,14 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
               {/* Connection with reconciliation */}
               <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 space-y-1">
                 <p className="text-[10px] text-blue-400 font-medium">Impacto na Conciliação</p>
-                {!isIdentified ? (
-                  <>
-                    <p className="text-[10px] text-muted-foreground">
-                      Este valor está no saldo do banco mas não na API. Permanece como
-                      <span className="text-orange-400"> sobra bancária</span> até ser identificado.
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      <strong>Passo 1 — Identificar:</strong> registre de quem é o dinheiro.
-                      A NID continua pendente até o pagamento real chegar pela API.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[10px] text-muted-foreground">
-                      NID já identificada — aguardando o pagamento entrar pela API em uma
-                      próxima conciliação. Quando entrar, vai aparecer como divergência
-                      <span className="text-yellow-400"> falta no banco</span> na aba Divergências.
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      <strong>Passo 2 — Conciliar:</strong> use a aba "Conciliar" para casar
-                      esta NID com a divergência da API e regularizar ambas →
-                      <span className="text-emerald-400"> matching ↑</span>
-                    </p>
-                  </>
-                )}
+                <p className="text-[10px] text-muted-foreground">
+                  Este valor está no saldo do banco mas não na API. Permanece como
+                  <span className="text-orange-400"> sobra bancária</span> até ser identificado.
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Ao identificar: cria transação na API → ambos os lados conciliam →
+                  <span className="text-emerald-400"> matching ↑</span>
+                </p>
               </div>
             </>
           )}
@@ -232,7 +202,7 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
               <div className="flex gap-2 pt-2">
                 <Button
                   className="flex-1 text-xs gap-1.5"
-                  onClick={() => onUpdate({ nidNote: note, nidFoundDate: foundDate || undefined, nidClientName: clientGuess || undefined, priority })}
+                  onClick={() => onUpdate({ ndiNote: note, ndiFoundDate: foundDate || undefined, ndiClientName: clientGuess || undefined, priority })}
                 >
                   <Edit2 className="w-3.5 h-3.5" /> Salvar
                 </Button>
@@ -241,23 +211,22 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
                   className="text-xs text-orange-400 border-orange-500/30 hover:bg-orange-500/10"
                   onClick={onUnmark}
                 >
-                  Remover NID
+                  Remover NDI
                 </Button>
               </div>
             </div>
           )}
 
-          {/* ── TAB: RESOLVE (identificar — passo 1) ─────────────────────── */}
+          {/* ── TAB: RESOLVE ──────────────────────────────────────────────── */}
           {tab === "resolve" && (
             <div className="space-y-4">
-              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 space-y-1.5 text-xs">
-                <p className="text-blue-400 font-semibold">Passo 1: Identificar de quem é o dinheiro</p>
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-1.5 text-xs">
+                <p className="text-emerald-400 font-semibold">O que acontece ao confirmar:</p>
                 <div className="space-y-1 text-muted-foreground">
-                  <p>• Registra o cliente/empresa responsável pelo pagamento</p>
-                  <p>• A NID continua pendente na lista, mas marcada como identificada</p>
-                  <p>• Aguarda o pagamento real chegar pela API em uma próxima conciliação</p>
-                  <p>• Quando o pagamento entrar, vai aparecer em Divergências como "falta no banco"</p>
-                  <p>• Aí você usa a aba "Conciliar" para casar os dois lados</p>
+                  <p>1. Cria transação na API com o valor {formatCurrency(div.amount)}</p>
+                  <p>2. O banco e a API ficam conciliados (matching ↑)</p>
+                  <p>3. NDI removido das pendências</p>
+                  <p>4. Receita criada automaticamente no módulo financeiro</p>
                 </div>
               </div>
               <div>
@@ -267,10 +236,11 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
                   placeholder="Nome do cliente ou empresa"
                   value={confirmName}
                   onChange={e => setConfirmName(e.target.value)}
+                  defaultValue={div.ndiClientName ?? ""}
                 />
               </div>
               <div>
-                <Label className="text-xs">Observações sobre a identificação</Label>
+                <Label className="text-xs">Descrição do pagamento</Label>
                 <Input
                   className="mt-1.5 h-8 text-xs"
                   placeholder="Ex: PIX referente a contrato X — período Y"
@@ -278,87 +248,17 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
                   onChange={e => setConfirmDesc(e.target.value)}
                 />
               </div>
+              <p className="text-[10px] text-muted-foreground">
+                Certifique-se de que o cliente confirmou o pagamento antes de identificar.
+              </p>
               <Button
-                className="w-full text-xs bg-blue-600 hover:bg-blue-700 gap-1.5"
+                className="w-full text-xs bg-emerald-600 hover:bg-emerald-700 gap-1.5"
                 disabled={!confirmName.trim()}
                 onClick={() => onResolve(confirmName, confirmDesc)}
               >
-                <UserCheck className="w-3.5 h-3.5" />
-                Registrar identificação
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Confirmar Identificação → Conciliar
               </Button>
-            </div>
-          )}
-
-          {/* ── TAB: RECONCILE (conciliar com pagamento — passo 2) ───────── */}
-          {tab === "reconcile" && (
-            <div className="space-y-4">
-              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-1.5 text-xs">
-                <p className="text-emerald-400 font-semibold">Passo 2: Conciliar com pagamento da API</p>
-                <p className="text-muted-foreground">
-                  Selecione abaixo a divergência da API (de outra conciliação) que
-                  corresponde a esta NID. Ao conciliar, ambas são regularizadas e a
-                  taxa de matching sobe em duas sessões.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                    Candidatos (mesmo valor R$ {parseFloat(div.amount).toFixed(2)})
-                  </p>
-                  {candidates && (
-                    <p className="text-[10px] text-muted-foreground">{candidates.length} encontrado{candidates.length !== 1 ? "s" : ""}</p>
-                  )}
-                </div>
-
-                {loadingCandidates && (
-                  <p className="text-xs text-muted-foreground py-4 text-center">Buscando candidatos...</p>
-                )}
-
-                {!loadingCandidates && (!candidates || candidates.length === 0) && (
-                  <div className="bg-accent/10 border border-border rounded-xl p-4 text-center">
-                    <Clock className="w-5 h-5 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">
-                      Nenhuma divergência com este valor encontrada ainda.
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Aguarde a próxima conciliação onde o pagamento da API chegar.
-                    </p>
-                  </div>
-                )}
-
-                {!loadingCandidates && candidates && candidates.length > 0 && (
-                  <div className="space-y-2">
-                    {candidates.map((c: any) => (
-                      <div key={c.id} className="border border-border rounded-xl p-3 hover:border-emerald-500/30 transition-colors">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-mono text-emerald-400">
-                              R$ {parseFloat(String(c.amount)).toFixed(2)}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">
-                              Divergência #{c.id} · Sessão #{c.sessionId} · {formatDate(c.divergenceDate)}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 gap-1"
-                            onClick={() => onReconcile(c.id)}
-                          >
-                            <CheckCircle2 className="w-3 h-3" /> Conciliar
-                          </Button>
-                        </div>
-                        {(c.clientName || c.apiDescription) && (
-                          <div className="text-[10px] text-muted-foreground space-y-0.5">
-                            {c.clientName && (<p><strong className="text-foreground">{c.clientName}</strong></p>)}
-                            {c.apiDescription && (<p className="truncate">{c.apiDescription}</p>)}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           )}
         </div>
@@ -368,44 +268,28 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-export default function NID() {
+export default function NDI() {
   const [selected, setSelected] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
 
-  const { data: rawData, refetch, isLoading } = trpc.reconciliation.getNidDivergences.useQuery(
+  const { data: rawData, refetch, isLoading } = trpc.reconciliation.getNdiDivergences.useQuery(
     undefined, { refetchInterval: 15000 }
   );
   const invalidateAcrossScreens = useInvalidateFinancialData();
 
-  const updateMutation = trpc.reconciliation.updateNid.useMutation({
-    onSuccess: () => { toast.success("NID atualizado."); refetch(); setSelected((s: any) => s ? { ...s, _refresh: Date.now() } : s); invalidateAcrossScreens(); },
+  const updateMutation = trpc.reconciliation.updateNdi.useMutation({
+    onSuccess: () => { toast.success("NDI atualizado."); refetch(); setSelected((s: any) => s ? { ...s, _refresh: Date.now() } : s); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const unmarkMutation = trpc.reconciliation.unmarkNid.useMutation({
-    onSuccess: () => { toast.success("NID removido."); setSelected(null); refetch(); invalidateAcrossScreens(); },
+  const unmarkMutation = trpc.reconciliation.unmarkNdi.useMutation({
+    onSuccess: () => { toast.success("NDI removido."); setSelected(null); refetch(); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const resolveNidMutation = trpc.reconciliation.resolveNid.useMutation({
-    onSuccess: () => {
-      toast.success("NID identificada — aguardando o pagamento entrar pela API");
-      // Não fecha o sidebar — usuário pode ir direto pra tab Conciliar se quiser
-      refetch();
-      setSelected((s: any) => s ? { ...s, _refresh: Date.now() } : s);
-      invalidateAcrossScreens();
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const reconcileNidMutation = trpc.reconciliation.reconcileNidWithDivergence.useMutation({
-    onSuccess: () => {
-      toast.success("NID conciliada com pagamento — ambas regularizadas!");
-      setSelected(null);
-      refetch();
-      invalidateAcrossScreens();
-    },
+  const resolveNdiMutation = trpc.reconciliation.resolveNdi.useMutation({
+    onSuccess: () => { toast.success("NDI identificado — conciliado e receita criada!"); setSelected(null); refetch(); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -413,7 +297,7 @@ export default function NID() {
 
   const filtered = items.filter(d => {
     const s = search.toLowerCase();
-    const matchSearch = !s || [d.bankDescription, d.clientName, d.bankName, d.externalId, d.nidNote, d.nidClientName]
+    const matchSearch = !s || [d.bankDescription, d.clientName, d.bankName, d.externalId, d.ndiNote, d.ndiClientName]
       .some((v: any) => v && String(v).toLowerCase().includes(s));
     const matchPriority = priorityFilter === "all" || d.priority === priorityFilter;
     return matchSearch && matchPriority;
@@ -432,7 +316,7 @@ export default function NID() {
         <div>
           <div className="flex items-center gap-2 mb-0.5">
             <div className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
-            <h1 className="text-2xl font-bold text-foreground">Não Identificados (NID)</h1>
+            <h1 className="text-2xl font-bold text-foreground">Não Identificados (NDI)</h1>
           </div>
           <p className="text-sm text-muted-foreground">
             Entradas bancárias sem correspondência na API — aguardando identificação para conciliar
@@ -450,7 +334,7 @@ export default function NID() {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total NID",       value: `${filtered.length}`,         sub: "divergências",        color: "text-orange-400" },
+          { label: "Total NDI",       value: `${filtered.length}`,         sub: "divergências",        color: "text-orange-400" },
           { label: "Valor Total",     value: formatCurrency(totalAmount),  sub: "pendente de id.",     color: "text-yellow-400" },
           { label: "Dias Médios",     value: `${avgDays}d`,                sub: "em investigação",     color: avgDays > 30 ? "text-red-400" : "text-muted-foreground" },
           { label: "Vencidos +30d",  value: `${overdue}`,                 sub: "requerem atenção",    color: overdue > 0 ? "text-red-400" : "text-emerald-400" },
@@ -502,10 +386,10 @@ export default function NID() {
         <div className="card-premium rounded-xl p-12 text-center">
           <FileSearch className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-30" />
           <p className="text-sm font-semibold text-foreground">
-            {items.length === 0 ? "Nenhum NID registrado" : "Nenhum resultado"}
+            {items.length === 0 ? "Nenhum NDI registrado" : "Nenhum resultado"}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Marque divergências como NID na página de Divergências para acompanhá-las aqui.
+            Marque divergências como NDI na página de Divergências para acompanhá-las aqui.
           </p>
         </div>
       ) : (
@@ -523,7 +407,7 @@ export default function NID() {
                 {filtered.map((d: any) => {
                   const days = daysOpen(d.divergenceDate);
                   const isOld = days > 30;
-                  const hasInvestigation = d.nidNote || d.nidClientName || d.nidFoundDate;
+                  const hasInvestigation = d.ndiNote || d.ndiClientName || d.ndiFoundDate;
                   return (
                     <tr key={d.id}
                       className="hover:bg-accent/10 cursor-pointer transition-colors"
@@ -534,8 +418,8 @@ export default function NID() {
                       <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{d.bankName ?? "—"}</td>
                       <td className="px-3 py-2.5 max-w-[160px] truncate text-foreground" title={d.bankDescription ?? ""}>{d.bankDescription ?? "—"}</td>
                       <td className="px-3 py-2.5 max-w-[120px] truncate">
-                        {d.nidClientName ? (
-                          <span className="text-orange-400 font-medium">{d.nidClientName}</span>
+                        {d.ndiClientName ? (
+                          <span className="text-orange-400 font-medium">{d.ndiClientName}</span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
@@ -578,13 +462,12 @@ export default function NID() {
 
       {/* Sidebar */}
       {selected && (
-        <NidSidebar
+        <NdiSidebar
           div={selected}
           onClose={() => setSelected(null)}
           onUpdate={(data) => { updateMutation.mutate({ id: selected.id, ...data }); }}
           onUnmark={() => unmarkMutation.mutate({ id: selected.id })}
-          onResolve={(clientName, description) => resolveNidMutation.mutate({ id: selected.id, clientName, description })}
-          onReconcile={(targetDivergenceId) => reconcileNidMutation.mutate({ nidId: selected.id, targetDivergenceId })}
+          onResolve={(clientName, description) => resolveNdiMutation.mutate({ id: selected.id, clientName, description })}
         />
       )}
     </div>
