@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { formatCurrency, formatCurrencyCompact, formatDate, getStatusLabel, safeNumber } from "@/lib/utils";
 import { useState } from "react";
 import { Plus, AlertTriangle, CheckCircle, Clock, DollarSign, Trash2, Edit2 , RefreshCw} from "lucide-react";
@@ -86,24 +87,25 @@ export default function Payables() {
   const { data: payables, refetch, isLoading } = trpc.controllership.getPayables.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
   });
+  const invalidateAcrossScreens = useInvalidateFinancialData();
 
   const createMutation = trpc.controllership.createPayable.useMutation({
-    onSuccess: () => { toast.success("Conta registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
+    onSuccess: () => { toast.success("Conta registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const updateMutation = trpc.controllership.updatePayable.useMutation({
-    onSuccess: () => { toast.success("Conta atualizada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
+    onSuccess: () => { toast.success("Conta atualizada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const markPaidMutation = trpc.controllership.markPayablePaid.useMutation({
-    onSuccess: () => { toast.success("✓ Marcada como paga!"); refetch(); },
+    onSuccess: () => { toast.success("✓ Marcada como paga!"); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const deleteMutation = trpc.controllership.deletePayable.useMutation({
-    onSuccess: () => { toast.success("Conta removida."); refetch(); },
+    onSuccess: () => { toast.success("Conta removida."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 

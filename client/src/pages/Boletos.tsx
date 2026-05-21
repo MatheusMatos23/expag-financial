@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate, safeNumber } from "@/lib/utils";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { useState, useMemo } from "react";
 import {
   Calendar, DollarSign, TrendingUp, ReceiptText, Edit2, Trash2,
@@ -96,18 +97,21 @@ export default function Boletos() {
   const [initialValue, setInitialValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
 
+  // Boletos afetam saldos diários e podem virar receitas/despesas — invalida Dashboard.
+  const invalidateAcrossScreens = useInvalidateFinancialData();
+
   const setInitialMutation = trpc.reconciliation.setBoletoInitialBalance.useMutation({
-    onSuccess: () => { toast.success("Saldo inicial atualizado."); setInitialOpen(false); refetch(); },
+    onSuccess: () => { toast.success("Saldo inicial atualizado."); setInitialOpen(false); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const setApiMutation = trpc.reconciliation.setBoletoApiAmount.useMutation({
-    onSuccess: () => { toast.success("Saldo API atualizado."); refetch(); },
+    onSuccess: () => { toast.success("Saldo API atualizado."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const deleteMutation = trpc.reconciliation.deleteBoletoEntry.useMutation({
-    onSuccess: () => { toast.success("Entrada removida."); setConfirmDelete(null); refetch(); },
+    onSuccess: () => { toast.success("Entrada removida."); setConfirmDelete(null); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 

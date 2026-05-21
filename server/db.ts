@@ -547,6 +547,8 @@ export async function upsertManagerialBalance(data: {
       thirdPartyResources = VALUES(thirdPartyResources), futureObligations = VALUES(futureObligations),
       fundingNeeded = VALUES(fundingNeeded), openDivergences = VALUES(openDivergences)
   `);
+  // Saldo gerencial alimenta cards no Dashboard — invalida caches relacionados
+  invalidateReconciliationCaches();
 }
 
 export async function getManagerialBalances(days = 30) {
@@ -684,6 +686,9 @@ export async function moveDivergencesToRevenue(
     .set({ status: 'regularizado', actionTaken: 'Movido para Receitas' })
     .where(inArray(divergences.id, ids));
 
+  // Invalida cache: divergências mudaram + saldos podem ter sido afetados
+  invalidateReconciliationCaches();
+
   return revenueIds;
 }
 
@@ -720,6 +725,9 @@ export async function moveDivergencesToExpense(
   await dbConn.update(divergences)
     .set({ status: 'regularizado', actionTaken: 'Movido para Despesas' })
     .where(inArray(divergences.id, ids));
+
+  // Invalida cache: divergências mudaram + saldos podem ter sido afetados
+  invalidateReconciliationCaches();
 
   return expenseIds;
 }
@@ -1332,6 +1340,8 @@ export async function resolveNdi(id: number, data: {
       .where(eq(reconciliationSessions.id, div.sessionId));
   }
 
+  // NDI resolvido afeta divergências, sessões e saldos
+  invalidateReconciliationCaches();
   return { success: true };
 }
 
@@ -1343,12 +1353,15 @@ export async function markDivergencesAsNdi(ids: number[], ndiNote?: string) {
     status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NDI: aguardando identificação')
     WHERE id IN (${sql.raw(ids.join(','))})
   `);
+  // Mudança de status afeta a lista de divergências
+  invalidateReconciliationCaches();
 }
 
 export async function unmarkNdi(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.execute(sql`UPDATE divergences SET isNdi = 0, ndiNote = NULL WHERE id = ${id}`);
+  invalidateReconciliationCaches();
 }
 
 export async function getNdiDivergences() {
@@ -1446,6 +1459,8 @@ export async function createManualAdjustment(data: {
     }
   }
 
+  // Ajuste manual mudou divergências e contadores de sessão
+  invalidateReconciliationCaches();
   return (result as any)[0]?.insertId ?? 0;
 }
 

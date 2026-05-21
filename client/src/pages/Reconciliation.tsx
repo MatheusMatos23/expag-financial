@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { useState, useRef, useEffect } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight, FileSpreadsheet,
@@ -136,12 +137,16 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs">("divs");
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionTransactions.useQuery({ id: sessionId });
 
+  // Mudanças em divergências de uma sessão afetam Dashboard, lista de divergências
+  // globais e contadores de outras sessões. Invalida tudo do escopo financeiro.
+  const invalidateAcrossScreens = useInvalidateFinancialData();
+
   const deleteDivMutation = trpc.reconciliation.deleteDivergence.useMutation({
-    onSuccess: () => { toast.success("Removido."); refetch(); },
+    onSuccess: () => { toast.success("Removido."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
   const updateDivMutation = trpc.reconciliation.updateDivergence.useMutation({
-    onSuccess: () => { toast.success("Atualizado."); refetch(); },
+    onSuccess: () => { toast.success("Atualizado."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -425,6 +430,9 @@ export default function Reconciliation() {
   const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery();
   const latestSessionId = (sessions as any[])?.[0]?.id ?? null;
 
+  // Conciliações criam transações e divergências — afetam Dashboard inteiro.
+  const invalidateAcrossScreens = useInvalidateFinancialData();
+
   // Auto-abre última sessão ao entrar na página
   useEffect(() => {
     if (!liveResult && latestSessionId && selectedSession === null && !manualBack) {
@@ -438,6 +446,7 @@ export default function Reconciliation() {
       refetchSessions();
       setSelectedSession(null);
       setManualBack(true);
+      invalidateAcrossScreens();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -453,6 +462,7 @@ export default function Reconciliation() {
       toast.success("Conciliação iniciada — processando em segundo plano...");
       refetchSessions();
       setSelectedSession(data.sessionId);
+      invalidateAcrossScreens();
     },
     onError: (e) => toast.error(e.message),
   });

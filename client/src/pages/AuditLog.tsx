@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { cn, exportToCsv } from "@/lib/utils";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { useState } from "react";
 import {
   ScrollText, Search, RefreshCw, Download, Activity, Calendar,
@@ -100,14 +101,14 @@ export default function AuditLog() {
   // ── Limpeza de dados operacionais ──
   const [clearOpen, setClearOpen] = useState(false);
   const [clearConfirm, setClearConfirm] = useState("");
-  const utils = trpc.useUtils();
+  const invalidateAll = useInvalidateFinancialData();
   const clearMutation = trpc.dashboard.clearOperationalData.useMutation({
     onSuccess: (data: any) => {
       toast.success(`Dados limpos — ${data.totalRows} registro(s) removido(s).`);
       setClearOpen(false);
       setClearConfirm("");
-      utils.dashboard.getAuditLogs.invalidate();
-      refetch();
+      // Limpeza apaga TUDO — qualquer tela aberta tem dados obsoletos.
+      invalidateAll();
     },
     onError: (e: any) => toast.error(e.message),
   });

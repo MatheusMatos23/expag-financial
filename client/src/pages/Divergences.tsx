@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate, exportToCsv } from "@/lib/utils";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { useState } from "react";
 import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
@@ -590,28 +591,30 @@ export default function Divergences() {
     priority: priorityFilter !== "all" ? priorityFilter : undefined,
   }, { refetchInterval: 10000, staleTime: 5000 });
 
+  // Hook que invalida todas as queries financeiras em cascata.
+  // Usado em mutations que mudam estado visível em outras telas (Dashboard,
+  // Receitas, Despesas, NDI, Boletos, etc).
+  const invalidateAll = useInvalidateFinancialData();
+
   const updateMutation = trpc.reconciliation.updateDivergence.useMutation({
-    onSuccess: () => { toast.success("Divergência atualizada!"); refetch(); setSelected(null); },
+    onSuccess: () => { toast.success("Divergência atualizada!"); invalidateAll(); setSelected(null); },
     onError: (e) => toast.error(e.message),
   });
 
   const deleteMutation = trpc.reconciliation.deleteDivergence.useMutation({
-    onSuccess: () => { toast.success("Divergência removida."); refetch(); setSelected(null); },
+    onSuccess: () => { toast.success("Divergência removida."); invalidateAll(); setSelected(null); },
     onError: (e) => toast.error(e.message),
   });
 
-  const utilsForUnmatch = trpc.useUtils();
   const unmatchFromDivMutation = trpc.reconciliation.unmatchFromDivergence.useMutation({
     onSuccess: ({ newDivergenceIds }) => {
       toast.success(
         `Par desconciliado — ${newDivergenceIds.length} nova(s) divergência(s) criada(s).`
       );
-      refetch();
       setSelected(null);
-      // Invalida queries de outras telas (Dashboard, sessões) para que
-      // dados estejam frescos quando o usuário navegar
-      utilsForUnmatch.reconciliation.invalidate();
-      utilsForUnmatch.controllership.invalidate();
+      // Invalida queries de todas as telas para que dados estejam frescos
+      // (Dashboard, Receitas, Despesas, NDI, Boletos, Saldo Gerencial).
+      invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -621,7 +624,7 @@ export default function Divergences() {
       toast.success(`${revenueIds.length} divergência${revenueIds.length > 1 ? "s" : ""} movida${revenueIds.length > 1 ? "s" : ""} para Receitas!`);
       setSelectedIds(new Set());
       setMoveToRevenueOpen(false);
-      refetch();
+      invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -631,7 +634,7 @@ export default function Divergences() {
       toast.success(`${expenseIds.length} divergência${expenseIds.length > 1 ? "s" : ""} movida${expenseIds.length > 1 ? "s" : ""} para Despesas!`);
       setSelectedIds(new Set());
       setMoveToExpenseOpen(false);
-      refetch();
+      invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -642,7 +645,7 @@ export default function Divergences() {
         `${movedCount} divergência(s) movida(s) para Boletos em ${daysAffected} dia(s) — total: R$ ${totalMoved.toFixed(2)}`
       );
       setSelectedIds(new Set());
-      refetch();
+      invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -657,7 +660,7 @@ export default function Divergences() {
   const markNdiMutation = trpc.reconciliation.markAsNdi.useMutation({
     onSuccess: () => {
       toast.success(`${selectedIds.size} item${selectedIds.size > 1 ? "s" : ""} marcado${selectedIds.size > 1 ? "s" : ""} como NDI!`);
-      setSelectedIds(new Set()); setNdiOpen(false); setNdiNote(""); refetch();
+      setSelectedIds(new Set()); setNdiOpen(false); setNdiNote(""); invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -665,7 +668,7 @@ export default function Divergences() {
   const adjustMutation = trpc.reconciliation.createManualAdjustment.useMutation({
     onSuccess: () => {
       toast.success("Ajuste manual criado — divergências reclassificadas!");
-      setSelectedIds(new Set()); setAdjustOpen(false); setAdjustApiAmount(""); setAdjustDesc(""); refetch();
+      setSelectedIds(new Set()); setAdjustOpen(false); setAdjustApiAmount(""); setAdjustDesc(""); invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -675,7 +678,7 @@ export default function Divergences() {
   const manualReconcileMutation = trpc.reconciliation.manualReconcile.useMutation({
     onSuccess: (r) => {
       toast.success(`${r.count} divergência${r.count !== 1 ? "s" : ""} conciliada${r.count !== 1 ? "s" : ""} manualmente!`);
-      setSelectedIds(new Set()); setReconcileOpen(false); setReconcileNote(""); refetch();
+      setSelectedIds(new Set()); setReconcileOpen(false); setReconcileNote(""); invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -685,7 +688,7 @@ export default function Divergences() {
       toast.success("Transação lançada e conciliada com sucesso.");
       setCounterpartDiv(null);
       setSelected(null);
-      refetch();
+      invalidateAll();
     },
     onError: (e) => toast.error(e.message),
   });

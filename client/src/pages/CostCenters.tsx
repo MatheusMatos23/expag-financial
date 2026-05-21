@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { formatCurrency, getCurrentMonthRange } from "@/lib/utils";
 import { useState } from "react";
 import { Plus, Building2, Trash2, Edit2, RefreshCw } from "lucide-react";
@@ -36,6 +37,7 @@ export default function CostCenters() {
 
   const { data: costCenters, refetch } = trpc.accounting.getCostCenters.useQuery();
   const { data: summary } = trpc.accounting.getCostCenterSummary.useQuery({ dateFrom, dateTo });
+  const invalidateAcrossScreens = useInvalidateFinancialData();
 
   const handleEdit = (cc: any) => {
     setForm({ name: cc.name ?? "", type: cc.type ?? "despesa_fixa", description: cc.description ?? "", budget: cc.budget ? String(cc.budget) : "" });
@@ -44,15 +46,15 @@ export default function CostCenters() {
   };
 
   const createMutation = trpc.accounting.createCostCenter.useMutation({
-    onSuccess: () => { toast.success("Centro de custo criado!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
+    onSuccess: () => { toast.success("Centro de custo criado!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
   const updateMutation = trpc.accounting.updateCostCenter.useMutation({
-    onSuccess: () => { toast.success("Centro de custo atualizado!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); },
+    onSuccess: () => { toast.success("Centro de custo atualizado!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); setEditRow(null); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteMutation = trpc.accounting.deleteCostCenter.useMutation({
-    onSuccess: () => { toast.success("Centro de custo removido."); refetch(); },
+    onSuccess: () => { toast.success("Centro de custo removido."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 

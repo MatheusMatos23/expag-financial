@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { formatCurrency, formatDate, safeNumber } from "@/lib/utils";
 import { useState } from "react";
 import {
@@ -178,9 +179,10 @@ export default function CreditPortfolio() {
     { creditId: expanded! },
     { enabled: !!expanded }
   );
+  const invalidateAcrossScreens = useInvalidateFinancialData();
 
   const createMutation = trpc.controllership.createLoan.useMutation({
-    onSuccess: () => { toast.success("Crédito criado com parcelas calculadas!"); setNewOpen(false); refetch(); },
+    onSuccess: () => { toast.success("Crédito criado com parcelas calculadas!"); setNewOpen(false); refetch(); invalidateAcrossScreens(); },
     onError: e => toast.error(e.message),
   });
 
@@ -192,6 +194,7 @@ export default function CreditPortfolio() {
       setPayingInst(null);
       refetch();
       setTimeout(() => refetchInst(), 300); // wait for DB write before re-fetching
+      invalidateAcrossScreens();
     },
     onError: (e: any) => toast.error(e.message),
   });

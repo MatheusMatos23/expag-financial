@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatDateTime } from "@/lib/utils";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { useState } from "react";
 import {
   AlertTriangle, CheckCircle, Info, ShieldAlert, Clock,
@@ -41,6 +42,8 @@ export default function Alerts() {
     { refetchInterval: 30000 } // auto-refresh 30s
   );
 
+  const invalidateAll = useInvalidateFinancialData();
+
   const generateMutation = trpc.dashboard.generateAlerts.useMutation({
     onSuccess: (r: any) => {
       if ((r?.generated ?? 0) > 0) {
@@ -48,21 +51,20 @@ export default function Alerts() {
       } else {
         toast.info("Nenhum novo alerta — sistema operando normalmente.");
       }
-      // Force immediate refetch to show new alerts
-      setTimeout(() => refetch(), 200);
+      invalidateAll();
     },
     onError: (e: any) => {
       toast.error(`Erro ao verificar alertas: ${e.message}`);
-      refetch(); // still refresh to show current state
+      refetch();
     },
   });
 
   const ackMutation = trpc.dashboard.acknowledgeAlert.useMutation({
-    onSuccess: () => { toast.success("Alerta reconhecido."); refetch(); },
+    onSuccess: () => { toast.success("Alerta reconhecido."); invalidateAll(); },
   });
 
   const dismissMutation = trpc.dashboard.dismissAlert.useMutation({
-    onSuccess: () => { toast.success("Alerta dispensado."); refetch(); },
+    onSuccess: () => { toast.success("Alerta dispensado."); invalidateAll(); },
   });
 
   const allRaw = (rawAlerts ?? []) as any[];

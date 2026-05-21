@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useState } from "react";
 import { Wallet, TrendingUp, TrendingDown, Lock, Plus, Trash2, Edit2 , RefreshCw} from "lucide-react";
@@ -32,12 +33,13 @@ export default function ManagerialBalance() {
 
   const { data: latest, refetch: refetchLatest } = trpc.reconciliation.getManagerialBalance.useQuery(undefined, { refetchInterval: 15000 });
   const { data: history, refetch: refetchHistory } = trpc.reconciliation.getManagerialBalanceHistory.useQuery({ days: 30 });
+  const invalidateAcrossScreens = useInvalidateFinancialData();
   const upsertMutation = trpc.reconciliation.upsertManagerialBalance.useMutation({
-    onSuccess: () => { toast.success("Saldo gerencial atualizado!"); setOpen(false); refetchLatest(); refetchHistory(); setEditRow(null); },
+    onSuccess: () => { toast.success("Saldo gerencial atualizado!"); setOpen(false); refetchLatest(); refetchHistory(); setEditRow(null); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteMutation = trpc.accounting.deleteManagerialBalance.useMutation({
-    onSuccess: () => { toast.success("Registro removido."); refetchLatest(); refetchHistory(); },
+    onSuccess: () => { toast.success("Registro removido."); refetchLatest(); refetchHistory(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 

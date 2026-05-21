@@ -73,13 +73,22 @@ export default function Dashboard() {
   const { dateFrom, dateTo } = get90DayRange();
 
   // ── Queries ──────────────────────────────────────────────────────────────────
-  const { data: ctrlData, refetch: refetchCtrl } = trpc.controllership.getControllershipDashboard.useQuery(
-    { dateFrom, dateTo }, { refetchOnWindowFocus: false }
+  // getControllershipDashboard agora faz polling em 20s e re-fetcha ao focar a aba.
+  // Sem isso, os cards de Receitas/Despesas/Resultado/Margem ficavam congelados
+  // até o usuário clicar manualmente em "Atualizar".
+  const ctrlQuery = trpc.controllership.getControllershipDashboard.useQuery(
+    { dateFrom, dateTo },
+    { refetchInterval: 20000, refetchOnWindowFocus: true }
   );
-  const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery(undefined, { refetchInterval: 10000 });
-  const { data: bankByBank, refetch: refetchBankByBank } = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 10000 });
-  const { data: divAll, refetch: refetchDivAll } = trpc.reconciliation.getDivergences.useQuery({}, { refetchInterval: 30000, staleTime: 15000 });
-  const { data: dailyBal, refetch: refetchDailyBal } = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: ctrlData, refetch: refetchCtrl } = ctrlQuery;
+  const sessionsQuery = trpc.reconciliation.getSessions.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: sessions, refetch: refetchSessions } = sessionsQuery;
+  const bankByBankQuery = trpc.reconciliation.getBankBalancesByBank.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: bankByBank, refetch: refetchBankByBank } = bankByBankQuery;
+  const divAllQuery = trpc.reconciliation.getDivergences.useQuery({}, { refetchInterval: 30000, staleTime: 15000 });
+  const { data: divAll, refetch: refetchDivAll } = divAllQuery;
+  const dailyBalQuery = trpc.reconciliation.getDailyBankBalances.useQuery(undefined, { refetchInterval: 15000 });
+  const { data: dailyBal, refetch: refetchDailyBal } = dailyBalQuery;
   const utils = trpc.useUtils();
 
   // ── Derived ──────────────────────────────────────────────────────────────────
@@ -91,14 +100,21 @@ export default function Dashboard() {
   const sessionList = (sessions as any[]) ?? [];
   // Busca stats ao vivo da última sessão para valores corretos
   const lastSession = sessionList[0];
-  const { data: lastSessionStats } = trpc.reconciliation.getSessionStats.useQuery(
+  const lastStatsQuery = trpc.reconciliation.getSessionStats.useQuery(
     { id: lastSession?.id ?? 0 },
     { enabled: !!lastSession?.id, refetchInterval: 8000 }
   );
+  const { data: lastSessionStats } = lastStatsQuery;
 
-  // DEBUG temporário — ajuda a diagnosticar delay de atualização
-  // Remove depois que confirmarmos que o problema está resolvido
+  // DEBUG temporário — diagnóstico fica disponível em window.__dashboardDebug.
+  // Captura também isLoading/isFetching/isError + mensagens, para detectar
+  // o caso "query falhou silenciosamente" (auth, rede, etc.).
   if (typeof window !== "undefined") {
+    const snap = (q: any) => ({
+      isLoading: q.isLoading, isFetching: q.isFetching,
+      isError: q.isError, error: q.error?.message ?? null,
+      dataPresent: q.data !== undefined,
+    });
     (window as any).__dashboardDebug = {
       timestamp: new Date().toISOString(),
       sessionsCount: sessionList.length,
@@ -111,6 +127,14 @@ export default function Dashboard() {
       liveStats: lastSessionStats,
       divAllCount: (divAll as any[])?.length ?? 0,
       bankByBankCount: (bankByBank as any[])?.length ?? 0,
+      queries: {
+        ctrl: snap(ctrlQuery),
+        sessions: snap(sessionsQuery),
+        bankByBank: snap(bankByBankQuery),
+        divAll: snap(divAllQuery),
+        dailyBal: snap(dailyBalQuery),
+        lastStats: snap(lastStatsQuery),
+      },
     };
   }
   // Usa stats ao vivo se disponível (mais preciso), fallback para sessão

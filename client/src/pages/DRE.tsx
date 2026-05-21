@@ -15,8 +15,15 @@ const fmtS = (v: number) => { if (Math.abs(v) >= 1_000_000) return `R$ ${(v/1_00
 export default function DRE() {
   const [months, setMonths] = useState(6);
   const { data: dreList, isLoading, refetch } = trpc.accounting.getDRE.useQuery({ months });
+  const utils = trpc.useUtils();
   const deleteMutation = trpc.accounting.deleteDRE.useMutation({
-    onSuccess: () => { toast.success("Entrada removida."); refetch(); },
+    onSuccess: () => {
+      toast.success("Entrada removida.");
+      refetch();
+      // DRE manual mexe nos números do Dashboard de Controladoria
+      utils.accounting.invalidate();
+      utils.controllership.invalidate();
+    },
     onError: (e) => toast.error(e.message),
   });
   const list = ((dreList ?? []) as any[]).filter(Boolean);

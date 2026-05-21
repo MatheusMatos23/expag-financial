@@ -8,7 +8,22 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
-const queryClient = new QueryClient();
+// Defaults globais — alinhados com a expectativa de um sistema financeiro:
+// staleTime 0 (sempre revalida quando uma view monta), retry 1 (não enche logs com
+// erros transientes), refetchOnWindowFocus true (usuário voltou para a aba → ver dados frescos).
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 0,
+      retry: 1,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;

@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import {
   formatCurrency, formatDate,
   getCurrentMonthRange, getStatusBadge, getStatusLabel, safeNumber,
@@ -71,19 +72,20 @@ export default function Expenses() {
   });
   const { data: summary } = trpc.controllership.getExpenseSummary.useQuery({ dateFrom, dateTo });
   const { data: costCenters } = trpc.accounting.getCostCenters.useQuery();
+  const invalidateAcrossScreens = useInvalidateFinancialData();
 
   const createMutation = trpc.controllership.createExpense.useMutation({
-    onSuccess: () => { toast.success("Despesa registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); },
+    onSuccess: () => { toast.success("Despesa registrada!"); setOpen(false); refetch(); setForm(DEFAULT_FORM); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const updateMutation = trpc.controllership.updateExpense.useMutation({
-    onSuccess: () => { toast.success("Despesa atualizada!"); setEditRow(null); refetch(); },
+    onSuccess: () => { toast.success("Despesa atualizada!"); setEditRow(null); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 
   const deleteMutation = trpc.controllership.deleteExpense.useMutation({
-    onSuccess: () => { toast.success("Despesa removida."); refetch(); },
+    onSuccess: () => { toast.success("Despesa removida."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
 

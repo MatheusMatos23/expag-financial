@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import {
   formatCurrency, formatDate, formatDateTime,
   getStatusBadge, getStatusLabel, safeNumber,
@@ -264,10 +265,13 @@ export default function ReconciliationSession() {
       },
     },
   );
+  const invalidateAcrossScreens = useInvalidateFinancialData();
+
   const recalcMutation = trpc.reconciliation.recalculateSessionStats.useMutation({
     onSuccess: (r) => {
       toast.success(`Stats recalculados: ${r.matchedCount} conciliados · ${r.divergentCount} divergentes · ${r.matchRate}% taxa`);
       refetch(); refetchStats();
+      invalidateAcrossScreens();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -283,6 +287,7 @@ export default function ReconciliationSession() {
       );
       setUnmatchTarget(null);
       refetch(); refetchStats();
+      invalidateAcrossScreens();
     },
     onError: (e) => toast.error(e.message),
   });

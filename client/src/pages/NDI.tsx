@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
 import { useState } from "react";
 import {
   AlertCircle, Building2, Calendar, CheckCircle2, DollarSign,
@@ -275,19 +276,20 @@ export default function NDI() {
   const { data: rawData, refetch, isLoading } = trpc.reconciliation.getNdiDivergences.useQuery(
     undefined, { refetchInterval: 15000 }
   );
+  const invalidateAcrossScreens = useInvalidateFinancialData();
 
   const updateMutation = trpc.reconciliation.updateNdi.useMutation({
-    onSuccess: () => { toast.success("NDI atualizado."); refetch(); setSelected((s: any) => s ? { ...s, _refresh: Date.now() } : s); },
+    onSuccess: () => { toast.success("NDI atualizado."); refetch(); setSelected((s: any) => s ? { ...s, _refresh: Date.now() } : s); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
 
   const unmarkMutation = trpc.reconciliation.unmarkNdi.useMutation({
-    onSuccess: () => { toast.success("NDI removido."); setSelected(null); refetch(); },
+    onSuccess: () => { toast.success("NDI removido."); setSelected(null); refetch(); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
 
   const resolveNdiMutation = trpc.reconciliation.resolveNdi.useMutation({
-    onSuccess: () => { toast.success("NDI identificado — conciliado e receita criada!"); setSelected(null); refetch(); },
+    onSuccess: () => { toast.success("NDI identificado — conciliado e receita criada!"); setSelected(null); refetch(); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
 
