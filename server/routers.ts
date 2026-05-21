@@ -917,6 +917,25 @@ const reconciliationRouter = router({
       return result;
     }),
 
+  // ── Pares conciliados (visão dedicada com filtros e paginação) ──────────
+  getMatchedPairs: protectedProcedure
+    .input(z.object({
+      sessionId: z.number(),
+      search: z.string().optional(),
+      amount: z.number().optional(),
+      amountTolerance: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      type: z.enum(['credit', 'debit']).optional(),
+      bankName: z.string().optional(),
+      matchType: z.string().optional(),
+      page: z.number().optional(),
+      pageSize: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return db.getMatchedPairs(input);
+    }),
+
   // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
   unmatchPair: protectedProcedure
     .input(z.object({

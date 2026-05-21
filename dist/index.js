@@ -108516,6 +108516,108 @@ async function postCounterpartEntry(params) {
   _cache.clear();
   return { success: true, newTransactionId, sessionId };
 }
+async function getMatchedPairs(params) {
+  const db = await getDb();
+  if (!db) {
+    return { rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 0 };
+  }
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(200, Math.max(10, params.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+  const conditions = [
+    sql`bt.sessionId = ${params.sessionId}`,
+    sql`bt.matchStatus IN ('matched','manual')`,
+    sql`bt.matchedApiTransactionId IS NOT NULL`
+  ];
+  if (params.search && params.search.trim().length > 0) {
+    const pattern = `%${params.search.trim()}%`;
+    conditions.push(sql`(
+      bt.description LIKE ${pattern}
+      OR at.clientName LIKE ${pattern}
+      OR at.description LIKE ${pattern}
+    )`);
+  }
+  if (params.amount !== void 0) {
+    const tol = params.amountTolerance ?? 0;
+    if (tol > 0) {
+      conditions.push(sql`ABS(bt.amount - ${params.amount}) <= ${tol}`);
+    } else {
+      conditions.push(sql`bt.amount = ${params.amount}`);
+    }
+  }
+  if (params.dateFrom) conditions.push(sql`bt.transactionDate >= ${params.dateFrom}`);
+  if (params.dateTo) conditions.push(sql`bt.transactionDate <= ${params.dateTo}`);
+  if (params.type) conditions.push(sql`bt.type = ${params.type}`);
+  if (params.bankName) conditions.push(sql`bt.bankName = ${params.bankName}`);
+  if (params.matchType) conditions.push(sql`bt.matchType = ${params.matchType}`);
+  const whereClause = sql.join(conditions, sql` AND `);
+  const countRes = await db.execute(sql`
+    SELECT COUNT(*) AS total
+    FROM bank_transactions bt
+    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    WHERE ${whereClause}
+  `);
+  const totalCount = parseInt(String((countRes[0] ?? [])[0]?.total ?? 0));
+  const result = await db.execute(sql`
+    SELECT
+      bt.id              AS bank_id,
+      bt.transactionDate AS bank_date,
+      bt.type            AS bank_type,
+      bt.description     AS bank_description,
+      bt.amount          AS bank_amount,
+      bt.channel         AS bank_channel,
+      bt.bankName        AS bank_bankName,
+      bt.matchType       AS bank_matchType,
+      bt.externalId      AS bank_externalId,
+      at.id              AS api_id,
+      at.transactionDate AS api_date,
+      at.type            AS api_type,
+      at.description     AS api_description,
+      at.amount          AS api_amount,
+      at.channel         AS api_channel,
+      at.clientName      AS api_clientName,
+      at.matchType       AS api_matchType,
+      ABS(bt.amount - at.amount) AS amount_diff,
+      DATEDIFF(bt.transactionDate, at.transactionDate) AS day_diff
+    FROM bank_transactions bt
+    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    WHERE ${whereClause}
+    ORDER BY bt.transactionDate DESC, bt.id DESC
+    LIMIT ${pageSize} OFFSET ${offset}
+  `);
+  const rows = (result[0] ?? []).map((r) => ({
+    bank: {
+      id: r.bank_id,
+      transactionDate: r.bank_date,
+      type: r.bank_type,
+      description: r.bank_description,
+      amount: r.bank_amount,
+      channel: r.bank_channel,
+      bankName: r.bank_bankName,
+      matchType: r.bank_matchType,
+      externalId: r.bank_externalId
+    },
+    api: {
+      id: r.api_id,
+      transactionDate: r.api_date,
+      type: r.api_type,
+      description: r.api_description,
+      amount: r.api_amount,
+      channel: r.api_channel,
+      clientName: r.api_clientName,
+      matchType: r.api_matchType
+    },
+    amountDiff: parseFloat(String(r.amount_diff ?? 0)),
+    dayDiff: parseInt(String(r.day_diff ?? 0))
+  }));
+  return {
+    rows,
+    totalCount,
+    page,
+    pageSize,
+    totalPages: Math.ceil(totalCount / pageSize)
+  };
+}
 async function findSuspiciousPairsForDivergence(divergenceId) {
   const db = await getDb();
   if (!db) {
@@ -128764,6 +128866,22 @@ var reconciliationRouter = router({
       metadata: { ids: input.ids, note: input.note }
     });
     return result;
+  }),
+  // ── Pares conciliados (visão dedicada com filtros e paginação) ──────────
+  getMatchedPairs: protectedProcedure.input(external_exports.object({
+    sessionId: external_exports.number(),
+    search: external_exports.string().optional(),
+    amount: external_exports.number().optional(),
+    amountTolerance: external_exports.number().optional(),
+    dateFrom: external_exports.string().optional(),
+    dateTo: external_exports.string().optional(),
+    type: external_exports.enum(["credit", "debit"]).optional(),
+    bankName: external_exports.string().optional(),
+    matchType: external_exports.string().optional(),
+    page: external_exports.number().optional(),
+    pageSize: external_exports.number().optional()
+  })).query(async ({ input }) => {
+    return getMatchedPairs(input);
   }),
   // ── Desconciliar par: desfaz uma conciliação para reanálise manual ─────────
   unmatchPair: protectedProcedure.input(external_exports.object({

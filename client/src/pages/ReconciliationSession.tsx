@@ -15,7 +15,8 @@ import { DataTable, type ColumnDef } from "@/components/data-table/DataTable";
 import { generateReconciliationPdf, downloadPdf, type ReconciliationReportData } from "@/lib/reconciliationReport";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useState, useMemo } from "react";
+import { MatchedPairsAudit } from "@/components/MatchedPairsAudit";
+import { useState, useMemo, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, PieChart, Pie,
@@ -223,8 +224,25 @@ export default function ReconciliationSession() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { user: me } = useAuth();
-  const [view, setView] = useState<"table" | "pairs">("table");
+  const [view, setView] = useState<"table" | "pairs" | "audit">("table");
   const [activeTab, setActiveTab] = useState<"all" | "credits" | "debits" | "matched" | "divergent">("all");
+  const [auditPrefilledAmount, setAuditPrefilledAmount] = useState<number | undefined>();
+
+  // Detecta se chegou aqui via "Investigar pares" da aba Divergências
+  // (URL: /conciliacao/{id}?audit=1&amount=X)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("audit") === "1") {
+      setView("audit");
+      const amt = parseFloat(url.searchParams.get("amount") ?? "");
+      if (!isNaN(amt) && amt > 0) setAuditPrefilledAmount(amt);
+      // Limpa os params para não reativar em reload
+      url.searchParams.delete("audit");
+      url.searchParams.delete("amount");
+      window.history.replaceState({}, "", url.pathname);
+    }
+  }, []);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const id = parseInt(params.id ?? "0");
 
@@ -593,7 +611,13 @@ export default function ReconciliationSession() {
 
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="transações" highlight />
+        <button
+          onClick={() => setView("audit")}
+          className="text-left hover:ring-2 hover:ring-emerald-500/40 rounded-xl transition-shadow"
+          title="Clique para auditar e desconciliar pares"
+        >
+          <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="clique para auditar →" highlight />
+        </button>
         <KPI label="Divergências"  value={livePendingCount}  color="text-amber-400" sub={`${liveDivergentCount} total · ${liveMatchedCount} conciliados`} />
         <KPI label="Taxa Matching"
           value={`${matchRate}%`}
@@ -737,6 +761,16 @@ export default function ReconciliationSession() {
                 <Link2 className="w-3 h-3 inline mr-1" />
                 Pares
               </button>
+              <button
+                onClick={() => setView("audit")}
+                className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                  view === "audit" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Visão dedicada para auditar e desconciliar pares conciliados"
+              >
+                <Search className="w-3 h-3 inline mr-1" />
+                Auditar Pares
+              </button>
             </div>
           </div>
         </div>
@@ -808,6 +842,15 @@ export default function ReconciliationSession() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Audit view — visão dedicada para auditar e desconciliar pares */}
+        {view === "audit" && (
+          <MatchedPairsAudit
+            sessionId={id}
+            prefilledAmount={auditPrefilledAmount}
+            onUnmatch={(bank, api) => setUnmatchTarget({ bank, api })}
+          />
         )}
       </div>
 

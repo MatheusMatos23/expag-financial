@@ -2327,16 +2327,159 @@ export async function postCounterpartEntry(params: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── PARES CONCILIADOS — VISÃO DEDICADA ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Lista todos os pares conciliados de uma sessão. Retorna os dois lados
+ * (banco + API) lado a lado, com paginação e filtros.
+ *
+ * Suporta busca por descrição, cliente, valor (exato ou faixa), data e tipo.
+ * É a base da aba "Pares Conciliados" — onde o usuário audita as conciliações
+ * e pode desvincular um par errado.
+ */
+export async function getMatchedPairs(params: {
+  sessionId: number;
+  search?: string;       // busca em descrição/cliente
+  amount?: number;       // valor exato (ou faixa com tolerance)
+  amountTolerance?: number;  // ± centavos/reais
+  dateFrom?: string;
+  dateTo?: string;
+  type?: 'credit' | 'debit';
+  bankName?: string;
+  matchType?: string;    // exact, approximate, manual, etc
+  page?: number;
+  pageSize?: number;
+}): Promise<{
+  rows: any[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}> {
+  const db = await getDb();
+  if (!db) {
+    return { rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 0 };
+  }
+
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(200, Math.max(10, params.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+
+  // Constrói as condições WHERE dinamicamente
+  const conditions: any[] = [
+    sql`bt.sessionId = ${params.sessionId}`,
+    sql`bt.matchStatus IN ('matched','manual')`,
+    sql`bt.matchedApiTransactionId IS NOT NULL`,
+  ];
+
+  if (params.search && params.search.trim().length > 0) {
+    const pattern = `%${params.search.trim()}%`;
+    conditions.push(sql`(
+      bt.description LIKE ${pattern}
+      OR at.clientName LIKE ${pattern}
+      OR at.description LIKE ${pattern}
+    )`);
+  }
+
+  if (params.amount !== undefined) {
+    const tol = params.amountTolerance ?? 0;
+    if (tol > 0) {
+      conditions.push(sql`ABS(bt.amount - ${params.amount}) <= ${tol}`);
+    } else {
+      conditions.push(sql`bt.amount = ${params.amount}`);
+    }
+  }
+
+  if (params.dateFrom) conditions.push(sql`bt.transactionDate >= ${params.dateFrom}`);
+  if (params.dateTo)   conditions.push(sql`bt.transactionDate <= ${params.dateTo}`);
+  if (params.type)     conditions.push(sql`bt.type = ${params.type}`);
+  if (params.bankName) conditions.push(sql`bt.bankName = ${params.bankName}`);
+  if (params.matchType) conditions.push(sql`bt.matchType = ${params.matchType}`);
+
+  // Une as condições com AND
+  const whereClause = sql.join(conditions, sql` AND `);
+
+  // Count total para paginação
+  const countRes = await db.execute(sql`
+    SELECT COUNT(*) AS total
+    FROM bank_transactions bt
+    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    WHERE ${whereClause}
+  `);
+  const totalCount = parseInt(String(((countRes as any)[0] ?? [])[0]?.total ?? 0));
+
+  // Lista paginada
+  const result = await db.execute(sql`
+    SELECT
+      bt.id              AS bank_id,
+      bt.transactionDate AS bank_date,
+      bt.type            AS bank_type,
+      bt.description     AS bank_description,
+      bt.amount          AS bank_amount,
+      bt.channel         AS bank_channel,
+      bt.bankName        AS bank_bankName,
+      bt.matchType       AS bank_matchType,
+      bt.externalId      AS bank_externalId,
+      at.id              AS api_id,
+      at.transactionDate AS api_date,
+      at.type            AS api_type,
+      at.description     AS api_description,
+      at.amount          AS api_amount,
+      at.channel         AS api_channel,
+      at.clientName      AS api_clientName,
+      at.matchType       AS api_matchType,
+      ABS(bt.amount - at.amount) AS amount_diff,
+      DATEDIFF(bt.transactionDate, at.transactionDate) AS day_diff
+    FROM bank_transactions bt
+    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    WHERE ${whereClause}
+    ORDER BY bt.transactionDate DESC, bt.id DESC
+    LIMIT ${pageSize} OFFSET ${offset}
+  `);
+
+  const rows = ((result as any)[0] ?? []).map((r: any) => ({
+    bank: {
+      id: r.bank_id,
+      transactionDate: r.bank_date,
+      type: r.bank_type,
+      description: r.bank_description,
+      amount: r.bank_amount,
+      channel: r.bank_channel,
+      bankName: r.bank_bankName,
+      matchType: r.bank_matchType,
+      externalId: r.bank_externalId,
+    },
+    api: {
+      id: r.api_id,
+      transactionDate: r.api_date,
+      type: r.api_type,
+      description: r.api_description,
+      amount: r.api_amount,
+      channel: r.api_channel,
+      clientName: r.api_clientName,
+      matchType: r.api_matchType,
+    },
+    amountDiff: parseFloat(String(r.amount_diff ?? 0)),
+    dayDiff: parseInt(String(r.day_diff ?? 0)),
+  }));
+
+  return {
+    rows,
+    totalCount,
+    page,
+    pageSize,
+    totalPages: Math.ceil(totalCount / pageSize),
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ─── BUSCA DE PARES SUSPEITOS ─────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 /**
  * Dado uma divergência, busca pares já conciliados na mesma sessão que
  * possam estar errados — ou seja, com valor e data próximos ao da divergência.
  * Tolerância fixa: R$ 2,00 de diferença de valor e ±3 dias de data.
- *
- * Cenário: usuário vê uma divergência de "Sobra no banco" R$ 14.999,01 do
- * Sicoob e suspeita que aquele valor talvez tenha sido pareado errado com
- * outro PIX próximo. Esta função lista esses pares para o usuário avaliar.
  */
 export async function findSuspiciousPairsForDivergence(divergenceId: number): Promise<{
   divergenceAmount: number;

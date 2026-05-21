@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatDate, exportToCsv } from "@/lib/utils";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
@@ -360,35 +361,6 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
   const [sla, setSla] = useState(d.slaDeadline ? String(d.slaDeadline).slice(0, 10) : "");
   const [priority, setPriority] = useState(d.priority ?? "medium");
 
-  // ── Busca de pares suspeitos (conciliados com valor/data próximos) ──
-  const { data: suspiciousData, refetch: refetchSuspicious, isLoading: suspiciousLoading, error: suspiciousError } =
-    trpc.reconciliation.findSuspiciousPairsForDivergence.useQuery(
-      { divergenceId: d.id },
-      { enabled: !!d.id, staleTime: 30000 }
-    );
-  const suspiciousPairs = suspiciousData?.pairs ?? [];
-
-  // DEBUG temporário — remover depois de confirmar o funcionamento
-  if (typeof window !== 'undefined') {
-    (window as any).__divPanelDebug = {
-      divId: d.id, divAmount: d.amount, divDate: d.divergenceDate,
-      sessionId: d.sessionId,
-      suspiciousData, suspiciousPairs, suspiciousLoading, suspiciousError,
-    };
-    if (suspiciousData) console.log('[Pares suspeitos]', { divId: d.id, ...suspiciousData });
-    if (suspiciousError) console.error('[Pares suspeitos ERRO]', suspiciousError);
-  }
-
-  const utils = trpc.useUtils();
-  const unmatchPairMutation = trpc.reconciliation.unmatchPair.useMutation({
-    onSuccess: () => {
-      toast.success("Par desvinculado — agora você pode reconciliar corretamente.");
-      refetchSuspicious();
-      utils.reconciliation.getDivergences.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
   const isSurplus = d.divergenceType === "bank_surplus";
   const days = daysOpen(d.divergenceDate);
 
@@ -499,100 +471,6 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
             </div>
           </div>
 
-          {/* Pares suspeitos — mostra só quando há candidatos com valor/data próximos */}
-          {suspiciousPairs.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Search className="w-3.5 h-3.5 text-amber-400" />
-                <h4 className="text-xs font-semibold text-foreground">
-                  Pares conciliados parecidos
-                </h4>
-                <span className="text-[10px] text-muted-foreground">
-                  ({suspiciousPairs.length}) — possíveis matches errados
-                </span>
-              </div>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Estes pares já estão conciliados nesta sessão e têm valor/data próximos
-                ao desta divergência. Se algum estiver pareado errado, desvincule e
-                refaça a conciliação corretamente.
-              </p>
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {suspiciousPairs.map((p: any) => (
-                  <div
-                    key={`${p.bank.id}-${p.api.id}`}
-                    className="border border-border rounded-lg p-2.5 bg-muted/10 space-y-1.5"
-                  >
-                    {/* Linha de comparação */}
-                    <div className="flex items-center justify-between text-[9px] uppercase font-bold tracking-wider">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-amber-400">
-                          Δ valor: {formatCurrency(p.amountDiff)}
-                        </span>
-                        <span className="text-muted-foreground">·</span>
-                        <span className="text-muted-foreground">
-                          Δ dias: {p.dayDiff === 0 ? "mesmo dia" : `${p.dayDiff > 0 ? "+" : ""}${p.dayDiff}d`}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          if (confirm(
-                            `Desvincular este par?\n\n` +
-                            `Banco: ${formatCurrency(p.bank.amount)} — ${p.bank.description || 'sem descrição'}\n` +
-                            `API: ${formatCurrency(p.api.amount)} — ${p.api.clientName || 'sem cliente'}\n\n` +
-                            `Os dois lados voltarão para divergências pendentes, permitindo que você reconcilie do jeito certo.`
-                          )) {
-                            unmatchPairMutation.mutate({
-                              bankTransactionId: p.bank.id,
-                              deleteManualEntry: false,
-                            });
-                          }
-                        }}
-                        disabled={unmatchPairMutation.isPending}
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
-                      >
-                        <Unlink className="w-3 h-3" />
-                        Desvincular
-                      </button>
-                    </div>
-                    {/* Banco */}
-                    <div className="flex items-start justify-between gap-2 pt-1 border-t border-border/40">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase">Banco</span>
-                          <span className="text-[9px] text-muted-foreground">{formatDate(p.bank.transactionDate)}</span>
-                          {p.bank.channel && (
-                            <span className="text-[9px] text-muted-foreground bg-muted/30 px-1 rounded">{p.bank.channel}</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-foreground truncate">{p.bank.description || "Sem descrição"}</p>
-                      </div>
-                      <span className={cn("font-mono text-xs font-bold shrink-0",
-                        p.bank.type === "credit" ? "text-emerald-400" : "text-red-400")}>
-                        {formatCurrency(p.bank.amount)}
-                      </span>
-                    </div>
-                    {/* API */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase">API</span>
-                          <span className="text-[9px] text-muted-foreground">{formatDate(p.api.transactionDate)}</span>
-                        </div>
-                        <p className="text-[11px] text-foreground truncate">
-                          {p.api.clientName || p.api.description || "Sem cliente"}
-                        </p>
-                      </div>
-                      <span className={cn("font-mono text-xs font-bold shrink-0",
-                        p.api.type === "credit" ? "text-emerald-400" : "text-red-400")}>
-                        {formatCurrency(p.api.amount)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Tratativa */}
           <div className="space-y-3">
             <h4 className="text-xs font-semibold text-foreground">Tratativa</h4>
@@ -694,6 +572,7 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Divergences() {
+  const [, setLocation] = useLocation();
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -1107,6 +986,16 @@ export default function Divergences() {
                                   onClick={() => setSelected(d)}>
                                   <Edit2 className="w-3 h-3" />
                                 </Button>
+                                {d.sessionId && (
+                                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-amber-400"
+                                    title="Investigar pares conciliados — pode haver um match errado por aqui"
+                                    onClick={() => {
+                                      const amt = parseFloat(String(d.amount ?? 0)).toFixed(2);
+                                      setLocation(`/conciliacao/${d.sessionId}?audit=1&amount=${amt}`);
+                                    }}>
+                                    <Unlink className="w-3 h-3" />
+                                  </Button>
+                                )}
                                 <Button variant="ghost" size="sm"
                                   className="h-6 w-6 p-0 text-muted-foreground hover:text-red-400"
                                   onClick={(e) => {
