@@ -133788,43 +133788,116 @@ async function processReconciliationJob(sessionId, input, ctx) {
       });
     }
     await insertDivergencesBatch(divRows);
-    const realDivergentCount = divRows.length;
-    const realMatchedCount = bankRows.filter((r) => r.matchStatus === "matched" || r.matchStatus === "manual").length;
-    const realTotalBank = bankRows.length;
-    const engineMatched = result.matches.filter((m) => m.status === "matched").length;
-    const engineDivergent = result.matches.filter((m) => m.status === "divergent").length;
-    const engineUnmatched = result.matches.filter((m) => m.status === "unmatched_bank").length;
-    const engineTariffSkip = result.matches.filter((m) => m.status === "unmatched_bank" && isBankTariff(m.bankTx.description)).length;
-    const bankMatchedRows = bankRows.filter((r) => r.matchStatus === "matched").length;
-    const bankManualRows = bankRows.filter((r) => r.matchStatus === "manual").length;
-    const bankDivergentRows = bankRows.filter((r) => r.matchStatus === "divergent").length;
-    const divBankSurplus = divRows.filter((r) => r.divergenceType === "bank_surplus").length;
-    const divBankShortage = divRows.filter((r) => r.divergenceType === "bank_shortage").length;
-    console.log(`[RECONCILIATION] \u2550\u2550\u2550 Sess\xE3o #${sessionId} \u2014 Diagn\xF3stico \u2550\u2550\u2550`);
-    console.log(`[RECONCILIATION] Engine: ${engineMatched} matched + ${engineDivergent} divergent + ${engineUnmatched} unmatched_bank = ${result.matches.length} total`);
-    console.log(`[RECONCILIATION] Engine unmatched_bank: ${engineUnmatched} total, ${engineTariffSkip} tariff-skipped \u2192 ${engineUnmatched - engineTariffSkip} created as divergences`);
-    console.log(`[RECONCILIATION] Engine unmatched_api: ${result.unmatchedApi.length}`);
-    console.log(`[RECONCILIATION] bankRows: ${bankMatchedRows} matched + ${bankManualRows} manual + ${bankDivergentRows} divergent = ${bankRows.length} total`);
-    console.log(`[RECONCILIATION] Tarifas: pre-filtered=${bankTariffTxs.length} bank + ${apiTariffTxs.length} API`);
-    console.log(`[RECONCILIATION] divRows: ${divBankSurplus} bank_surplus + ${divBankShortage} bank_shortage = ${divRows.length} total`);
-    console.log(`[RECONCILIATION] matchRate: ${realMatchedCount}/${realTotalBank} = ${Math.round(realMatchedCount / realTotalBank * 100)}%`);
-    if (bankDivergentRows !== divBankSurplus) {
-      console.warn(`[RECONCILIATION] \u26A0\uFE0F INCONSIST\xCANCIA: ${bankDivergentRows} bank_transactions divergent mas ${divBankSurplus} diverg\xEAncias bank_surplus. Gap: ${bankDivergentRows - divBankSurplus}`);
-      const orphanDescriptions = bankRows.filter((r) => r.matchStatus === "divergent").slice(0, 10).map((r) => `[${r.bankName}] ${r.type} R$${r.amount} ${(r.description || "").slice(0, 40)}`);
-      console.warn(`[RECONCILIATION] Orphan samples: ${JSON.stringify(orphanDescriptions)}`);
+    const safetyDb = await getDb();
+    if (safetyDb) {
+      await safetyDb.execute(sql`
+          UPDATE divergences d
+          JOIN bank_transactions bt
+            ON bt.sessionId = d.sessionId
+            AND bt.externalId = d.externalId
+            AND bt.externalId IS NOT NULL
+            AND d.externalId IS NOT NULL
+          SET d.bankTransactionId = bt.id
+          WHERE d.sessionId = ${sessionId}
+            AND d.bankTransactionId IS NULL
+        `);
+      await safetyDb.execute(sql`
+          UPDATE divergences d
+          JOIN bank_transactions bt
+            ON bt.sessionId = d.sessionId
+            AND bt.transactionDate = d.divergenceDate
+            AND CAST(bt.amount AS DECIMAL(18,2)) = CAST(d.bankAmount AS DECIMAL(18,2))
+            AND bt.bankName = d.bankName
+          SET d.bankTransactionId = bt.id
+          WHERE d.sessionId = ${sessionId}
+            AND d.bankTransactionId IS NULL
+            AND d.divergenceType = 'bank_surplus'
+            AND d.bankAmount IS NOT NULL
+        `);
+      const [orphanRows] = await safetyDb.execute(sql`
+          SELECT bt.id, bt.transactionDate, bt.bankName, bt.amount, bt.description, bt.type, bt.externalId
+          FROM bank_transactions bt
+          WHERE bt.sessionId = ${sessionId}
+            AND bt.matchStatus NOT IN ('matched', 'manual')
+            AND bt.id NOT IN (
+              SELECT COALESCE(bankTransactionId, 0) FROM divergences WHERE sessionId = ${sessionId}
+            )
+        `);
+      if (orphanRows && orphanRows.length > 0) {
+        console.log(`[RECONCILIATION] Safety net: criando ${orphanRows.length} diverg\xEAncias para orphan bank_transactions`);
+        const orphanDivRows = orphanRows.map((bt) => ({
+          sessionId,
+          divergenceDate: bt.transactionDate,
+          bankName: bt.bankName,
+          divergenceType: "bank_surplus",
+          amount: String(bt.amount),
+          bankAmount: String(bt.amount),
+          origin: bt.externalId,
+          externalId: bt.externalId,
+          bankDescription: bt.description,
+          category: "outros",
+          priority: "medium",
+          transactionType: bt.type,
+          observation: "Criado automaticamente \u2014 bank_transaction sem diverg\xEAncia correspondente"
+        }));
+        await insertDivergencesBatch(orphanDivRows);
+        await safetyDb.execute(sql`
+            UPDATE divergences d
+            JOIN bank_transactions bt
+              ON bt.sessionId = d.sessionId
+              AND bt.transactionDate = d.divergenceDate
+              AND CAST(bt.amount AS DECIMAL(18,2)) = CAST(d.bankAmount AS DECIMAL(18,2))
+              AND COALESCE(bt.bankName,'') = COALESCE(d.bankName,'')
+            SET d.bankTransactionId = bt.id
+            WHERE d.sessionId = ${sessionId}
+              AND d.bankTransactionId IS NULL
+              AND d.divergenceType = 'bank_surplus'
+          `);
+      }
+      const [matchedRes] = await safetyDb.execute(sql`
+          SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN matchStatus IN ('matched','manual') THEN 1 ELSE 0 END) as matched
+          FROM bank_transactions WHERE sessionId = ${sessionId}
+        `);
+      const [divCountRes] = await safetyDb.execute(sql`
+          SELECT COUNT(*) as cnt FROM divergences
+          WHERE sessionId = ${sessionId}
+          AND status NOT IN ('regularizado','reclassificado','baixado')
+        `);
+      const realTotalBank = parseInt(String(matchedRes[0]?.total ?? 0));
+      const realMatchedCount = parseInt(String(matchedRes[0]?.matched ?? 0));
+      const realDivergentCount = parseInt(String(divCountRes[0]?.cnt ?? 0));
+      const realMatchRate = realTotalBank > 0 ? Math.round(realMatchedCount / realTotalBank * 100) : 0;
+      console.log(`[RECONCILIATION] \u2550\u2550\u2550 Sess\xE3o #${sessionId} \u2014 N\xFAmeros finais \u2550\u2550\u2550`);
+      console.log(`[RECONCILIATION] banco: ${realMatchedCount} matched + ${realTotalBank - realMatchedCount} divergent = ${realTotalBank} total`);
+      console.log(`[RECONCILIATION] diverg\xEAncias ativas: ${realDivergentCount}`);
+      console.log(`[RECONCILIATION] taxa: ${realMatchRate}%`);
+      console.log(`[RECONCILIATION] orphans criados pelo safety net: ${orphanRows?.length ?? 0}`);
+      await updateReconciliationSession(sessionId, {
+        status: "completed",
+        totalBankCredits: result.summary.totalBankCredits.toFixed(2),
+        totalBankDebits: result.summary.totalBankDebits.toFixed(2),
+        totalApiCredits: result.summary.totalApiCredits.toFixed(2),
+        totalApiDebits: result.summary.totalApiDebits.toFixed(2),
+        matchedCount: realMatchedCount,
+        divergentCount: realDivergentCount,
+        pendingCount: realDivergentCount
+      });
+    } else {
+      const realDivergentCount = divRows.length;
+      const realMatchedCount = bankRows.filter((r) => r.matchStatus === "matched" || r.matchStatus === "manual").length;
+      await updateReconciliationSession(sessionId, {
+        status: "completed",
+        totalBankCredits: result.summary.totalBankCredits.toFixed(2),
+        totalBankDebits: result.summary.totalBankDebits.toFixed(2),
+        totalApiCredits: result.summary.totalApiCredits.toFixed(2),
+        totalApiDebits: result.summary.totalApiDebits.toFixed(2),
+        matchedCount: realMatchedCount,
+        divergentCount: realDivergentCount,
+        pendingCount: realDivergentCount
+      });
     }
-    await updateReconciliationSession(sessionId, {
-      status: "completed",
-      totalBankCredits: result.summary.totalBankCredits.toFixed(2),
-      totalBankDebits: result.summary.totalBankDebits.toFixed(2),
-      totalApiCredits: result.summary.totalApiCredits.toFixed(2),
-      totalApiDebits: result.summary.totalApiDebits.toFixed(2),
-      matchedCount: realMatchedCount,
-      divergentCount: realDivergentCount,
-      // conta real da tabela divergences
-      pendingCount: realDivergentCount
-      // igual ao criado inicialmente
-    });
     invalidateReconciliationCache();
     generateSystemAlerts().catch(() => {
     });
