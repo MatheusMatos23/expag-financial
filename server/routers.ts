@@ -158,8 +158,15 @@ async function processReconciliationJob(
       const matchedApiExternalIds = new Set<string>();
       // Mapa de date+amount+type → matched para fallback sem externalId
       const matchedByDat = new Set<string>();
+
+      // CORREÇÃO CRÍTICA: incluir TODOS os pares encontrados pelo engine,
+      // não só os "matched" exatos. Quando o engine encontra um par com
+      // diferença (status="divergent"), o par EXISTE — a divergência rastreia
+      // a diferença de centavos, mas a bank_transaction é CONCILIADA.
+      // Antes, só status="matched" entrava no set, e pares com diff > R$1
+      // ficavam como matchStatus="divergent" no BD → taxa nunca subia.
       for (const match of result.matches) {
-        if (match.status !== "matched") continue;
+        if (match.status !== "matched" && match.status !== "divergent") continue;
         if (match.bankTx.externalId) matchedExternalIds.add(match.bankTx.externalId);
         else matchedByDat.add(`${match.bankTx.date}|${match.bankTx.amount.toFixed(2)}|${match.bankTx.type}|${match.bankName ?? ""}`);
         if (match.apiTx?.externalId) matchedApiExternalIds.add(match.apiTx.externalId);
@@ -176,11 +183,14 @@ async function processReconciliationJob(
         for (const tx of bank.txs) {
           const key = `${tx.date}|${tx.amount.toFixed(2)}|${tx.type}|${bank.name}`;
           const isMatched = (tx.externalId && matchedExternalIds.has(tx.externalId)) || matchedByDat.has(key);
+          // Tarifas que passaram pelo pre-filtro mas são reconhecidas por isBankTariff
+          // → manual (não geram divergência, contam como conciliadas)
+          const isTariffFallback = !isMatched && isBankTariff(tx.description);
           bankRows.push({
             sessionId, type: tx.type, transactionDate: tx.date,
             description: tx.description, amount: tx.amount.toFixed(2),
             channel: tx.channel, bankName: bank.name, externalId: tx.externalId,
-            matchStatus: isMatched ? "matched" : "divergent",
+            matchStatus: isMatched ? "matched" : (isTariffFallback ? "manual" : "divergent"),
           });
         }
       }
@@ -359,11 +369,12 @@ async function processReconciliationJob(
 
       // ── Contagens reais após todos os inserts ─────────────────────────────
       // realDivergentCount = divergências reais criadas (não tarifas)
-      // realMatchedCount   = transações matchadas pelo engine
+      // realMatchedCount   = transações com matchStatus='matched'|'manual' (inclui
+      //                      pares com diferença E tarifas reconhecidas)
       // realTotalBank      = total de bank_transactions (sem duplicatas)
       const realDivergentCount = divRows.length;
-      const realMatchedCount   = result.summary.matchedCount;
-      const realTotalBank      = bankRows.length; // parsedBanksClean + tarifas (correto)
+      const realMatchedCount   = bankRows.filter(r => r.matchStatus === 'matched' || r.matchStatus === 'manual').length;
+      const realTotalBank      = bankRows.length;
 
       // Atualizar sessão
       await db.updateReconciliationSession(sessionId, {

@@ -133576,7 +133576,7 @@ async function processReconciliationJob(sessionId, input, ctx) {
     const matchedApiExternalIds = /* @__PURE__ */ new Set();
     const matchedByDat = /* @__PURE__ */ new Set();
     for (const match of result.matches) {
-      if (match.status !== "matched") continue;
+      if (match.status !== "matched" && match.status !== "divergent") continue;
       if (match.bankTx.externalId) matchedExternalIds.add(match.bankTx.externalId);
       else matchedByDat.add(`${match.bankTx.date}|${match.bankTx.amount.toFixed(2)}|${match.bankTx.type}|${match.bankName ?? ""}`);
       if (match.apiTx?.externalId) matchedApiExternalIds.add(match.apiTx.externalId);
@@ -133586,6 +133586,7 @@ async function processReconciliationJob(sessionId, input, ctx) {
       for (const tx of bank.txs) {
         const key = `${tx.date}|${tx.amount.toFixed(2)}|${tx.type}|${bank.name}`;
         const isMatched = tx.externalId && matchedExternalIds.has(tx.externalId) || matchedByDat.has(key);
+        const isTariffFallback = !isMatched && isBankTariff(tx.description);
         bankRows.push({
           sessionId,
           type: tx.type,
@@ -133595,7 +133596,7 @@ async function processReconciliationJob(sessionId, input, ctx) {
           channel: tx.channel,
           bankName: bank.name,
           externalId: tx.externalId,
-          matchStatus: isMatched ? "matched" : "divergent"
+          matchStatus: isMatched ? "matched" : isTariffFallback ? "manual" : "divergent"
         });
       }
     }
@@ -133775,7 +133776,7 @@ async function processReconciliationJob(sessionId, input, ctx) {
     }
     await insertDivergencesBatch(divRows);
     const realDivergentCount = divRows.length;
-    const realMatchedCount = result.summary.matchedCount;
+    const realMatchedCount = bankRows.filter((r) => r.matchStatus === "matched" || r.matchStatus === "manual").length;
     const realTotalBank = bankRows.length;
     await updateReconciliationSession(sessionId, {
       status: "completed",
