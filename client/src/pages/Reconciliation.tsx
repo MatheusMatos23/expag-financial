@@ -137,6 +137,15 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs">("divs");
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionTransactions.useQuery({ id: sessionId });
 
+  // Live stats da sessão — mesma fonte de verdade usada pelo Dashboard.
+  // Recalcula a cada 5s via COUNT real no banco, não depende do campo
+  // armazenado em reconciliation_sessions.matchedCount (que pode ficar
+  // desatualizado se mutations não sincronizarem corretamente).
+  const { data: liveStats } = trpc.reconciliation.getSessionStats.useQuery(
+    { id: sessionId },
+    { refetchInterval: 5000 }
+  );
+
   // Mudanças em divergências de uma sessão afetam Dashboard, lista de divergências
   // globais e contadores de outras sessões. Invalida tudo do escopo financeiro.
   const invalidateAcrossScreens = useInvalidateFinancialData();
@@ -158,14 +167,19 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   if (!data) return <div className="text-center py-12 text-muted-foreground text-sm">Sessão não encontrada.</div>;
 
   const { session: sess, bankTxs, apiTxs, divs } = data as any;
-  // matchRate — fórmula ÚNICA do sistema: conciliados / total real de transações de banco.
-  // Mesmo denominador usado em getSessionStats e na lista do Dashboard.
-  const realTotal = (bankTxs?.length ?? 0) > 0
-    ? bankTxs.length
-    : sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0);
-  const matchRate = realTotal > 0
-    ? Math.round((sess.matchedCount / realTotal) * 100)
-    : 0;
+
+  // ── Valores live (fonte de verdade: getSessionStats) ────────────────────────
+  // getSessionStats faz COUNT real no banco (bank_transactions com matchStatus
+  // IN ('matched','manual')). Fallback para sess.matchedCount só se liveStats
+  // não tiver carregado ainda (primeiro render).
+  const liveMatchedCount = (liveStats as any)?.matchedCount ?? sess.matchedCount ?? 0;
+  const liveTotalCount   = (liveStats as any)?.totalCount   ?? (bankTxs?.length ?? 0);
+  const livePendingCount = (liveStats as any)?.pendingCount ?? sess.pendingCount ?? 0;
+  const matchRate        = (liveStats as any)?.matchRate
+    ?? (liveTotalCount > 0 ? Math.round((liveMatchedCount / liveTotalCount) * 100) : 0);
+  const liveDivergentCount = (liveStats as any)?.divergentCount
+    ?? (liveTotalCount - liveMatchedCount);
+
   const totalDivValue = (divs ?? []).reduce((s: number, d: any) => s + parseFloat(d.amount ?? 0), 0);
   const pendingDivs = (divs ?? []).filter((d: any) => d.status === "pendente" || d.status === "em_analise");
   const bankCredits = (bankTxs ?? []).filter((t: any) => t.type === "credit").reduce((s: number, t: any) => s + parseFloat(t.amount ?? 0), 0);
@@ -216,12 +230,12 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
         </div>
         <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Conciliados</p>
-          <p className="text-2xl font-bold text-emerald-400">{sess.matchedCount}</p>
+          <p className="text-2xl font-bold text-emerald-400">{liveMatchedCount}</p>
         </div>
         <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Divergentes</p>
-          <p className="text-2xl font-bold text-yellow-400">{(divs ?? []).length}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{pendingDivs.length} pendentes</p>
+          <p className="text-2xl font-bold text-yellow-400">{liveDivergentCount}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{livePendingCount} pendentes</p>
         </div>
         <div className="card-premium rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Valor em Aberto</p>

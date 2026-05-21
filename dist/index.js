@@ -133418,24 +133418,37 @@ function parseStatementResilient(buffer, bank) {
 
 // server/routers.ts
 init_drizzle_orm();
-async function updateSessionPendingCount(sessionId) {
-  if (!sessionId) return;
+async function updateSessionPendingCount(sessionId, divergenceIds) {
   const dbConn = await getDb();
   if (!dbConn) return;
   const { sql: sqlTag, eq: eqOp } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
   const { reconciliationSessions: reconciliationSessions2 } = await Promise.resolve().then(() => (init_schema2(), schema_exports));
+  let sid = sessionId;
+  if (!sid && divergenceIds && divergenceIds.length > 0) {
+    const rows = await dbConn.execute(sqlTag`
+      SELECT DISTINCT sessionId FROM divergences
+      WHERE id IN (${sqlTag.raw(divergenceIds.join(","))}) AND sessionId IS NOT NULL
+      LIMIT 5
+    `);
+    const sessionIds = (rows[0] ?? []).map((r) => r.sessionId).filter(Boolean);
+    for (const s of sessionIds) {
+      await updateSessionPendingCount(s);
+    }
+    if (sessionIds.length > 0) return;
+  }
+  if (!sid) return;
   const pending = await dbConn.execute(sqlTag`
     SELECT COUNT(*) as cnt FROM divergences
-    WHERE sessionId = ${sessionId}
+    WHERE sessionId = ${sid}
     AND status NOT IN ('regularizado','reclassificado','baixado')
   `);
   const matched = await dbConn.execute(sqlTag`
     SELECT COUNT(*) as cnt FROM bank_transactions
-    WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
+    WHERE sessionId = ${sid} AND matchStatus IN ('matched','manual')
   `);
   const pendingCount = parseInt(String(pending[0]?.[0]?.cnt ?? 0));
   const matchedCount = parseInt(String(matched[0]?.[0]?.cnt ?? 0));
-  await dbConn.update(reconciliationSessions2).set({ pendingCount, matchedCount }).where(eqOp(reconciliationSessions2.id, sessionId));
+  await dbConn.update(reconciliationSessions2).set({ pendingCount, matchedCount }).where(eqOp(reconciliationSessions2.id, sid));
 }
 async function processReconciliationJob(sessionId, input, ctx) {
   const t0 = Date.now();
@@ -134212,7 +134225,7 @@ var reconciliationRouter = router({
       input.note,
       ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
     );
-    await updateSessionPendingCount(input.sessionId);
+    await updateSessionPendingCount(input.sessionId, input.ids);
     await audit(ctx, {
       action: "divergence.manual_reconcile",
       category: "divergencia",
@@ -134508,7 +134521,7 @@ var reconciliationRouter = router({
       sessionId: input.sessionId,
       createdByName: ctx.user?.name ?? "Sistema"
     });
-    await updateSessionPendingCount(input.sessionId);
+    await updateSessionPendingCount(input.sessionId, input.ids);
     await audit(ctx, {
       action: "divergence.move_to_revenue",
       category: "divergencia",
@@ -134536,7 +134549,7 @@ var reconciliationRouter = router({
       sessionId: input.sessionId,
       createdByName: ctx.user?.name ?? "Sistema"
     });
-    await updateSessionPendingCount(input.sessionId);
+    await updateSessionPendingCount(input.sessionId, input.ids);
     await audit(ctx, {
       action: "divergence.move_to_expense",
       category: "divergencia",

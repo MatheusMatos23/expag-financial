@@ -16,26 +16,47 @@ import { sql } from "drizzle-orm";
 // ─── CONCILIAÇÃO ROUTER ───────────────────────────────────────────────────────
 
 // ── Helper: recalcula pendingCount da sessão após regularizações ──────────────
-async function updateSessionPendingCount(sessionId: number | undefined) {
-  if (!sessionId) return;
+async function updateSessionPendingCount(sessionId: number | undefined, divergenceIds?: number[]) {
   const dbConn = await db.getDb();
   if (!dbConn) return;
   const { sql: sqlTag, eq: eqOp } = await import("drizzle-orm");
   const { reconciliationSessions } = await import("../drizzle/schema");
+
+  // Se sessionId não foi fornecido, tenta descobrir a partir das divergências.
+  // Isso resolve o caso em que o frontend opera na tela global de Divergências
+  // e não passa sessionId — antes, a atualização era silenciosamente pulada.
+  let sid = sessionId;
+  if (!sid && divergenceIds && divergenceIds.length > 0) {
+    const rows = await dbConn.execute(sqlTag`
+      SELECT DISTINCT sessionId FROM divergences
+      WHERE id IN (${sqlTag.raw(divergenceIds.join(","))}) AND sessionId IS NOT NULL
+      LIMIT 5
+    `);
+    const sessionIds = ((rows as any)[0] ?? []).map((r: any) => r.sessionId).filter(Boolean);
+    // Se todas as divergências são da mesma sessão, atualiza essa sessão.
+    // Se múltiplas sessões → atualiza todas (raro, mas correto).
+    for (const s of sessionIds) {
+      await updateSessionPendingCount(s);
+    }
+    if (sessionIds.length > 0) return; // já processou recursivamente
+  }
+
+  if (!sid) return; // sem sessionId e sem divergenceIds → nada a fazer
+
   const pending = await dbConn.execute(sqlTag`
     SELECT COUNT(*) as cnt FROM divergences
-    WHERE sessionId = ${sessionId}
+    WHERE sessionId = ${sid}
     AND status NOT IN ('regularizado','reclassificado','baixado')
   `);
   const matched = await dbConn.execute(sqlTag`
     SELECT COUNT(*) as cnt FROM bank_transactions
-    WHERE sessionId = ${sessionId} AND matchStatus IN ('matched','manual')
+    WHERE sessionId = ${sid} AND matchStatus IN ('matched','manual')
   `);
   const pendingCount = parseInt(String((pending as any)[0]?.[0]?.cnt ?? 0));
   const matchedCount = parseInt(String((matched as any)[0]?.[0]?.cnt ?? 0));
   await dbConn.update(reconciliationSessions)
     .set({ pendingCount, matchedCount })
-    .where(eqOp(reconciliationSessions.id, sessionId));
+    .where(eqOp(reconciliationSessions.id, sid));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -920,7 +941,7 @@ const reconciliationRouter = router({
         input.note,
         ctx.user?.name ?? ctx.user?.email ?? 'Usuário'
       );
-      await updateSessionPendingCount(input.sessionId);
+      await updateSessionPendingCount(input.sessionId, input.ids);
       await audit(ctx, {
         action: "divergence.manual_reconcile", category: "divergencia",
         entityType: "divergence", entityId: input.ids.join(","),
@@ -1256,7 +1277,7 @@ const reconciliationRouter = router({
         sessionId: input.sessionId,
         createdByName: ctx.user?.name ?? 'Sistema',
       });
-      await updateSessionPendingCount(input.sessionId);
+      await updateSessionPendingCount(input.sessionId, input.ids);
       await audit(ctx, {
         action: "divergence.move_to_revenue", category: "divergencia",
         entityType: "divergence", entityId: input.ids.join(","),
@@ -1285,7 +1306,7 @@ const reconciliationRouter = router({
         sessionId: input.sessionId,
         createdByName: ctx.user?.name ?? 'Sistema',
       });
-      await updateSessionPendingCount(input.sessionId);
+      await updateSessionPendingCount(input.sessionId, input.ids);
       await audit(ctx, {
         action: "divergence.move_to_expense", category: "divergencia",
         entityType: "divergence", entityId: input.ids.join(","),
