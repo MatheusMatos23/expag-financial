@@ -3,7 +3,7 @@ import { formatCurrency, cn } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Maximize2, Minimize2,
-  DollarSign, Activity, Percent, Wallet,
+  DollarSign, Activity, Percent, Wallet, CheckCircle2, AlertTriangle, Clock, Printer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -166,8 +166,12 @@ export default function ExecutiveDashboard() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 print:hidden">
           <PeriodSelector value={preset} onChange={setPreset} />
+          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => window.print()}>
+            <Printer className="w-3.5 h-3.5" />
+            Exportar PDF
+          </Button>
           <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={toggleFullscreen}>
             {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
             {fullscreen ? "Sair" : "Apresentar"}
@@ -604,6 +608,174 @@ export default function ExecutiveDashboard() {
           </>
         )}
       </section>
+
+      {/* ── SEÇÃO 6: Saúde Operacional ──────────────────────────────────── */}
+      <section>
+        <SectionHeader>Saúde Operacional</SectionHeader>
+
+        {/* 4 KPIs principais */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <HealthKPI
+            label="Taxa de Conciliação"
+            value={`${(data as any).operationalHealth.reconciliationRate.toFixed(1)}%`}
+            icon={CheckCircle2}
+            hint={`Últimos 90 dias · ${(data as any).operationalHealth.sessionCount} sessão${(data as any).operationalHealth.sessionCount !== 1 ? "ões" : ""}`}
+            status={
+              (data as any).operationalHealth.reconciliationRate >= 95 ? "good" :
+              (data as any).operationalHealth.reconciliationRate >= 85 ? "warning" : "critical"
+            }
+          />
+          <HealthKPI
+            label="Divergências Críticas"
+            value={(data as any).operationalHealth.criticalDivergences.toLocaleString("pt-BR")}
+            icon={AlertTriangle}
+            hint={(data as any).operationalHealth.criticalAmount > 0
+              ? `${compactCurrency((data as any).operationalHealth.criticalAmount)} em aberto`
+              : "Nenhuma pendência crítica"}
+            status={
+              (data as any).operationalHealth.criticalDivergences === 0 ? "good" :
+              (data as any).operationalHealth.criticalDivergences <= 5 ? "warning" : "critical"
+            }
+          />
+          <HealthKPI
+            label="Saldo de Caixa"
+            value={compactCurrency((data as any).operationalHealth.cashBalance)}
+            icon={Wallet}
+            hint="Disponível agora"
+            status={
+              (data as any).operationalHealth.cashBalance > 0 ? "good" :
+              (data as any).operationalHealth.cashBalance === 0 ? "warning" : "critical"
+            }
+          />
+          <HealthKPI
+            label="Tempo de Resolução"
+            value={
+              (data as any).operationalHealth.avgResolutionDays > 0
+                ? `${(data as any).operationalHealth.avgResolutionDays.toFixed(1)} dias`
+                : "—"
+            }
+            icon={Clock}
+            hint={`${(data as any).operationalHealth.resolvedCount} regularizada${(data as any).operationalHealth.resolvedCount !== 1 ? "s" : ""} em 90 dias`}
+            status={
+              (data as any).operationalHealth.avgResolutionDays === 0 ? "neutral" :
+              (data as any).operationalHealth.avgResolutionDays <= 3 ? "good" :
+              (data as any).operationalHealth.avgResolutionDays <= 7 ? "warning" : "critical"
+            }
+          />
+        </div>
+
+        {/* Resumo executivo */}
+        <div className="card-premium rounded-2xl p-5">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Avaliação Geral</p>
+          <p className="text-lg font-semibold text-foreground mb-3">
+            {(() => {
+              const h = (data as any).operationalHealth;
+              const score = (
+                (h.reconciliationRate >= 95 ? 1 : h.reconciliationRate >= 85 ? 0.5 : 0) +
+                (h.criticalDivergences === 0 ? 1 : h.criticalDivergences <= 5 ? 0.5 : 0) +
+                (h.avgResolutionDays === 0 || h.avgResolutionDays <= 3 ? 1 : h.avgResolutionDays <= 7 ? 0.5 : 0)
+              ) / 3;
+              if (score >= 0.85) return "✓ Operação saudável";
+              if (score >= 0.5) return "⚠ Atenção em alguns indicadores";
+              return "❌ Operação requer atenção urgente";
+            })()}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <HealthCheck
+              label="Conciliação"
+              ok={(data as any).operationalHealth.reconciliationRate >= 95}
+              warning={(data as any).operationalHealth.reconciliationRate >= 85 && (data as any).operationalHealth.reconciliationRate < 95}
+              message={
+                (data as any).operationalHealth.reconciliationRate >= 95
+                  ? "Acima de 95% — excelente"
+                  : (data as any).operationalHealth.reconciliationRate >= 85
+                  ? "Entre 85-95% — pode melhorar"
+                  : "Abaixo de 85% — investigar"
+              }
+            />
+            <HealthCheck
+              label="Divergências críticas"
+              ok={(data as any).operationalHealth.criticalDivergences === 0}
+              warning={(data as any).operationalHealth.criticalDivergences > 0 && (data as any).operationalHealth.criticalDivergences <= 5}
+              message={
+                (data as any).operationalHealth.criticalDivergences === 0
+                  ? "Sem pendências críticas"
+                  : `${(data as any).operationalHealth.criticalDivergences} caso${(data as any).operationalHealth.criticalDivergences !== 1 ? "s" : ""} aberto${(data as any).operationalHealth.criticalDivergences !== 1 ? "s" : ""}`
+              }
+            />
+            <HealthCheck
+              label="Tempo de resposta"
+              ok={(data as any).operationalHealth.avgResolutionDays === 0 || (data as any).operationalHealth.avgResolutionDays <= 3}
+              warning={(data as any).operationalHealth.avgResolutionDays > 3 && (data as any).operationalHealth.avgResolutionDays <= 7}
+              message={
+                (data as any).operationalHealth.avgResolutionDays === 0
+                  ? "Sem dados de resolução"
+                  : (data as any).operationalHealth.avgResolutionDays <= 3
+                  ? "Resposta rápida (≤3 dias)"
+                  : (data as any).operationalHealth.avgResolutionDays <= 7
+                  ? "Resposta moderada (4-7 dias)"
+                  : "Resposta lenta (>7 dias)"
+              }
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Rodapé para impressão (só aparece em PDF) */}
+      <div className="hidden print:block text-center text-[10px] text-muted-foreground mt-6 pt-4 border-t border-border">
+        Expag · Dashboard Executivo · Gerado em {new Date().toLocaleString("pt-BR")}
+      </div>
+    </div>
+  );
+}
+
+// ── KPI de saúde operacional (verde/âmbar/vermelho) ──────────────────────────
+function HealthKPI({ label, value, icon: Icon, hint, status }: {
+  label: string;
+  value: string;
+  icon: any;
+  hint: string;
+  status: "good" | "warning" | "critical" | "neutral";
+}) {
+  const colorMap = {
+    good: { text: "text-emerald-400", bg: "from-emerald-500/10", icon: "text-emerald-400" },
+    warning: { text: "text-amber-400", bg: "from-amber-500/10", icon: "text-amber-400" },
+    critical: { text: "text-red-400", bg: "from-red-500/10", icon: "text-red-400" },
+    neutral: { text: "text-muted-foreground", bg: "from-muted/10", icon: "text-muted-foreground" },
+  };
+  const c = colorMap[status];
+  return (
+    <div className={cn("card-premium rounded-2xl p-5 bg-gradient-to-br to-transparent", c.bg)}>
+      <div className="flex items-start justify-between mb-3">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-[0.15em] font-medium">{label}</p>
+        <Icon className={cn("w-4 h-4 opacity-60", c.icon)} />
+      </div>
+      <p className={cn("text-3xl font-bold font-mono tracking-tight tabular-nums", c.text)}>
+        {value}
+      </p>
+      <p className="text-[10px] text-muted-foreground mt-2">{hint}</p>
+    </div>
+  );
+}
+
+// ── Item de checklist de saúde ───────────────────────────────────────────────
+function HealthCheck({ label, ok, warning, message }: {
+  label: string;
+  ok: boolean;
+  warning: boolean;
+  message: string;
+}) {
+  const color = ok ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+    : warning ? "text-amber-400 bg-amber-500/10 border-amber-500/30"
+    : "text-red-400 bg-red-500/10 border-red-500/30";
+  const symbol = ok ? "✓" : warning ? "⚠" : "✗";
+  return (
+    <div className={cn("rounded-xl border p-3", color)}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="font-bold">{symbol}</span>
+        <span className="text-[10px] uppercase tracking-wider font-medium">{label}</span>
+      </div>
+      <p className="text-xs opacity-80">{message}</p>
     </div>
   );
 }

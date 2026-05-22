@@ -732,3 +732,35 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 :root:not(.dark) .border-yellow-500\/25  { border-color: rgba(161,98,7,0.32) !important; }
 :root:not(.dark) .border-amber-500\/30,
 :root:not(.dark) .border-amber-500\/25   { border-color: rgba(180,83,9,0.32) !important; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Print styles — Dashboard Executivo (Exportar PDF)
+   ───────────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* Esconde sidebar e header global */
+  aside, nav, header.print\:hidden, .print\:hidden { display: none !important; }
+
+  /* Página em landscape com margens generosas */
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  /* Cores no print: preservar (Chrome/Edge respeitam color-adjust: exact) */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Fundo branco no print para economizar tinta */
+  body { background: white !important; color: #1a1a1a !important; }
+
+  /* Evita quebra dentro de cards/seções */
+  section, .card-premium { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Seções respiram com mais espaço no print */
+  section { margin-bottom: 20mm; }
+
+  /* Ajusta margens do container principal */
+  main, .max-w-\[1600px\] { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+}

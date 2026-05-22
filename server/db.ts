@@ -4063,6 +4063,78 @@ export async function getExecutiveDashboard(params: {
     interestPeriod,
   };
 
+  // ── 7) Saúde Operacional ──
+  // Taxa de conciliação: média ponderada das sessões dos últimos 90 dias.
+  // Ponderada pelo total de transações para que sessões maiores tenham
+  // mais peso (uma sessão com 5000 txs vale mais que uma de 50).
+  const recConcResRecent = await dbConn.execute(sql`
+    SELECT
+      COALESCE(SUM(matchedCount), 0) as totalMatched,
+      COALESCE(SUM(matchedCount + pendingCount), 0) as totalAll,
+      COUNT(*) as sessionCount
+    FROM reconciliation_sessions
+    WHERE createdAt >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+      AND status = 'completed'
+  `);
+  const recRow = (recConcResRecent as any)[0]?.[0] ?? {};
+  const totalMatched = Number(recRow.totalMatched ?? 0);
+  const totalAll = Number(recRow.totalAll ?? 0);
+  const reconciliationRate = totalAll > 0 ? (totalMatched / totalAll) * 100 : 0;
+
+  // Divergências críticas abertas (priority high/critical, status não resolvido)
+  const criticalDivRes = await dbConn.execute(sql`
+    SELECT
+      COUNT(*) as critCount,
+      COALESCE(SUM(CAST(amount AS DECIMAL(18,2))), 0) as critAmount
+    FROM divergences
+    WHERE priority IN ('high', 'critical')
+      AND status NOT IN ('regularizado', 'reclassificado', 'baixado')
+  `);
+  const critRow = (criticalDivRes as any)[0]?.[0] ?? {};
+
+  // Total de divergências abertas (qualquer prioridade)
+  const allOpenDivRes = await dbConn.execute(sql`
+    SELECT COUNT(*) as cnt
+    FROM divergences
+    WHERE status NOT IN ('regularizado', 'reclassificado', 'baixado')
+  `);
+  const openDivCount = Number((allOpenDivRes as any)[0]?.[0]?.cnt ?? 0);
+
+  // Saldo de caixa disponível: soma dos saldos por banco
+  // (mesma lógica de getBankBalancesByBank — somente créditos - débitos)
+  const cashRes = await dbConn.execute(sql`
+    SELECT
+      COALESCE(SUM(CASE WHEN type = 'credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) -
+      COALESCE(SUM(CASE WHEN type = 'debit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as balance
+    FROM bank_transactions
+  `);
+  const cashBalance = parseFloat(String((cashRes as any)[0]?.[0]?.balance ?? 0));
+
+  // Tempo médio para regularização (em dias)
+  // De divergence.createdAt até updatedAt quando status='regularizado'
+  const resolutionRes = await dbConn.execute(sql`
+    SELECT
+      AVG(DATEDIFF(updatedAt, createdAt)) as avgDays,
+      COUNT(*) as resolvedCount
+    FROM divergences
+    WHERE status = 'regularizado'
+      AND updatedAt >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+  `);
+  const resRow = (resolutionRes as any)[0]?.[0] ?? {};
+  const avgResolutionDays = parseFloat(String(resRow.avgDays ?? 0));
+  const resolvedCount = Number(resRow.resolvedCount ?? 0);
+
+  const operationalHealth = {
+    reconciliationRate,
+    sessionCount: Number(recRow.sessionCount ?? 0),
+    criticalDivergences: Number(critRow.critCount ?? 0),
+    criticalAmount: parseFloat(String(critRow.critAmount ?? 0)),
+    openDivergences: openDivCount,
+    cashBalance,
+    avgResolutionDays,
+    resolvedCount,
+  };
+
   return {
     period: { dateFrom: params.dateFrom, dateTo: params.dateTo },
     current,
@@ -4076,5 +4148,6 @@ export async function getExecutiveDashboard(params: {
       top10: concentrationTop10,
     },
     creditPortfolio,
+    operationalHealth,
   };
 }
