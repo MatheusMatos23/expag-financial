@@ -34,6 +34,14 @@ function compactCurrency(v: number): string {
   return formatCurrency(v);
 }
 
+// Configuração das APIs (cores, labels, ordem)
+type ApiSource = "expag" | "cinqbank";
+const API_CONFIG: Record<ApiSource, { label: string; color: string; bg: string; border: string; dot: string }> = {
+  expag:    { label: "Expag",    color: "text-indigo-400", bg: "bg-indigo-500/10",  border: "border-indigo-500/30", dot: "bg-indigo-500" },
+  cinqbank: { label: "CINQBank", color: "text-amber-400",  bg: "bg-amber-500/10",   border: "border-amber-500/30",  dot: "bg-amber-500" },
+};
+const API_ORDER: ApiSource[] = ["expag", "cinqbank"];
+
 const REVENUE_COLORS = ["#10b981","#34d399","#6ee7b7","#a7f3d0","#0d9488","#14b8a6","#2dd4bf","#5eead4","#0f766e","#115e59","#0e7490","#06b6d4","#22d3ee","#67e8f9"];
 const EXPENSE_COLORS = ["#ef4444","#f87171","#fca5a5","#fecaca","#dc2626","#b91c1c","#991b1b","#7f1d1d","#f59e0b","#fb923c","#fdba74"];
 
@@ -132,11 +140,13 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
 
 function InputView() {
   const [month, setMonth] = useState(CURRENT_MONTH);
+  const [apiFilter, setApiFilter] = useState<"all" | ApiSource>("all");
   const [kindFilter, setKindFilter] = useState<"all" | "receita" | "despesa">("all");
 
   const { data: rows, refetch } = trpc.accounting.listManualApuracao.useQuery({
     referenceMonth: month,
     kind: kindFilter === "all" ? undefined : kindFilter,
+    apiSource: apiFilter === "all" ? undefined : apiFilter,
   });
   const { data: monthsAvailable, refetch: refetchMonths } = trpc.accounting.getManualApuracaoMonths.useQuery();
 
@@ -161,21 +171,23 @@ function InputView() {
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({
     referenceMonth: month,
+    apiSource: "expag" as ApiSource,
     kind: "receita" as "receita" | "despesa",
     category: "",
     amount: "",
     notes: "",
   });
 
-  function openCreate(kind: "receita" | "despesa") {
+  function openCreate(kind: "receita" | "despesa", api: ApiSource = "expag") {
     setEditing(null);
-    setForm({ referenceMonth: month, kind, category: "", amount: "", notes: "" });
+    setForm({ referenceMonth: month, apiSource: api, kind, category: "", amount: "", notes: "" });
     setFormOpen(true);
   }
   function openEdit(row: any) {
     setEditing(row);
     setForm({
       referenceMonth: row.referenceMonth,
+      apiSource: row.apiSource,
       kind: row.kind,
       category: row.category,
       amount: String(parseFloat(row.amount)),
@@ -188,10 +200,17 @@ function InputView() {
     if (!form.category.trim()) { toast.error("Categoria obrigatória"); return; }
     if (amount <= 0) { toast.error("Valor deve ser maior que zero"); return; }
     if (editing) {
-      updateMutation.mutate({ id: editing.id, category: form.category.trim(), amount, notes: form.notes });
+      updateMutation.mutate({
+        id: editing.id,
+        category: form.category.trim(),
+        amount,
+        notes: form.notes,
+        apiSource: form.apiSource,
+      });
     } else {
       createMutation.mutate({
         referenceMonth: form.referenceMonth,
+        apiSource: form.apiSource,
         kind: form.kind,
         category: form.category.trim(),
         amount,
@@ -200,18 +219,7 @@ function InputView() {
     }
   }
 
-  // Duplicar mês anterior (cria categorias zeradas pra acelerar entrada)
-  const cloneMonthMutation = trpc.accounting.createManualApuracao.useMutation();
-  async function cloneFromMonth(sourceMonth: string) {
-    if (!rows || sourceMonth === month) return;
-    // Pega dados do mês de origem
-    const sourceData = await trpc.useUtils ? null : null; // não usado — vou fazer com fetch direto
-    // Em vez disso, usa o backend pra pegar dados do mês fonte
-    // Simplificação: usuário escolhe na lista de meses disponíveis
-    // Vou alertar e deixar como sugestão futura
-  }
-
-  // Agrupa por kind para exibir em 2 tabelas (estilo anexo)
+  // Agrupa por kind para exibir em 2 tabelas
   const receitas = (rows ?? []).filter((r: any) => r.kind === "receita");
   const despesas = (rows ?? []).filter((r: any) => r.kind === "despesa");
   const totalReceitas = receitas.reduce((s: number, r: any) => s + parseFloat(r.amount), 0);
@@ -220,18 +228,18 @@ function InputView() {
 
   return (
     <>
-      {/* Seletor de mês */}
+      {/* Seletor de mês + filtros */}
       <div className="card-premium rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-1.5">
             <Calendar className="w-4 h-4 text-muted-foreground" />
-            <Label className="text-xs text-muted-foreground">Mês de referência</Label>
+            <Label className="text-xs text-muted-foreground">Mês</Label>
           </div>
           <Input type="month" value={month} onChange={e => setMonth(e.target.value)}
             className="h-9 w-40 text-xs" />
           {monthsAvailable && monthsAvailable.length > 0 && (
             <Select value={month} onValueChange={setMonth}>
-              <SelectTrigger className="h-9 w-44 text-xs"><SelectValue placeholder="Ou escolha um existente" /></SelectTrigger>
+              <SelectTrigger className="h-9 w-40 text-xs"><SelectValue placeholder="Existentes" /></SelectTrigger>
               <SelectContent>
                 {monthsAvailable.map((m: string) => (
                   <SelectItem key={m} value={m} className="text-xs">{formatMonth(m)}</SelectItem>
@@ -241,6 +249,14 @@ function InputView() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Select value={apiFilter} onValueChange={v => setApiFilter(v as any)}>
+            <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">Todas APIs</SelectItem>
+              <SelectItem value="expag" className="text-xs">Expag</SelectItem>
+              <SelectItem value="cinqbank" className="text-xs">CINQBank</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={kindFilter} onValueChange={v => setKindFilter(v as any)}>
             <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -261,7 +277,6 @@ function InputView() {
 
       {/* Tabelas de Receitas e Despesas lado a lado */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Receitas */}
         <CategoryTable
           title="Composição de Receitas"
           icon={TrendingUp}
@@ -274,7 +289,6 @@ function InputView() {
             if (confirm("Remover essa categoria?")) deleteMutation.mutate({ id });
           }}
         />
-        {/* Despesas */}
         <CategoryTable
           title="Composição de Despesas"
           icon={TrendingDown}
@@ -304,6 +318,24 @@ function InputView() {
                 disabled={!!editing}
                 onChange={e => setForm({ ...form, referenceMonth: e.target.value })}
                 className="mt-1 h-9 text-xs" />
+            </div>
+
+            {/* SELETOR DE API — sempre visível */}
+            <div>
+              <Label className="text-xs">API <span className="text-red-400">*</span></Label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                {API_ORDER.map(api => (
+                  <button key={api} onClick={() => setForm({ ...form, apiSource: api })}
+                    className={cn("h-9 text-xs rounded-lg border transition-colors flex items-center justify-center gap-1.5",
+                      form.apiSource === api
+                        ? `${API_CONFIG[api].bg} ${API_CONFIG[api].border} ${API_CONFIG[api].color}`
+                        : "bg-accent/5 border-border text-muted-foreground hover:text-foreground"
+                    )}>
+                    <span className={cn("w-2 h-2 rounded-full", API_CONFIG[api].dot)} />
+                    {API_CONFIG[api].label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {!editing && (
@@ -410,37 +442,48 @@ function CategoryTable({ title, icon: Icon, iconColor, rows, total, onAdd, onEdi
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
             <th className="text-left px-4 py-2 font-medium">Categoria</th>
+            <th className="text-left px-4 py-2 font-medium">API</th>
             <th className="text-right px-4 py-2 font-medium">Valor</th>
             <th className="w-20 px-4 py-2"></th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={3} className="text-center py-6 text-xs text-muted-foreground">
+            <tr><td colSpan={4} className="text-center py-6 text-xs text-muted-foreground">
               Sem lançamentos. Clique em "Adicionar".
             </td></tr>
-          ) : rows.map((r: any) => (
-            <tr key={r.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors text-xs">
-              <td className="px-4 py-2.5 font-medium">{r.category}</td>
-              <td className={cn("px-4 py-2.5 text-right font-mono", iconColor)}>
-                {formatCurrency(parseFloat(r.amount))}
-              </td>
-              <td className="px-4 py-2.5 text-right">
-                <div className="flex justify-end gap-1">
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onEdit(r)}>
-                    <Edit2 className="w-3 h-3" />
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => onDelete(r.id)}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </td>
-            </tr>
-          ))}
+          ) : rows.map((r: any) => {
+            const api = (r.apiSource ?? "expag") as ApiSource;
+            const cfg = API_CONFIG[api];
+            return (
+              <tr key={r.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors text-xs">
+                <td className="px-4 py-2.5 font-medium">{r.category}</td>
+                <td className="px-4 py-2.5">
+                  <span className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border", cfg.bg, cfg.border, cfg.color)}>
+                    <span className={cn("w-1.5 h-1.5 rounded-full", cfg.dot)} />
+                    {cfg.label}
+                  </span>
+                </td>
+                <td className={cn("px-4 py-2.5 text-right font-mono", iconColor)}>
+                  {formatCurrency(parseFloat(r.amount))}
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onEdit(r)}>
+                      <Edit2 className="w-3 h-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400" onClick={() => onDelete(r.id)}>
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
         <tfoot>
           <tr className="bg-accent/10 font-bold">
-            <td className="px-4 py-2.5 text-xs">TOTAL</td>
+            <td colSpan={2} className="px-4 py-2.5 text-xs">TOTAL</td>
             <td className={cn("px-4 py-2.5 text-right font-mono", iconColor)}>{formatCurrency(total)}</td>
             <td />
           </tr>
@@ -459,9 +502,15 @@ type Mode = "month" | "ytd" | "all";
 function DashboardView() {
   const [mode, setMode] = useState<Mode>("ytd");
   const [month, setMonth] = useState(CURRENT_MONTH);
+  // Toggle de filtro de API: "all" mostra consolidado, "expag"/"cinqbank" filtra
+  const [apiView, setApiView] = useState<"all" | ApiSource>("all");
   const [fullscreen, setFullscreen] = useState(false);
 
-  const params = mode === "month" ? { mode, referenceMonth: month } : { mode };
+  const params = {
+    mode,
+    ...(mode === "month" ? { referenceMonth: month } : {}),
+    ...(apiView !== "all" ? { apiSource: apiView } : {}),
+  };
   const { data } = trpc.accounting.getManualApuracaoSummary.useQuery(params);
   const { data: monthsAvailable } = trpc.accounting.getManualApuracaoMonths.useQuery();
 
@@ -484,13 +533,15 @@ function DashboardView() {
     return <div className="p-12 text-center text-xs text-muted-foreground">Carregando...</div>;
   }
 
-  const { totals, revenues, expenses, monthlySeries } = data as any;
+  const { totals, byApi, revenues, expenses, monthlySeries } = data as any;
+  const showApiSplit = apiView === "all";  // só mostra split quando está em "Todas"
 
   return (
     <>
-      {/* Barra de controles do dashboard */}
+      {/* Barra de controles */}
       <div className="card-premium rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap print:hidden">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Período */}
           <div className="flex items-center gap-0.5 bg-accent/10 rounded-lg p-0.5">
             <button onClick={() => setMode("month")}
               className={cn("px-3 py-1.5 text-xs rounded-md transition-colors font-medium",
@@ -517,6 +568,23 @@ function DashboardView() {
               </SelectContent>
             </Select>
           )}
+
+          {/* Toggle de API */}
+          <div className="flex items-center gap-0.5 bg-accent/10 rounded-lg p-0.5 border-l border-border ml-1 pl-2">
+            <button onClick={() => setApiView("all")}
+              className={cn("px-3 py-1.5 text-xs rounded-md transition-colors font-medium",
+                apiView === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              )}>Consolidado</button>
+            {API_ORDER.map(api => (
+              <button key={api} onClick={() => setApiView(api)}
+                className={cn("px-3 py-1.5 text-xs rounded-md transition-colors font-medium flex items-center gap-1.5",
+                  apiView === api ? `${API_CONFIG[api].bg} ${API_CONFIG[api].color}` : "text-muted-foreground hover:text-foreground"
+                )}>
+                <span className={cn("w-1.5 h-1.5 rounded-full", API_CONFIG[api].dot)} />
+                {API_CONFIG[api].label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -538,18 +606,42 @@ function DashboardView() {
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           {mode === "month" ? formatMonth(month) : mode === "ytd" ? `YTD ${new Date().getFullYear()}` : "Acumulado total"}
+          {apiView !== "all" && (
+            <span className={cn("ml-2 inline-flex items-center gap-1", API_CONFIG[apiView].color)}>
+              · <span className={cn("w-1.5 h-1.5 rounded-full", API_CONFIG[apiView].dot)} />
+              {API_CONFIG[apiView].label}
+            </span>
+          )}
         </p>
       </div>
 
-      {/* HERO KPIs (4 cards) */}
+      {/* HERO KPIs (4 cards) — com split por API quando consolidado */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <BigKPI label="Receita Total" value={totals.revenue} icon={TrendingUp} color="emerald" />
-        <BigKPI label="Despesa Total" value={totals.expense} icon={TrendingDown} color="red" />
+        <BigKPI label="Receita Total" value={totals.revenue} icon={TrendingUp} color="emerald"
+          apiSplit={showApiSplit ? { expag: byApi.expag.revenue, cinqbank: byApi.cinqbank.revenue } : null} />
+        <BigKPI label="Despesa Total" value={totals.expense} icon={TrendingDown} color="red"
+          apiSplit={showApiSplit ? { expag: byApi.expag.expense, cinqbank: byApi.cinqbank.expense } : null} />
         <BigKPI label="Resultado Líquido" value={totals.result} icon={Wallet}
-          color={totals.result >= 0 ? "emerald" : "red"} />
+          color={totals.result >= 0 ? "emerald" : "red"}
+          apiSplit={showApiSplit ? { expag: byApi.expag.result, cinqbank: byApi.cinqbank.result } : null} />
         <BigKPI label="Margem" value={totals.margin} isPercent icon={Percent}
           color={totals.margin >= 30 ? "emerald" : totals.margin >= 10 ? "amber" : "red"} />
       </div>
+
+      {/* SEÇÃO COMPARATIVA — só aparece em modo consolidado */}
+      {showApiSplit && (byApi.expag.revenue > 0 || byApi.cinqbank.revenue > 0) && (
+        <section>
+          <div className="mb-3 flex items-baseline gap-3">
+            <h3 className="text-sm font-semibold text-foreground tracking-tight">Comparativo por API</h3>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {API_ORDER.map(api => (
+              <ApiCompareCard key={api} api={api} data={byApi[api]} grandTotal={totals.revenue} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Composição: 2 donuts lado a lado */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -571,7 +663,7 @@ function DashboardView() {
         />
       </div>
 
-      {/* Tabelas detalhadas (estilo anexo) */}
+      {/* Tabelas detalhadas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <DetailTable title="Receitas" iconColor="text-emerald-400" bg="bg-emerald-500/5"
           rows={revenues} total={totals.revenue} valueColor="text-emerald-400" />
@@ -579,11 +671,14 @@ function DashboardView() {
           rows={expenses} total={totals.expense} valueColor="text-red-400" />
       </div>
 
-      {/* Evolução mensal (só aparece em YTD/Total) */}
+      {/* Evolução mensal */}
       {mode !== "month" && monthlySeries.length > 1 && (
         <div className="card-premium rounded-2xl p-5">
           <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Evolução Mensal</p>
-          <p className="text-lg font-semibold text-foreground mb-4">Receita, Despesa e Resultado por mês</p>
+          <p className="text-lg font-semibold text-foreground mb-4">
+            Receita, Despesa e Resultado por mês
+            {apiView !== "all" && <span className={cn("text-sm ml-2", API_CONFIG[apiView].color)}>· {API_CONFIG[apiView].label}</span>}
+          </p>
           <ResponsiveContainer width="100%" height={280}>
             <ComposedChart data={monthlySeries}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -606,9 +701,48 @@ function DashboardView() {
   );
 }
 
-function BigKPI({ label, value, icon: Icon, color, isPercent }: {
+// Card comparativo de uma API (usado na seção comparativa)
+function ApiCompareCard({ api, data, grandTotal }: { api: ApiSource; data: any; grandTotal: number }) {
+  const cfg = API_CONFIG[api];
+  const pctOfRevenue = grandTotal > 0 ? (data.revenue / grandTotal) * 100 : 0;
+  return (
+    <div className={cn("card-premium rounded-2xl p-5 border-2", cfg.border, cfg.bg)}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className={cn("w-2.5 h-2.5 rounded-full", cfg.dot)} />
+          <p className={cn("text-lg font-bold", cfg.color)}>{cfg.label}</p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {pctOfRevenue.toFixed(1)}% da receita total
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <MiniKPI label="Receita" value={data.revenue} colorClass="text-emerald-400" />
+        <MiniKPI label="Despesa" value={data.expense} colorClass="text-red-400" />
+        <MiniKPI label="Resultado" value={data.result} colorClass={data.result >= 0 ? "text-emerald-400" : "text-red-400"} />
+        <MiniKPI label="Margem" value={data.margin} isPercent colorClass={data.margin >= 30 ? "text-emerald-400" : data.margin >= 10 ? "text-amber-400" : "text-red-400"} />
+      </div>
+    </div>
+  );
+}
+
+function MiniKPI({ label, value, colorClass, isPercent }: {
+  label: string; value: number; colorClass: string; isPercent?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
+      <p className={cn("text-lg font-bold font-mono tabular-nums", colorClass)}>
+        {isPercent ? `${value.toFixed(1)}%` : compactCurrency(value)}
+      </p>
+    </div>
+  );
+}
+
+function BigKPI({ label, value, icon: Icon, color, isPercent, apiSplit }: {
   label: string; value: number; icon: any;
   color: "emerald" | "red" | "amber"; isPercent?: boolean;
+  apiSplit?: { expag: number; cinqbank: number } | null;
 }) {
   const animated = useCountUp(value, 800);
   const colorMap = {
@@ -627,6 +761,18 @@ function BigKPI({ label, value, icon: Icon, color, isPercent }: {
       <p className={cn("text-3xl lg:text-4xl font-bold font-mono tracking-tight tabular-nums", c.text)}>
         {formatted}
       </p>
+      {apiSplit && (apiSplit.expag !== 0 || apiSplit.cinqbank !== 0) && (
+        <div className="mt-2.5 pt-2.5 border-t border-border/50 flex items-center justify-between gap-2 text-[10px]">
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <span className={cn("w-1.5 h-1.5 rounded-full", API_CONFIG.expag.dot)} />
+            <span className={API_CONFIG.expag.color}>{compactCurrency(apiSplit.expag)}</span>
+          </span>
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <span className={cn("w-1.5 h-1.5 rounded-full", API_CONFIG.cinqbank.dot)} />
+            <span className={API_CONFIG.cinqbank.color}>{compactCurrency(apiSplit.cinqbank)}</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -2038,6 +2038,7 @@ const accountingRouter = router({
     .input(z.object({
       referenceMonth: z.string().optional(),
       kind: z.enum(['receita', 'despesa']).optional(),
+      apiSource: z.enum(['expag', 'cinqbank']).optional(),
     }))
     .query(async ({ input }) => db.listManualApuracao(input)),
 
@@ -2048,6 +2049,7 @@ const accountingRouter = router({
     .input(z.object({
       mode: z.enum(['month', 'ytd', 'all']),
       referenceMonth: z.string().optional(),
+      apiSource: z.enum(['expag', 'cinqbank']).optional(),
     }))
     .query(async ({ input }) => db.getManualApuracaoSummary(input)),
 
@@ -2055,6 +2057,7 @@ const accountingRouter = router({
     .input(z.object({
       referenceMonth: z.string(),
       kind: z.enum(['receita', 'despesa']),
+      apiSource: z.enum(['expag', 'cinqbank']),
       category: z.string().min(1),
       amount: z.number(),
       notes: z.string().optional(),
@@ -2068,7 +2071,7 @@ const accountingRouter = router({
       await audit(ctx, {
         action: "manual_apuracao.create", category: "contabilidade",
         entityType: "manual_apuracao", entityId: String(result.id),
-        summary: `Apuração manual: ${input.kind} ${input.category} R$ ${input.amount.toFixed(2)} em ${input.referenceMonth}`,
+        summary: `Apuração manual: ${input.apiSource}/${input.kind} ${input.category} R$ ${input.amount.toFixed(2)} em ${input.referenceMonth}`,
       });
       return result;
     }),
@@ -2080,6 +2083,7 @@ const accountingRouter = router({
       amount: z.number().optional(),
       notes: z.string().optional(),
       sortOrder: z.number().int().optional(),
+      apiSource: z.enum(['expag', 'cinqbank']).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;

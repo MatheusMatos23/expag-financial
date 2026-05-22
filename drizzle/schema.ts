@@ -425,17 +425,22 @@ export const internalMovements = mysqlTable("internal_movements", {
 export const manualApuracao = mysqlTable("manual_apuracao", {
   id: int("id").autoincrement().primaryKey(),
   referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(), // YYYY-MM
+  // API de origem do dado. Hoje só "expag" e "cinqbank" — useEnum para
+  // validar no banco. Default 'expag' garante que linhas antigas (criadas
+  // antes desta coluna existir) recebam um valor automaticamente.
+  apiSource: mysqlEnum("apiSource", ["expag", "cinqbank"]).default("expag").notNull(),
   kind: mysqlEnum("kind", ["receita", "despesa"]).notNull(),
-  category: varchar("category", { length: 200 }).notNull(), // ex: "Aplicação CDI", "Folha"
+  category: varchar("category", { length: 200 }).notNull(),
   amount: decimal("amount", { precision: 18, scale: 2 }).default("0").notNull(),
   notes: text("notes"),
-  sortOrder: int("sortOrder").default(0).notNull(), // ordem de exibição
+  sortOrder: int("sortOrder").default(0).notNull(),
   createdBy: varchar("createdBy", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   monthIdx: index("ma_month_idx").on(table.referenceMonth),
   kindIdx: index("ma_kind_idx").on(table.kind),
+  apiIdx: index("ma_api_idx").on(table.apiSource),
   monthKindIdx: index("ma_month_kind_idx").on(table.referenceMonth, table.kind),
 }));
 

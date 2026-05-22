@@ -4184,15 +4184,17 @@ export async function getExecutiveDashboard(params: {
 export async function listManualApuracao(filters?: {
   referenceMonth?: string;
   kind?: 'receita' | 'despesa';
+  apiSource?: 'expag' | 'cinqbank';
 }) {
   const db = await getDb();
   if (!db) return [];
   const conds: any[] = [];
   if (filters?.referenceMonth) conds.push(eq(manualApuracao.referenceMonth, filters.referenceMonth));
   if (filters?.kind) conds.push(eq(manualApuracao.kind, filters.kind));
+  if (filters?.apiSource) conds.push(eq(manualApuracao.apiSource, filters.apiSource));
   return db.select().from(manualApuracao)
     .where(conds.length > 0 ? and(...conds) : undefined)
-    .orderBy(manualApuracao.referenceMonth, manualApuracao.kind, manualApuracao.sortOrder, manualApuracao.category);
+    .orderBy(manualApuracao.referenceMonth, manualApuracao.apiSource, manualApuracao.kind, manualApuracao.sortOrder, manualApuracao.category);
 }
 
 /**
@@ -4211,6 +4213,7 @@ export async function getManualApuracaoMonths() {
 export async function createManualApuracao(data: {
   referenceMonth: string;
   kind: 'receita' | 'despesa';
+  apiSource: 'expag' | 'cinqbank';
   category: string;
   amount: number;
   notes?: string;
@@ -4221,6 +4224,7 @@ export async function createManualApuracao(data: {
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(manualApuracao).values({
     referenceMonth: data.referenceMonth,
+    apiSource: data.apiSource,
     kind: data.kind,
     category: data.category,
     amount: data.amount.toFixed(2),
@@ -4236,6 +4240,7 @@ export async function updateManualApuracao(id: number, data: Partial<{
   amount: number;
   notes: string;
   sortOrder: number;
+  apiSource: 'expag' | 'cinqbank';
 }>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -4244,6 +4249,7 @@ export async function updateManualApuracao(id: number, data: Partial<{
   if (data.amount !== undefined) update.amount = data.amount.toFixed(2);
   if (data.notes !== undefined) update.notes = data.notes || null;
   if (data.sortOrder !== undefined) update.sortOrder = data.sortOrder;
+  if (data.apiSource !== undefined) update.apiSource = data.apiSource;
   await db.update(manualApuracao).set(update).where(eq(manualApuracao.id, id));
   return { success: true };
 }
@@ -4268,7 +4274,8 @@ export async function deleteManualApuracao(id: number) {
  */
 export async function getManualApuracaoSummary(params: {
   mode: 'month' | 'ytd' | 'all';
-  referenceMonth?: string;  // só quando mode='month'
+  referenceMonth?: string;
+  apiSource?: 'expag' | 'cinqbank';  // filtra todo o response por uma API específica
 }) {
   const db = await getDb();
   if (!db) {
@@ -4276,28 +4283,37 @@ export async function getManualApuracaoSummary(params: {
       mode: params.mode,
       period: null,
       totals: { revenue: 0, expense: 0, result: 0, margin: 0 },
+      byApi: {
+        expag:    { revenue: 0, expense: 0, result: 0, margin: 0 },
+        cinqbank: { revenue: 0, expense: 0, result: 0, margin: 0 },
+      },
       revenues: [],
       expenses: [],
       monthlySeries: [],
     };
   }
 
-  // Determina o filtro de período
-  let whereSql = sql``;
+  // Construir filtros: período + (opcionalmente) API
+  const conds: string[] = [];
   let periodLabel = '';
   if (params.mode === 'month' && params.referenceMonth) {
-    whereSql = sql`WHERE referenceMonth = ${params.referenceMonth}`;
+    conds.push(`referenceMonth = '${params.referenceMonth}'`);
     periodLabel = params.referenceMonth;
   } else if (params.mode === 'ytd') {
     const yearStart = `${new Date().getFullYear()}-01`;
-    whereSql = sql`WHERE referenceMonth >= ${yearStart}`;
+    conds.push(`referenceMonth >= '${yearStart}'`);
     periodLabel = `YTD ${new Date().getFullYear()}`;
   } else {
     periodLabel = 'Acumulado total';
   }
+  // Filtro de API (se informado, restringe TUDO ao escopo da API)
+  if (params.apiSource) {
+    conds.push(`apiSource = '${params.apiSource}'`);
+  }
+  const whereClause = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
 
-  // Agrega por categoria + kind
-  const aggRes = await db.execute(sql`
+  // Agregado por categoria + kind (já respeita filtro de API quando aplicado)
+  const aggRes = await db.execute(sql.raw(`
     SELECT
       kind,
       category,
@@ -4305,10 +4321,10 @@ export async function getManualApuracaoSummary(params: {
       MIN(sortOrder) as sortOrder,
       COUNT(*) as occurrences
     FROM manual_apuracao
-    ${whereSql}
+    ${whereClause}
     GROUP BY kind, category
     ORDER BY kind, total DESC
-  `);
+  `));
   const aggRows = (aggRes as any)[0] ?? [];
 
   const revenues = aggRows
@@ -4331,16 +4347,51 @@ export async function getManualApuracaoSummary(params: {
   const result = revenueTotal - expenseTotal;
   const margin = revenueTotal > 0 ? (result / revenueTotal) * 100 : 0;
 
-  // Série mensal (gráfico de evolução): agregado por mês
-  const seriesRes = await db.execute(sql`
+  // ── Agregado POR API (sempre retorna ambos, mesmo se filtrou por uma só)
+  // Usa o mesmo filtro de PERÍODO (sem filtro de API) — assim o cliente pode
+  // mostrar split mesmo quando está olhando uma API específica.
+  const apiPeriodConds = conds.filter(c => !c.startsWith('apiSource'));
+  const apiWhereClause = apiPeriodConds.length > 0 ? `WHERE ${apiPeriodConds.join(' AND ')}` : '';
+  const byApiRes = await db.execute(sql.raw(`
+    SELECT
+      apiSource,
+      kind,
+      SUM(CAST(amount AS DECIMAL(18,2))) as total
+    FROM manual_apuracao
+    ${apiWhereClause}
+    GROUP BY apiSource, kind
+  `));
+  const byApiRows = (byApiRes as any)[0] ?? [];
+  const byApi = {
+    expag:    { revenue: 0, expense: 0, result: 0, margin: 0 },
+    cinqbank: { revenue: 0, expense: 0, result: 0, margin: 0 },
+  };
+  for (const r of byApiRows) {
+    const api = String(r.apiSource) as 'expag' | 'cinqbank';
+    if (!byApi[api]) continue;
+    const value = parseFloat(String(r.total ?? 0));
+    if (r.kind === 'receita') byApi[api].revenue = value;
+    else if (r.kind === 'despesa') byApi[api].expense = value;
+  }
+  // Calcula result/margin de cada API
+  for (const api of Object.keys(byApi) as Array<'expag' | 'cinqbank'>) {
+    byApi[api].result = byApi[api].revenue - byApi[api].expense;
+    byApi[api].margin = byApi[api].revenue > 0
+      ? (byApi[api].result / byApi[api].revenue) * 100
+      : 0;
+  }
+
+  // Série mensal (respeita filtro de API se aplicado)
+  const seriesRes = await db.execute(sql.raw(`
     SELECT
       referenceMonth,
       SUM(CASE WHEN kind = 'receita' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as revenue,
       SUM(CASE WHEN kind = 'despesa' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as expense
     FROM manual_apuracao
+    ${params.apiSource ? `WHERE apiSource = '${params.apiSource}'` : ''}
     GROUP BY referenceMonth
     ORDER BY referenceMonth ASC
-  `);
+  `));
   const monthlySeries = ((seriesRes as any)[0] ?? []).map((r: any) => {
     const rev = parseFloat(String(r.revenue ?? 0));
     const exp = parseFloat(String(r.expense ?? 0));
@@ -4355,7 +4406,9 @@ export async function getManualApuracaoSummary(params: {
   return {
     mode: params.mode,
     period: periodLabel,
+    apiSource: params.apiSource ?? null,
     totals: { revenue: revenueTotal, expense: expenseTotal, result, margin },
+    byApi,
     revenues,
     expenses,
     monthlySeries,

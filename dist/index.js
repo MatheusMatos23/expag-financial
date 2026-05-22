@@ -51109,19 +51109,22 @@ var init_schema2 = __esm({
       id: int("id").autoincrement().primaryKey(),
       referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(),
       // YYYY-MM
+      // API de origem do dado. Hoje só "expag" e "cinqbank" — useEnum para
+      // validar no banco. Default 'expag' garante que linhas antigas (criadas
+      // antes desta coluna existir) recebam um valor automaticamente.
+      apiSource: mysqlEnum("apiSource", ["expag", "cinqbank"]).default("expag").notNull(),
       kind: mysqlEnum("kind", ["receita", "despesa"]).notNull(),
       category: varchar("category", { length: 200 }).notNull(),
-      // ex: "Aplicação CDI", "Folha"
       amount: decimal("amount", { precision: 18, scale: 2 }).default("0").notNull(),
       notes: text("notes"),
       sortOrder: int("sortOrder").default(0).notNull(),
-      // ordem de exibição
       createdBy: varchar("createdBy", { length: 200 }),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     }, (table) => ({
       monthIdx: index("ma_month_idx").on(table.referenceMonth),
       kindIdx: index("ma_kind_idx").on(table.kind),
+      apiIdx: index("ma_api_idx").on(table.apiSource),
       monthKindIdx: index("ma_month_kind_idx").on(table.referenceMonth, table.kind)
     }));
     dre = mysqlTable("dre", {
@@ -111919,7 +111922,8 @@ async function listManualApuracao(filters) {
   const conds = [];
   if (filters?.referenceMonth) conds.push(eq(manualApuracao.referenceMonth, filters.referenceMonth));
   if (filters?.kind) conds.push(eq(manualApuracao.kind, filters.kind));
-  return db.select().from(manualApuracao).where(conds.length > 0 ? and(...conds) : void 0).orderBy(manualApuracao.referenceMonth, manualApuracao.kind, manualApuracao.sortOrder, manualApuracao.category);
+  if (filters?.apiSource) conds.push(eq(manualApuracao.apiSource, filters.apiSource));
+  return db.select().from(manualApuracao).where(conds.length > 0 ? and(...conds) : void 0).orderBy(manualApuracao.referenceMonth, manualApuracao.apiSource, manualApuracao.kind, manualApuracao.sortOrder, manualApuracao.category);
 }
 async function getManualApuracaoMonths() {
   const db = await getDb();
@@ -111935,6 +111939,7 @@ async function createManualApuracao(data) {
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(manualApuracao).values({
     referenceMonth: data.referenceMonth,
+    apiSource: data.apiSource,
     kind: data.kind,
     category: data.category,
     amount: data.amount.toFixed(2),
@@ -111952,6 +111957,7 @@ async function updateManualApuracao(id, data) {
   if (data.amount !== void 0) update.amount = data.amount.toFixed(2);
   if (data.notes !== void 0) update.notes = data.notes || null;
   if (data.sortOrder !== void 0) update.sortOrder = data.sortOrder;
+  if (data.apiSource !== void 0) update.apiSource = data.apiSource;
   await db.update(manualApuracao).set(update).where(eq(manualApuracao.id, id));
   return { success: true };
 }
@@ -111968,24 +111974,32 @@ async function getManualApuracaoSummary(params) {
       mode: params.mode,
       period: null,
       totals: { revenue: 0, expense: 0, result: 0, margin: 0 },
+      byApi: {
+        expag: { revenue: 0, expense: 0, result: 0, margin: 0 },
+        cinqbank: { revenue: 0, expense: 0, result: 0, margin: 0 }
+      },
       revenues: [],
       expenses: [],
       monthlySeries: []
     };
   }
-  let whereSql = sql``;
+  const conds = [];
   let periodLabel = "";
   if (params.mode === "month" && params.referenceMonth) {
-    whereSql = sql`WHERE referenceMonth = ${params.referenceMonth}`;
+    conds.push(`referenceMonth = '${params.referenceMonth}'`);
     periodLabel = params.referenceMonth;
   } else if (params.mode === "ytd") {
     const yearStart = `${(/* @__PURE__ */ new Date()).getFullYear()}-01`;
-    whereSql = sql`WHERE referenceMonth >= ${yearStart}`;
+    conds.push(`referenceMonth >= '${yearStart}'`);
     periodLabel = `YTD ${(/* @__PURE__ */ new Date()).getFullYear()}`;
   } else {
     periodLabel = "Acumulado total";
   }
-  const aggRes = await db.execute(sql`
+  if (params.apiSource) {
+    conds.push(`apiSource = '${params.apiSource}'`);
+  }
+  const whereClause = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
+  const aggRes = await db.execute(sql.raw(`
     SELECT
       kind,
       category,
@@ -111993,10 +112007,10 @@ async function getManualApuracaoSummary(params) {
       MIN(sortOrder) as sortOrder,
       COUNT(*) as occurrences
     FROM manual_apuracao
-    ${whereSql}
+    ${whereClause}
     GROUP BY kind, category
     ORDER BY kind, total DESC
-  `);
+  `));
   const aggRows = aggRes[0] ?? [];
   const revenues2 = aggRows.filter((r) => r.kind === "receita").map((r) => ({
     category: String(r.category),
@@ -112012,15 +112026,43 @@ async function getManualApuracaoSummary(params) {
   const expenseTotal = expenses2.reduce((s, r) => s + r.amount, 0);
   const result = revenueTotal - expenseTotal;
   const margin = revenueTotal > 0 ? result / revenueTotal * 100 : 0;
-  const seriesRes = await db.execute(sql`
+  const apiPeriodConds = conds.filter((c) => !c.startsWith("apiSource"));
+  const apiWhereClause = apiPeriodConds.length > 0 ? `WHERE ${apiPeriodConds.join(" AND ")}` : "";
+  const byApiRes = await db.execute(sql.raw(`
+    SELECT
+      apiSource,
+      kind,
+      SUM(CAST(amount AS DECIMAL(18,2))) as total
+    FROM manual_apuracao
+    ${apiWhereClause}
+    GROUP BY apiSource, kind
+  `));
+  const byApiRows = byApiRes[0] ?? [];
+  const byApi = {
+    expag: { revenue: 0, expense: 0, result: 0, margin: 0 },
+    cinqbank: { revenue: 0, expense: 0, result: 0, margin: 0 }
+  };
+  for (const r of byApiRows) {
+    const api = String(r.apiSource);
+    if (!byApi[api]) continue;
+    const value = parseFloat(String(r.total ?? 0));
+    if (r.kind === "receita") byApi[api].revenue = value;
+    else if (r.kind === "despesa") byApi[api].expense = value;
+  }
+  for (const api of Object.keys(byApi)) {
+    byApi[api].result = byApi[api].revenue - byApi[api].expense;
+    byApi[api].margin = byApi[api].revenue > 0 ? byApi[api].result / byApi[api].revenue * 100 : 0;
+  }
+  const seriesRes = await db.execute(sql.raw(`
     SELECT
       referenceMonth,
       SUM(CASE WHEN kind = 'receita' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as revenue,
       SUM(CASE WHEN kind = 'despesa' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as expense
     FROM manual_apuracao
+    ${params.apiSource ? `WHERE apiSource = '${params.apiSource}'` : ""}
     GROUP BY referenceMonth
     ORDER BY referenceMonth ASC
-  `);
+  `));
   const monthlySeries = (seriesRes[0] ?? []).map((r) => {
     const rev = parseFloat(String(r.revenue ?? 0));
     const exp = parseFloat(String(r.expense ?? 0));
@@ -112034,7 +112076,9 @@ async function getManualApuracaoSummary(params) {
   return {
     mode: params.mode,
     period: periodLabel,
+    apiSource: params.apiSource ?? null,
     totals: { revenue: revenueTotal, expense: expenseTotal, result, margin },
+    byApi,
     revenues: revenues2,
     expenses: expenses2,
     monthlySeries
@@ -135936,16 +135980,19 @@ var accountingRouter = router({
   // ── Apuração Manual (modo emergência — independente do sistema principal) ──
   listManualApuracao: protectedProcedure.input(external_exports.object({
     referenceMonth: external_exports.string().optional(),
-    kind: external_exports.enum(["receita", "despesa"]).optional()
+    kind: external_exports.enum(["receita", "despesa"]).optional(),
+    apiSource: external_exports.enum(["expag", "cinqbank"]).optional()
   })).query(async ({ input }) => listManualApuracao(input)),
   getManualApuracaoMonths: protectedProcedure.query(async () => getManualApuracaoMonths()),
   getManualApuracaoSummary: protectedProcedure.input(external_exports.object({
     mode: external_exports.enum(["month", "ytd", "all"]),
-    referenceMonth: external_exports.string().optional()
+    referenceMonth: external_exports.string().optional(),
+    apiSource: external_exports.enum(["expag", "cinqbank"]).optional()
   })).query(async ({ input }) => getManualApuracaoSummary(input)),
   createManualApuracao: protectedProcedure.input(external_exports.object({
     referenceMonth: external_exports.string(),
     kind: external_exports.enum(["receita", "despesa"]),
+    apiSource: external_exports.enum(["expag", "cinqbank"]),
     category: external_exports.string().min(1),
     amount: external_exports.number(),
     notes: external_exports.string().optional(),
@@ -135960,7 +136007,7 @@ var accountingRouter = router({
       category: "contabilidade",
       entityType: "manual_apuracao",
       entityId: String(result.id),
-      summary: `Apura\xE7\xE3o manual: ${input.kind} ${input.category} R$ ${input.amount.toFixed(2)} em ${input.referenceMonth}`
+      summary: `Apura\xE7\xE3o manual: ${input.apiSource}/${input.kind} ${input.category} R$ ${input.amount.toFixed(2)} em ${input.referenceMonth}`
     });
     return result;
   }),
@@ -135969,7 +136016,8 @@ var accountingRouter = router({
     category: external_exports.string().optional(),
     amount: external_exports.number().optional(),
     notes: external_exports.string().optional(),
-    sortOrder: external_exports.number().int().optional()
+    sortOrder: external_exports.number().int().optional(),
+    apiSource: external_exports.enum(["expag", "cinqbank"]).optional()
   })).mutation(async ({ input, ctx }) => {
     const { id, ...data } = input;
     await updateManualApuracao(id, data);
