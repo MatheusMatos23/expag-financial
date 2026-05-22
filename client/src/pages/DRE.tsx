@@ -23,6 +23,7 @@ function emptyForm() {
   return {
     referenceMonth: monthStart,
     grossRevenue: "",
+    financialRevenue: "0",
     financialCosts: "0",
     operationalCosts: "",
     adminExpenses: "0",
@@ -70,6 +71,7 @@ export default function DRE() {
     setForm({
       referenceMonth: ref,
       grossRevenue: String(d.grossRevenue ?? ""),
+      financialRevenue: String(d.financialRevenue ?? "0"),
       financialCosts: String(d.financialCosts ?? "0"),
       operationalCosts: String(d.operationalCosts ?? ""),
       adminExpenses: String(d.adminExpenses ?? "0"),
@@ -93,6 +95,7 @@ export default function DRE() {
     upsertMutation.mutate({
       referenceMonth: form.referenceMonth,
       grossRevenue: form.grossRevenue,
+      financialRevenue: form.financialRevenue || "0",
       financialCosts: form.financialCosts || "0",
       operationalCosts: form.operationalCosts || "0",
       adminExpenses: form.adminExpenses || "0",
@@ -111,6 +114,7 @@ export default function DRE() {
   }));
 
   const totalRev = list.reduce((s, d) => s + parseFloat(String(d.grossRevenue ?? 0)), 0);
+  const totalFinRev = list.reduce((s, d) => s + parseFloat(String(d.financialRevenue ?? 0)), 0);
   const totalExp = list.reduce((s, d) => s + parseFloat(String(d.operationalCosts ?? 0)), 0);
   const totalNet = list.reduce((s, d) => s + parseFloat(String(d.netProfit ?? 0)), 0);
   const avgMargin = list.length > 0 ? list.reduce((s, d) => s + parseFloat(String(d.margin ?? 0)), 0) / list.length * 100 : 0;
@@ -187,7 +191,7 @@ export default function DRE() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-accent/10 border-b border-border">
-                  {["Mês","Receita Bruta","Custos Oper.","Resultado","Margem","Fonte","Ações"].map(h => (
+                  {["Mês","Rec. Operacional","Rec. Financeira","Custos Oper.","Resultado","Margem","Fonte","Ações"].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -195,6 +199,7 @@ export default function DRE() {
               <tbody className="divide-y divide-border">
                 {list.map((d: any, i: number) => {
                   const rev = parseFloat(String(d.grossRevenue ?? 0));
+                  const finRev = parseFloat(String(d.financialRevenue ?? 0));
                   const exp = parseFloat(String(d.operationalCosts ?? 0));
                   const net = parseFloat(String(d.netProfit ?? 0));
                   const margin = parseFloat(String(d.margin ?? 0)) * 100;
@@ -203,6 +208,7 @@ export default function DRE() {
                     <tr key={i} className="hover:bg-accent/10 transition-colors">
                       <td className="px-4 py-3 font-semibold text-foreground">{String(d.referenceMonth ?? "").slice(0, 7)}</td>
                       <td className="px-4 py-3 font-mono text-emerald-400">{formatCurrency(rev)}</td>
+                      <td className="px-4 py-3 font-mono text-blue-400">{finRev > 0 ? formatCurrency(finRev) : "—"}</td>
                       <td className="px-4 py-3 font-mono text-red-400">{formatCurrency(exp)}</td>
                       <td className={cn("px-4 py-3 font-mono font-bold", net >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(net)}</td>
                       <td className={cn("px-4 py-3 font-mono", margin >= 30 ? "text-emerald-400" : margin >= 0 ? "text-yellow-400" : "text-red-400")}>{margin.toFixed(1)}%</td>
@@ -241,6 +247,7 @@ export default function DRE() {
                 <tr className="bg-accent/5 border-t-2 border-border">
                   <td className="px-4 py-3 font-bold text-foreground text-xs">TOTAL</td>
                   <td className="px-4 py-3 font-mono font-bold text-emerald-400">{formatCurrency(totalRev)}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-blue-400">{totalFinRev > 0 ? formatCurrency(totalFinRev) : "—"}</td>
                   <td className="px-4 py-3 font-mono font-bold text-red-400">{formatCurrency(totalExp)}</td>
                   <td className={cn("px-4 py-3 font-mono font-bold", totalNet >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(totalNet)}</td>
                   <td className={cn("px-4 py-3 font-mono font-bold", avgMargin >= 0 ? "text-emerald-400" : "text-red-400")}>{avgMargin.toFixed(1)}%</td>
@@ -275,12 +282,21 @@ export default function DRE() {
               )}
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Receita Bruta (R$) *</Label>
+              <Label className="text-xs text-muted-foreground">Receita Bruta Operacional (R$) *</Label>
               <Input type="number" step="0.01" min="0" value={form.grossRevenue} onChange={e => setForm(f => ({ ...f, grossRevenue: e.target.value }))} className="mt-1 h-8 text-xs" placeholder="0.00" />
+              <p className="text-[10px] text-muted-foreground mt-0.5">Não inclui juros recebidos — esses vão em "Receita Financeira"</p>
             </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Custos Financeiros (R$)</Label>
-              <Input type="number" step="0.01" min="0" value={form.financialCosts} onChange={e => setForm(f => ({ ...f, financialCosts: e.target.value }))} className="mt-1 h-8 text-xs" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs text-blue-400">Receita Financeira (R$)</Label>
+                <Input type="number" step="0.01" min="0" value={form.financialRevenue} onChange={e => setForm(f => ({ ...f, financialRevenue: e.target.value }))} className="mt-1 h-8 text-xs" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Juros recebidos, rendimentos</p>
+              </div>
+              <div>
+                <Label className="text-xs text-red-400">Custos Financeiros (R$)</Label>
+                <Input type="number" step="0.01" min="0" value={form.financialCosts} onChange={e => setForm(f => ({ ...f, financialCosts: e.target.value }))} className="mt-1 h-8 text-xs" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Juros pagos</p>
+              </div>
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Custos Operacionais (R$)</Label>
@@ -302,20 +318,23 @@ export default function DRE() {
             {/* Preview do que o backend vai calcular */}
             {form.grossRevenue && parseFloat(form.grossRevenue) > 0 && (() => {
               const gross = parseFloat(form.grossRevenue || "0");
+              const finRev = parseFloat(form.financialRevenue || "0");
               const fin = parseFloat(form.financialCosts || "0");
               const op = parseFloat(form.operationalCosts || "0");
               const adm = parseFloat(form.adminExpenses || "0");
               const com = parseFloat(form.commercialExpenses || "0");
               const tx = parseFloat(form.taxes || "0");
-              const net = gross - fin;
-              const result = net - op - adm - com - tx;
-              const margin = gross > 0 ? (result / gross) * 100 : 0;
+              const opResult = gross - op - adm - com - tx;
+              const finResult = finRev - fin;
+              const netProfit = opResult + finResult;
+              const margin = gross > 0 ? (opResult / gross) * 100 : 0;
               return (
                 <div className="rounded-lg bg-accent/5 border border-border p-3 space-y-1">
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Prévia do cálculo</div>
-                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Receita Líquida</span><span className="font-mono">{formatCurrency(net)}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Resultado Operacional</span><span className={cn("font-mono font-semibold", result >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(result)}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Margem</span><span className={cn("font-mono", margin >= 30 ? "text-emerald-400" : margin >= 0 ? "text-yellow-400" : "text-red-400")}>{margin.toFixed(1)}%</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Resultado Operacional</span><span className={cn("font-mono font-semibold", opResult >= 0 ? "text-blue-400" : "text-orange-400")}>{formatCurrency(opResult)}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Resultado Financeiro</span><span className={cn("font-mono", finResult >= 0 ? "text-emerald-400" : "text-red-400")}>{formatCurrency(finResult)}</span></div>
+                  <div className="flex justify-between text-xs border-t border-border pt-1"><span className="text-muted-foreground">Lucro Líquido</span><span className={cn("font-mono font-bold", netProfit >= 0 ? "text-emerald-400" : "text-red-400")}>{formatCurrency(netProfit)}</span></div>
+                  <div className="flex justify-between text-xs"><span className="text-muted-foreground">Margem Operacional</span><span className={cn("font-mono", margin >= 30 ? "text-emerald-400" : margin >= 0 ? "text-yellow-400" : "text-red-400")}>{margin.toFixed(1)}%</span></div>
                 </div>
               );
             })()}

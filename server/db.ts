@@ -943,40 +943,66 @@ export async function createCreditInstallments(installments: Array<{
 }
 
 // ─── DRE ──────────────────────────────────────────────────────────────────────
+//
+// O DRE auto agora SEPARA Receita Financeira (juros recebidos de empréstimos,
+// investimentos) das Receitas Operacionais. Estrutura contábil correta:
+//
+//   Receita Bruta Operacional  ── não inclui juros recebidos
+//   (−) Custos Operacionais    ── todas as despesas
+//   = Resultado Operacional
+//
+//   Receita Financeira         ── juros recebidos (type='receita_financeira')
+//   (−) Despesa Financeira     ── custos financeiros (manual override)
+//   = Resultado Financeiro
+//
+//   = LUCRO LÍQUIDO (Operacional + Financeiro)
+//
+// Margem é calculada sobre Receita Operacional (não inclui juros) — a margem
+// mostra eficiência da operação principal, não do retorno financeiro.
 export async function getDRE(months = 12) {
   const db = await getDb();
   if (!db) return [];
-  // Tenta obter DRE automático a partir de revenues e expenses
-  // Agrupa por mês e calcula resultado
-  const result = await db.execute(sql`
+
+  // Agrupa receitas por mês E por tipo (financeira vs outras)
+  const revResult = await db.execute(sql`
     SELECT
       DATE_FORMAT(referenceDate, '%Y-%m') as month,
-      SUM(CAST(amount AS DECIMAL(18,2)))  as totalRevenue,
-      0                                    as totalExpense
+      SUM(CASE WHEN type = 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as financialRevenue,
+      SUM(CASE WHEN type != 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as operationalRevenue
     FROM revenues
     WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+      AND status = 'realizado'
     GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
-    UNION ALL
+  `);
+
+  const expResult = await db.execute(sql`
     SELECT
       DATE_FORMAT(referenceDate, '%Y-%m') as month,
-      0                                    as totalRevenue,
-      SUM(CAST(amount AS DECIMAL(18,2)))  as totalExpense
+      SUM(CAST(amount AS DECIMAL(18,2))) as totalExpense
     FROM expenses
     WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+      AND status = 'realizado'
     GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
-    ORDER BY month DESC
   `);
-  
-  const rows = (result as any)[0] ?? [];
-  const byMonth: Record<string, { revenue: number; expense: number }> = {};
-  for (const r of rows) {
+
+  const revRows = (revResult as any)[0] ?? [];
+  const expRows = (expResult as any)[0] ?? [];
+
+  type MonthData = { operationalRevenue: number; financialRevenue: number; expense: number };
+  const byMonth: Record<string, MonthData> = {};
+  for (const r of revRows) {
     const m = r.month;
-    if (!byMonth[m]) byMonth[m] = { revenue: 0, expense: 0 };
-    byMonth[m].revenue += parseFloat(String(r.totalRevenue ?? 0));
+    if (!byMonth[m]) byMonth[m] = { operationalRevenue: 0, financialRevenue: 0, expense: 0 };
+    byMonth[m].operationalRevenue += parseFloat(String(r.operationalRevenue ?? 0));
+    byMonth[m].financialRevenue += parseFloat(String(r.financialRevenue ?? 0));
+  }
+  for (const r of expRows) {
+    const m = r.month;
+    if (!byMonth[m]) byMonth[m] = { operationalRevenue: 0, financialRevenue: 0, expense: 0 };
     byMonth[m].expense += parseFloat(String(r.totalExpense ?? 0));
   }
 
-  // Mescla com DRE manual (override se existir)
+  // Override manual sobrescreve auto
   const manualDRE = await db.select().from(dre).orderBy(desc(dre.referenceMonth)).limit(months);
   const manualByMonth: Record<string, any> = {};
   for (const m of manualDRE) manualByMonth[String(m.referenceMonth)] = m;
@@ -992,45 +1018,65 @@ export async function getDRE(months = 12) {
     if (manual) return { ...manual, source: 'manual' };
     const auto = byMonth[m];
     if (!auto) return null;
-    const { revenue, expense } = auto;
-    const net = revenue - expense;
-    const margin = revenue > 0 ? net / revenue : 0;
+    const { operationalRevenue, financialRevenue, expense } = auto;
+
+    const operationalResult = operationalRevenue - expense;
+    const financialResult = financialRevenue; // sem despesas financeiras no auto (vem só do override)
+    const netProfit = operationalResult + financialResult;
+    // Margem operacional: lucro op / receita op (não inclui juros)
+    const margin = operationalRevenue > 0 ? operationalResult / operationalRevenue : 0;
+
     return {
       id: 0, referenceMonth: m, source: 'auto',
-      grossRevenue: revenue.toFixed(2),
-      netRevenue: revenue.toFixed(2),
-      financialCosts: '0', operationalCosts: expense.toFixed(2),
+      grossRevenue: operationalRevenue.toFixed(2),
+      netRevenue: operationalRevenue.toFixed(2),
+      financialRevenue: financialRevenue.toFixed(2),
+      financialCosts: '0',
+      operationalCosts: expense.toFixed(2),
       adminExpenses: '0', commercialExpenses: '0', taxes: '0',
-      operationalResult: net.toFixed(2), financialResult: '0',
-      netProfit: net.toFixed(2), margin: margin.toFixed(4),
+      operationalResult: operationalResult.toFixed(2),
+      financialResult: financialResult.toFixed(2),
+      netProfit: netProfit.toFixed(2),
+      margin: margin.toFixed(4),
     };
   }).filter(Boolean);
 }
 
 export async function upsertDRE(data: {
   referenceMonth: string; grossRevenue?: string; netRevenue?: string;
+  financialRevenue?: string;
   financialCosts?: string; operationalCosts?: string; adminExpenses?: string;
   commercialExpenses?: string; taxes?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const gross = parseFloat(data.grossRevenue ?? '0');
-  const finCosts = parseFloat(data.financialCosts ?? '0');
+  const gross = parseFloat(data.grossRevenue ?? '0');         // receita operacional bruta
+  const finRevenue = parseFloat(data.financialRevenue ?? '0');// juros recebidos
+  const finCosts = parseFloat(data.financialCosts ?? '0');    // juros pagos
   const opCosts = parseFloat(data.operationalCosts ?? '0');
   const adminExp = parseFloat(data.adminExpenses ?? '0');
   const commExp = parseFloat(data.commercialExpenses ?? '0');
   const taxesVal = parseFloat(data.taxes ?? '0');
-  const net = gross - finCosts;
-  const opResult = net - opCosts - adminExp - commExp - taxesVal;
+
+  // Resultado Operacional: receita op - todas as despesas operacionais e admin/comerciais/impostos
+  const opResult = gross - opCosts - adminExp - commExp - taxesVal;
+  // Resultado Financeiro: juros recebidos - juros pagos
+  const finResult = finRevenue - finCosts;
+  // Lucro Líquido: operacional + financeiro
+  const netProfit = opResult + finResult;
+  // Margem operacional (sobre receita operacional, não inclui juros)
   const margin = gross > 0 ? (opResult / gross) : 0;
+
   await db.execute(sql`
-    INSERT INTO dre (referenceMonth, grossRevenue, netRevenue, financialCosts, operationalCosts, adminExpenses, commercialExpenses, taxes, operationalResult, financialResult, netProfit, margin)
-    VALUES (${data.referenceMonth}, ${gross.toFixed(2)}, ${net.toFixed(2)}, ${finCosts.toFixed(2)}, ${opCosts.toFixed(2)}, ${adminExp.toFixed(2)}, ${commExp.toFixed(2)}, ${taxesVal.toFixed(2)}, ${opResult.toFixed(2)}, '0', ${opResult.toFixed(2)}, ${margin.toFixed(4)})
+    INSERT INTO dre (referenceMonth, grossRevenue, netRevenue, financialRevenue, financialCosts, operationalCosts, adminExpenses, commercialExpenses, taxes, operationalResult, financialResult, netProfit, margin)
+    VALUES (${data.referenceMonth}, ${gross.toFixed(2)}, ${gross.toFixed(2)}, ${finRevenue.toFixed(2)}, ${finCosts.toFixed(2)}, ${opCosts.toFixed(2)}, ${adminExp.toFixed(2)}, ${commExp.toFixed(2)}, ${taxesVal.toFixed(2)}, ${opResult.toFixed(2)}, ${finResult.toFixed(2)}, ${netProfit.toFixed(2)}, ${margin.toFixed(4)})
     ON DUPLICATE KEY UPDATE
       grossRevenue = VALUES(grossRevenue), netRevenue = VALUES(netRevenue),
-      financialCosts = VALUES(financialCosts), operationalCosts = VALUES(operationalCosts),
+      financialRevenue = VALUES(financialRevenue), financialCosts = VALUES(financialCosts),
+      operationalCosts = VALUES(operationalCosts),
       adminExpenses = VALUES(adminExpenses), commercialExpenses = VALUES(commercialExpenses),
       taxes = VALUES(taxes), operationalResult = VALUES(operationalResult),
+      financialResult = VALUES(financialResult),
       netProfit = VALUES(netProfit), margin = VALUES(margin)
   `);
   // Override de DRE afeta cálculos do Dashboard de Controladoria

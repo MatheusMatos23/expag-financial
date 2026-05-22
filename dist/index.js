@@ -51060,6 +51060,12 @@ var init_schema2 = __esm({
       paidAmount: decimal("paidAmount", { precision: 18, scale: 2 }).default("0"),
       paidDate: date("paidDate"),
       status: mysqlEnum("status", ["pendente", "pago", "vencido", "parcial"]).default("pendente").notNull(),
+      // Rastreamento contábil — ID da revenue de juros gerada automaticamente
+      // ao registrar pagamento. Usado para reverter (excluir a revenue) caso
+      // o usuário edite ou apague o pagamento. Amortização do principal NÃO
+      // vira revenue (não é resultado — é só devolução de capital).
+      interestRevenueId: int("interestRevenueId"),
+      penaltyRevenueId: int("penaltyRevenueId"),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     }, (table) => ({
@@ -51104,6 +51110,9 @@ var init_schema2 = __esm({
       // YYYY-MM
       grossRevenue: decimal("grossRevenue", { precision: 18, scale: 2 }).default("0"),
       netRevenue: decimal("netRevenue", { precision: 18, scale: 2 }).default("0"),
+      // Receita Financeira: juros recebidos de empréstimos, investimentos.
+      // Separada da receita operacional para não distorcer margem operacional.
+      financialRevenue: decimal("financialRevenue", { precision: 18, scale: 2 }).default("0"),
       financialCosts: decimal("financialCosts", { precision: 18, scale: 2 }).default("0"),
       operationalCosts: decimal("operationalCosts", { precision: 18, scale: 2 }).default("0"),
       adminExpenses: decimal("adminExpenses", { precision: 18, scale: 2 }).default("0"),
@@ -109607,30 +109616,37 @@ async function createCreditInstallments(installments) {
 async function getDRE(months = 12) {
   const db = await getDb();
   if (!db) return [];
-  const result = await db.execute(sql`
+  const revResult = await db.execute(sql`
     SELECT
       DATE_FORMAT(referenceDate, '%Y-%m') as month,
-      SUM(CAST(amount AS DECIMAL(18,2)))  as totalRevenue,
-      0                                    as totalExpense
+      SUM(CASE WHEN type = 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as financialRevenue,
+      SUM(CASE WHEN type != 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as operationalRevenue
     FROM revenues
     WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+      AND status = 'realizado'
     GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
-    UNION ALL
+  `);
+  const expResult = await db.execute(sql`
     SELECT
       DATE_FORMAT(referenceDate, '%Y-%m') as month,
-      0                                    as totalRevenue,
-      SUM(CAST(amount AS DECIMAL(18,2)))  as totalExpense
+      SUM(CAST(amount AS DECIMAL(18,2))) as totalExpense
     FROM expenses
     WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL ${months} MONTH)
+      AND status = 'realizado'
     GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
-    ORDER BY month DESC
   `);
-  const rows = result[0] ?? [];
+  const revRows = revResult[0] ?? [];
+  const expRows = expResult[0] ?? [];
   const byMonth = {};
-  for (const r of rows) {
+  for (const r of revRows) {
     const m = r.month;
-    if (!byMonth[m]) byMonth[m] = { revenue: 0, expense: 0 };
-    byMonth[m].revenue += parseFloat(String(r.totalRevenue ?? 0));
+    if (!byMonth[m]) byMonth[m] = { operationalRevenue: 0, financialRevenue: 0, expense: 0 };
+    byMonth[m].operationalRevenue += parseFloat(String(r.operationalRevenue ?? 0));
+    byMonth[m].financialRevenue += parseFloat(String(r.financialRevenue ?? 0));
+  }
+  for (const r of expRows) {
+    const m = r.month;
+    if (!byMonth[m]) byMonth[m] = { operationalRevenue: 0, financialRevenue: 0, expense: 0 };
     byMonth[m].expense += parseFloat(String(r.totalExpense ?? 0));
   }
   const manualDRE = await db.select().from(dre).orderBy(desc(dre.referenceMonth)).limit(months);
@@ -109646,23 +109662,26 @@ async function getDRE(months = 12) {
     if (manual) return { ...manual, source: "manual" };
     const auto = byMonth[m];
     if (!auto) return null;
-    const { revenue, expense } = auto;
-    const net2 = revenue - expense;
-    const margin = revenue > 0 ? net2 / revenue : 0;
+    const { operationalRevenue, financialRevenue, expense } = auto;
+    const operationalResult = operationalRevenue - expense;
+    const financialResult = financialRevenue;
+    const netProfit = operationalResult + financialResult;
+    const margin = operationalRevenue > 0 ? operationalResult / operationalRevenue : 0;
     return {
       id: 0,
       referenceMonth: m,
       source: "auto",
-      grossRevenue: revenue.toFixed(2),
-      netRevenue: revenue.toFixed(2),
+      grossRevenue: operationalRevenue.toFixed(2),
+      netRevenue: operationalRevenue.toFixed(2),
+      financialRevenue: financialRevenue.toFixed(2),
       financialCosts: "0",
       operationalCosts: expense.toFixed(2),
       adminExpenses: "0",
       commercialExpenses: "0",
       taxes: "0",
-      operationalResult: net2.toFixed(2),
-      financialResult: "0",
-      netProfit: net2.toFixed(2),
+      operationalResult: operationalResult.toFixed(2),
+      financialResult: financialResult.toFixed(2),
+      netProfit: netProfit.toFixed(2),
       margin: margin.toFixed(4)
     };
   }).filter(Boolean);
@@ -109671,22 +109690,26 @@ async function upsertDRE(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const gross = parseFloat(data.grossRevenue ?? "0");
+  const finRevenue = parseFloat(data.financialRevenue ?? "0");
   const finCosts = parseFloat(data.financialCosts ?? "0");
   const opCosts = parseFloat(data.operationalCosts ?? "0");
   const adminExp = parseFloat(data.adminExpenses ?? "0");
   const commExp = parseFloat(data.commercialExpenses ?? "0");
   const taxesVal = parseFloat(data.taxes ?? "0");
-  const net2 = gross - finCosts;
-  const opResult = net2 - opCosts - adminExp - commExp - taxesVal;
+  const opResult = gross - opCosts - adminExp - commExp - taxesVal;
+  const finResult = finRevenue - finCosts;
+  const netProfit = opResult + finResult;
   const margin = gross > 0 ? opResult / gross : 0;
   await db.execute(sql`
-    INSERT INTO dre (referenceMonth, grossRevenue, netRevenue, financialCosts, operationalCosts, adminExpenses, commercialExpenses, taxes, operationalResult, financialResult, netProfit, margin)
-    VALUES (${data.referenceMonth}, ${gross.toFixed(2)}, ${net2.toFixed(2)}, ${finCosts.toFixed(2)}, ${opCosts.toFixed(2)}, ${adminExp.toFixed(2)}, ${commExp.toFixed(2)}, ${taxesVal.toFixed(2)}, ${opResult.toFixed(2)}, '0', ${opResult.toFixed(2)}, ${margin.toFixed(4)})
+    INSERT INTO dre (referenceMonth, grossRevenue, netRevenue, financialRevenue, financialCosts, operationalCosts, adminExpenses, commercialExpenses, taxes, operationalResult, financialResult, netProfit, margin)
+    VALUES (${data.referenceMonth}, ${gross.toFixed(2)}, ${gross.toFixed(2)}, ${finRevenue.toFixed(2)}, ${finCosts.toFixed(2)}, ${opCosts.toFixed(2)}, ${adminExp.toFixed(2)}, ${commExp.toFixed(2)}, ${taxesVal.toFixed(2)}, ${opResult.toFixed(2)}, ${finResult.toFixed(2)}, ${netProfit.toFixed(2)}, ${margin.toFixed(4)})
     ON DUPLICATE KEY UPDATE
       grossRevenue = VALUES(grossRevenue), netRevenue = VALUES(netRevenue),
-      financialCosts = VALUES(financialCosts), operationalCosts = VALUES(operationalCosts),
+      financialRevenue = VALUES(financialRevenue), financialCosts = VALUES(financialCosts),
+      operationalCosts = VALUES(operationalCosts),
       adminExpenses = VALUES(adminExpenses), commercialExpenses = VALUES(commercialExpenses),
       taxes = VALUES(taxes), operationalResult = VALUES(operationalResult),
+      financialResult = VALUES(financialResult),
       netProfit = VALUES(netProfit), margin = VALUES(margin)
   `);
   invalidateReconciliationCaches();
@@ -135174,19 +135197,25 @@ var controllershipRouter = router({
     await createCreditInstallments(installments);
     return { creditId };
   }),
-  // Registrar pagamento de parcela da carteira de crédito
+  // Registrar pagamento de parcela da carteira de crédito.
+  //
+  // Contabilmente correto: APENAS juros + multa viram Receita Financeira.
+  // Amortização (principalAmount) NÃO vira receita — é só devolução do
+  // capital que foi emprestado. Aparece no Balanço como redução do ativo
+  // "empréstimos concedidos", não no DRE.
+  //
+  // Idempotência: se a parcela já tinha pagamento registrado antes
+  // (interestRevenueId/penaltyRevenueId preenchidos), as revenues antigas
+  // são DELETADAS antes de criar novas. Isso evita duplicação contábil
+  // quando o usuário edita um pagamento existente.
   recordInstallmentPayment: protectedProcedure.input(external_exports.object({
     installmentId: external_exports.number(),
     creditId: external_exports.number(),
     paidAmount: external_exports.string(),
-    // valor total pago pelo cliente
     paidDate: external_exports.string(),
     paidPrincipal: external_exports.string().optional(),
-    // amortização real (pode diferir da calculada)
     paidInterest: external_exports.string().optional(),
-    // juros reais (pode diferir do calculado)
     paidPenalty: external_exports.string().optional(),
-    // multa/mora por atraso
     notes: external_exports.string().optional(),
     clientName: external_exports.string().optional()
   })).mutation(async ({ input, ctx }) => {
@@ -135201,17 +135230,20 @@ var controllershipRouter = router({
     const realPrincipal = parseFloat(input.paidPrincipal ?? String(inst.principalAmount ?? 0));
     const realPenalty = parseFloat(input.paidPenalty ?? "0");
     const realTotal = parseFloat(input.paidAmount);
-    const creditName = input.clientName ?? String(inst.installmentNumber);
-    await dbConn.update(creditInstallments2).set({
-      status: "pago",
-      paidDate: input.paidDate,
-      paidAmount: input.paidAmount
-    }).where(eqOp(creditInstallments2.id, input.installmentId));
+    const creditName = input.clientName ?? `Parcela #${inst.installmentNumber}`;
+    if (inst.interestRevenueId) {
+      await dbConn.delete(revenues2).where(eqOp(revenues2.id, inst.interestRevenueId));
+    }
+    if (inst.penaltyRevenueId) {
+      await dbConn.delete(revenues2).where(eqOp(revenues2.id, inst.penaltyRevenueId));
+    }
+    let newInterestRevenueId = null;
+    let newPenaltyRevenueId = null;
     if (realInterest > 0) {
-      await dbConn.insert(revenues2).values({
+      const r = await dbConn.insert(revenues2).values({
         referenceDate: input.paidDate,
         type: "receita_financeira",
-        description: `Juros parcela #${inst.installmentNumber}${input.notes ? ` \u2014 ${input.notes}` : ""}`,
+        description: `Juros parcela ${inst.installmentNumber}${input.notes ? ` \u2014 ${input.notes}` : ""}`,
         amount: realInterest.toFixed(2),
         clientId: String(input.creditId),
         clientName: creditName,
@@ -135219,25 +135251,13 @@ var controllershipRouter = router({
         createdByName: ctx.user?.name ?? "Sistema",
         origin: "manual"
       });
-    }
-    if (realPrincipal > 0) {
-      await dbConn.insert(revenues2).values({
-        referenceDate: input.paidDate,
-        type: "receita_financeira",
-        description: `Amortiza\xE7\xE3o parcela #${inst.installmentNumber}${input.notes ? ` \u2014 ${input.notes}` : ""}`,
-        amount: realPrincipal.toFixed(2),
-        clientId: String(input.creditId),
-        clientName: creditName,
-        status: "realizado",
-        createdByName: ctx.user?.name ?? "Sistema",
-        origin: "manual"
-      });
+      newInterestRevenueId = r[0]?.insertId ?? null;
     }
     if (realPenalty > 0) {
-      await dbConn.insert(revenues2).values({
+      const r = await dbConn.insert(revenues2).values({
         referenceDate: input.paidDate,
         type: "receita_financeira",
-        description: `Multa/mora parcela #${inst.installmentNumber}`,
+        description: `Multa/mora parcela ${inst.installmentNumber}`,
         amount: realPenalty.toFixed(2),
         clientId: String(input.creditId),
         clientName: creditName,
@@ -135245,13 +135265,36 @@ var controllershipRouter = router({
         createdByName: ctx.user?.name ?? "Sistema",
         origin: "manual"
       });
+      newPenaltyRevenueId = r[0]?.insertId ?? null;
     }
+    if (realPrincipal > 0) {
+      await dbConn.execute(sql`
+          UPDATE credit_portfolio
+          SET outstandingBalance = GREATEST(0, CAST(outstandingBalance AS DECIMAL(18,2)) - ${realPrincipal.toFixed(2)})
+          WHERE id = ${input.creditId}
+        `);
+    }
+    await dbConn.update(creditInstallments2).set({
+      status: "pago",
+      paidDate: input.paidDate,
+      paidAmount: input.paidAmount,
+      interestRevenueId: newInterestRevenueId,
+      penaltyRevenueId: newPenaltyRevenueId
+    }).where(eqOp(creditInstallments2.id, input.installmentId));
     const allInstallments = await dbConn.select().from(creditInstallments2).where(eqOp(creditInstallments2.creditId, input.creditId));
     const allPaid = allInstallments.every((i) => i.status === "pago" || i.id === input.installmentId);
     if (allPaid) {
       await dbConn.update(creditPortfolio2).set({ status: "quitado" }).where(eqOp(creditPortfolio2.id, input.creditId));
     }
-    return { success: true, realTotal, realInterest, realPrincipal };
+    await audit(ctx, {
+      action: "installment.pay",
+      category: "carteira",
+      entityType: "credit_installment",
+      entityId: String(input.installmentId),
+      summary: `Pagamento parcela #${inst.installmentNumber}: juros R$ ${realInterest.toFixed(2)}, principal R$ ${realPrincipal.toFixed(2)}, multa R$ ${realPenalty.toFixed(2)}`,
+      metadata: { realInterest, realPrincipal, realPenalty, realTotal }
+    });
+    return { success: true, realTotal, realInterest, realPrincipal, realPenalty };
   }),
   getCreditInstallments: protectedProcedure.input(external_exports.object({ creditId: external_exports.number() })).query(async ({ input }) => getCreditInstallments(input.creditId)),
   getControllershipDashboard: protectedProcedure.input(external_exports.object({ dateFrom: external_exports.string(), dateTo: external_exports.string() })).query(async ({ input }) => getControllershipDashboard(input.dateFrom, input.dateTo)),
@@ -135282,6 +135325,7 @@ var accountingRouter = router({
     referenceMonth: external_exports.string(),
     grossRevenue: external_exports.string().optional(),
     netRevenue: external_exports.string().optional(),
+    financialRevenue: external_exports.string().optional(),
     financialCosts: external_exports.string().optional(),
     operationalCosts: external_exports.string().optional(),
     adminExpenses: external_exports.string().optional(),

@@ -1699,16 +1699,26 @@ const controllershipRouter = router({
       return { creditId };
     }),
 
-  // Registrar pagamento de parcela da carteira de crédito
+  // Registrar pagamento de parcela da carteira de crédito.
+  //
+  // Contabilmente correto: APENAS juros + multa viram Receita Financeira.
+  // Amortização (principalAmount) NÃO vira receita — é só devolução do
+  // capital que foi emprestado. Aparece no Balanço como redução do ativo
+  // "empréstimos concedidos", não no DRE.
+  //
+  // Idempotência: se a parcela já tinha pagamento registrado antes
+  // (interestRevenueId/penaltyRevenueId preenchidos), as revenues antigas
+  // são DELETADAS antes de criar novas. Isso evita duplicação contábil
+  // quando o usuário edita um pagamento existente.
   recordInstallmentPayment: protectedProcedure
     .input(z.object({
       installmentId: z.number(),
       creditId: z.number(),
-      paidAmount:    z.string(),           // valor total pago pelo cliente
+      paidAmount:    z.string(),
       paidDate:      z.string(),
-      paidPrincipal: z.string().optional(), // amortização real (pode diferir da calculada)
-      paidInterest:  z.string().optional(), // juros reais (pode diferir do calculado)
-      paidPenalty:   z.string().optional(), // multa/mora por atraso
+      paidPrincipal: z.string().optional(),
+      paidInterest:  z.string().optional(),
+      paidPenalty:   z.string().optional(),
       notes:         z.string().optional(),
       clientName:    z.string().optional(),
     }))
@@ -1718,34 +1728,37 @@ const controllershipRouter = router({
       const { eq: eqOp } = await import("drizzle-orm");
       const { creditInstallments, creditPortfolio, revenues } = await import("../drizzle/schema");
 
-      // Busca parcela original para referência
       const installments = await dbConn.select().from(creditInstallments)
         .where(eqOp(creditInstallments.id, input.installmentId)).limit(1);
       const inst = installments[0];
       if (!inst) throw new Error("Parcela não encontrada");
 
-      // Valores reais do pagamento (usa os editados pelo usuário ou os calculados)
       const realInterest  = parseFloat(input.paidInterest  ?? String(inst.interestAmount  ?? 0));
       const realPrincipal = parseFloat(input.paidPrincipal ?? String(inst.principalAmount ?? 0));
       const realPenalty   = parseFloat(input.paidPenalty   ?? "0");
       const realTotal     = parseFloat(input.paidAmount);
-      const creditName    = input.clientName ?? String(inst.installmentNumber);
+      const creditName    = input.clientName ?? `Parcela #${inst.installmentNumber}`;
 
-      // Marca parcela como paga com valores reais
-      await dbConn.update(creditInstallments)
-        .set({
-          status: 'pago',
-          paidDate:   input.paidDate as unknown as Date,
-          paidAmount: input.paidAmount,
-        })
-        .where(eqOp(creditInstallments.id, input.installmentId));
+      // ── REVERSÃO IDEMPOTENTE ─────────────────────────────────────────
+      // Se a parcela já tinha revenues vinculadas (pagamento prévio),
+      // apaga as antigas antes de criar novas. Sem isso, editar um
+      // pagamento duplicaria a receita no DRE.
+      if (inst.interestRevenueId) {
+        await dbConn.delete(revenues).where(eqOp(revenues.id, inst.interestRevenueId));
+      }
+      if (inst.penaltyRevenueId) {
+        await dbConn.delete(revenues).where(eqOp(revenues.id, inst.penaltyRevenueId));
+      }
 
-      // Cria receita de juros (valor real)
+      let newInterestRevenueId: number | null = null;
+      let newPenaltyRevenueId: number | null = null;
+
+      // ── JUROS → Receita Financeira ───────────────────────────────────
       if (realInterest > 0) {
-        await dbConn.insert(revenues).values({
+        const r = await dbConn.insert(revenues).values({
           referenceDate: input.paidDate as unknown as Date,
           type: 'receita_financeira' as any,
-          description: `Juros parcela #${inst.installmentNumber}${input.notes ? ` — ${input.notes}` : ''}`,
+          description: `Juros parcela ${inst.installmentNumber}${input.notes ? ` — ${input.notes}` : ''}`,
           amount: realInterest.toFixed(2),
           clientId: String(input.creditId),
           clientName: creditName,
@@ -1753,29 +1766,15 @@ const controllershipRouter = router({
           createdByName: ctx.user?.name ?? 'Sistema',
           origin: 'manual',
         });
+        newInterestRevenueId = (r as any)[0]?.insertId ?? null;
       }
 
-      // Cria receita de amortização (valor real)
-      if (realPrincipal > 0) {
-        await dbConn.insert(revenues).values({
-          referenceDate: input.paidDate as unknown as Date,
-          type: 'receita_financeira' as any,
-          description: `Amortização parcela #${inst.installmentNumber}${input.notes ? ` — ${input.notes}` : ''}`,
-          amount: realPrincipal.toFixed(2),
-          clientId: String(input.creditId),
-          clientName: creditName,
-          status: 'realizado' as any,
-          createdByName: ctx.user?.name ?? 'Sistema',
-          origin: 'manual',
-        });
-      }
-
-      // Cria receita de multa/mora se houver
+      // ── MULTA/MORA → Receita Financeira ──────────────────────────────
       if (realPenalty > 0) {
-        await dbConn.insert(revenues).values({
+        const r = await dbConn.insert(revenues).values({
           referenceDate: input.paidDate as unknown as Date,
           type: 'receita_financeira' as any,
-          description: `Multa/mora parcela #${inst.installmentNumber}`,
+          description: `Multa/mora parcela ${inst.installmentNumber}`,
           amount: realPenalty.toFixed(2),
           clientId: String(input.creditId),
           clientName: creditName,
@@ -1783,7 +1782,31 @@ const controllershipRouter = router({
           createdByName: ctx.user?.name ?? 'Sistema',
           origin: 'manual',
         });
+        newPenaltyRevenueId = (r as any)[0]?.insertId ?? null;
       }
+
+      // ── AMORTIZAÇÃO NÃO vira receita ─────────────────────────────────
+      // Principal pago reduz o saldo devedor (outstandingBalance no
+      // credit_portfolio), mas não é resultado contábil — é só devolução
+      // do dinheiro que a empresa havia emprestado.
+      if (realPrincipal > 0) {
+        await dbConn.execute(sql`
+          UPDATE credit_portfolio
+          SET outstandingBalance = GREATEST(0, CAST(outstandingBalance AS DECIMAL(18,2)) - ${realPrincipal.toFixed(2)})
+          WHERE id = ${input.creditId}
+        `);
+      }
+
+      // Marca parcela como paga e salva IDs das revenues criadas
+      await dbConn.update(creditInstallments)
+        .set({
+          status: 'pago',
+          paidDate:   input.paidDate as unknown as Date,
+          paidAmount: input.paidAmount,
+          interestRevenueId: newInterestRevenueId,
+          penaltyRevenueId: newPenaltyRevenueId,
+        })
+        .where(eqOp(creditInstallments.id, input.installmentId));
 
       // Verifica se todas as parcelas foram pagas → crédito = quitado
       const allInstallments = await dbConn.select().from(creditInstallments)
@@ -1795,7 +1818,14 @@ const controllershipRouter = router({
           .where(eqOp(creditPortfolio.id, input.creditId));
       }
 
-      return { success: true, realTotal, realInterest, realPrincipal };
+      await audit(ctx, {
+        action: "installment.pay", category: "carteira",
+        entityType: "credit_installment", entityId: String(input.installmentId),
+        summary: `Pagamento parcela #${inst.installmentNumber}: juros R$ ${realInterest.toFixed(2)}, principal R$ ${realPrincipal.toFixed(2)}, multa R$ ${realPenalty.toFixed(2)}`,
+        metadata: { realInterest, realPrincipal, realPenalty, realTotal },
+      });
+
+      return { success: true, realTotal, realInterest, realPrincipal, realPenalty };
     }),
 
   getCreditInstallments: protectedProcedure
@@ -1841,7 +1871,9 @@ const accountingRouter = router({
   upsertDRE: protectedProcedure
     .input(z.object({
       referenceMonth: z.string(), grossRevenue: z.string().optional(),
-      netRevenue: z.string().optional(), financialCosts: z.string().optional(),
+      netRevenue: z.string().optional(),
+      financialRevenue: z.string().optional(),
+      financialCosts: z.string().optional(),
       operationalCosts: z.string().optional(), adminExpenses: z.string().optional(),
       commercialExpenses: z.string().optional(), taxes: z.string().optional(),
     }))

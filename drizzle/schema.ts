@@ -364,6 +364,12 @@ export const creditInstallments = mysqlTable("credit_installments", {
   paidAmount: decimal("paidAmount", { precision: 18, scale: 2 }).default("0"),
   paidDate: date("paidDate"),
   status: mysqlEnum("status", ["pendente", "pago", "vencido", "parcial"]).default("pendente").notNull(),
+  // Rastreamento contábil — ID da revenue de juros gerada automaticamente
+  // ao registrar pagamento. Usado para reverter (excluir a revenue) caso
+  // o usuário edite ou apague o pagamento. Amortização do principal NÃO
+  // vira revenue (não é resultado — é só devolução de capital).
+  interestRevenueId: int("interestRevenueId"),
+  penaltyRevenueId: int("penaltyRevenueId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -415,6 +421,9 @@ export const dre = mysqlTable("dre", {
   referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(), // YYYY-MM
   grossRevenue: decimal("grossRevenue", { precision: 18, scale: 2 }).default("0"),
   netRevenue: decimal("netRevenue", { precision: 18, scale: 2 }).default("0"),
+  // Receita Financeira: juros recebidos de empréstimos, investimentos.
+  // Separada da receita operacional para não distorcer margem operacional.
+  financialRevenue: decimal("financialRevenue", { precision: 18, scale: 2 }).default("0"),
   financialCosts: decimal("financialCosts", { precision: 18, scale: 2 }).default("0"),
   operationalCosts: decimal("operationalCosts", { precision: 18, scale: 2 }).default("0"),
   adminExpenses: decimal("adminExpenses", { precision: 18, scale: 2 }).default("0"),
