@@ -27,6 +27,7 @@ const DRE                = lazy(() => import("@/pages/DRE"));
 const CashFlow           = lazy(() => import("@/pages/CashFlow"));
 const InternalMovements  = lazy(() => import("@/pages/InternalMovements"));
 const ExecutiveDashboard = lazy(() => import("@/pages/ExecutiveDashboard"));
+const ApuracaoManual     = lazy(() => import("@/pages/ApuracaoManual"));
 const CostCenters        = lazy(() => import("@/pages/CostCenters"));
 const Alerts           = lazy(() => import("@/pages/Alerts"));
 const NotFound         = lazy(() => import("@/pages/NotFound"));
@@ -52,6 +53,7 @@ function Router() {
         <Switch>
           <Route path="/"                   component={Dashboard} />
           <Route path="/executivo"          component={ExecutiveDashboard} />
+          <Route path="/apuracao"           component={ApuracaoManual} />
           <Route path="/conciliacao"        component={Reconciliation} />
           <Route path="/conciliacao/:id"    component={ReconciliationSession} />
           <Route path="/divergencias"       component={Divergences} />

@@ -2033,6 +2033,77 @@ const accountingRouter = router({
     }),
 
   // ── Dashboard Executivo (interno — diretoria) ────────────────────────────
+  // ── Apuração Manual (modo emergência — independente do sistema principal) ──
+  listManualApuracao: protectedProcedure
+    .input(z.object({
+      referenceMonth: z.string().optional(),
+      kind: z.enum(['receita', 'despesa']).optional(),
+    }))
+    .query(async ({ input }) => db.listManualApuracao(input)),
+
+  getManualApuracaoMonths: protectedProcedure
+    .query(async () => db.getManualApuracaoMonths()),
+
+  getManualApuracaoSummary: protectedProcedure
+    .input(z.object({
+      mode: z.enum(['month', 'ytd', 'all']),
+      referenceMonth: z.string().optional(),
+    }))
+    .query(async ({ input }) => db.getManualApuracaoSummary(input)),
+
+  createManualApuracao: protectedProcedure
+    .input(z.object({
+      referenceMonth: z.string(),
+      kind: z.enum(['receita', 'despesa']),
+      category: z.string().min(1),
+      amount: z.number(),
+      notes: z.string().optional(),
+      sortOrder: z.number().int().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.createManualApuracao({
+        ...input,
+        createdBy: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
+      });
+      await audit(ctx, {
+        action: "manual_apuracao.create", category: "contabilidade",
+        entityType: "manual_apuracao", entityId: String(result.id),
+        summary: `Apuração manual: ${input.kind} ${input.category} R$ ${input.amount.toFixed(2)} em ${input.referenceMonth}`,
+      });
+      return result;
+    }),
+
+  updateManualApuracao: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      category: z.string().optional(),
+      amount: z.number().optional(),
+      notes: z.string().optional(),
+      sortOrder: z.number().int().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { id, ...data } = input;
+      await db.updateManualApuracao(id, data);
+      await audit(ctx, {
+        action: "manual_apuracao.update", category: "contabilidade",
+        entityType: "manual_apuracao", entityId: String(id),
+        summary: `Apuração manual #${id} atualizada`,
+      });
+      return { success: true };
+    }),
+
+  deleteManualApuracao: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await db.deleteManualApuracao(input.id);
+      await audit(ctx, {
+        action: "manual_apuracao.delete", category: "contabilidade",
+        entityType: "manual_apuracao", entityId: String(input.id),
+        summary: `Apuração manual #${input.id} excluída`,
+      });
+      return { success: true };
+    }),
+
   getExecutiveDashboard: protectedProcedure
     .input(z.object({
       dateFrom: z.string(),

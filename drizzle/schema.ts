@@ -416,6 +416,29 @@ export const internalMovements = mysqlTable("internal_movements", {
   typeIdx: index("im_type_idx").on(table.operationType),
 }));
 
+// Apuração Manual de Resultado
+// Tabela INDEPENDENTE para alimentar o Dashboard de Apuração Manual.
+// Não afeta DRE, Cash Flow, Receitas, Despesas, nem qualquer outra parte do
+// sistema. Cada linha é uma categoria em um mês de referência.
+// Usado para apresentação rápida à diretoria quando a conciliação completa
+// ainda não foi finalizada.
+export const manualApuracao = mysqlTable("manual_apuracao", {
+  id: int("id").autoincrement().primaryKey(),
+  referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(), // YYYY-MM
+  kind: mysqlEnum("kind", ["receita", "despesa"]).notNull(),
+  category: varchar("category", { length: 200 }).notNull(), // ex: "Aplicação CDI", "Folha"
+  amount: decimal("amount", { precision: 18, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+  sortOrder: int("sortOrder").default(0).notNull(), // ordem de exibição
+  createdBy: varchar("createdBy", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  monthIdx: index("ma_month_idx").on(table.referenceMonth),
+  kindIdx: index("ma_kind_idx").on(table.kind),
+  monthKindIdx: index("ma_month_kind_idx").on(table.referenceMonth, table.kind),
+}));
+
 export const dre = mysqlTable("dre", {
   id: int("id").autoincrement().primaryKey(),
   referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(), // YYYY-MM

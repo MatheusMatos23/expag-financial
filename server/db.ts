@@ -5,7 +5,7 @@ import {
   reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances,
   revenues, expenses, payables, creditPortfolio, creditInstallments,
   costCenters, dre, cashFlow, alerts, systemConfig,
-  manualAdjustments, auditLogs, boletoDailyBalances, internalMovements,
+  manualAdjustments, auditLogs, boletoDailyBalances, internalMovements, manualApuracao,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -4166,5 +4166,198 @@ export async function getExecutiveDashboard(params: {
     },
     creditPortfolio,
     operationalHealth,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// APURAÇÃO MANUAL (Modo Emergência)
+//
+// Tela paralela ao sistema principal para inserir manualmente as categorias
+// de receita e despesa de um mês quando a conciliação automática ainda não
+// foi concluída. Não afeta DRE, Cash Flow, Receitas, Despesas ou nada do
+// sistema principal — é uma estrutura SEPARADA exclusiva para apresentação.
+//
+// Usa o mesmo formato "mês de referência" (YYYY-MM) para guardar histórico.
+// Acumulado YTD = SUM de todos os meses do ano corrente.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function listManualApuracao(filters?: {
+  referenceMonth?: string;
+  kind?: 'receita' | 'despesa';
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds: any[] = [];
+  if (filters?.referenceMonth) conds.push(eq(manualApuracao.referenceMonth, filters.referenceMonth));
+  if (filters?.kind) conds.push(eq(manualApuracao.kind, filters.kind));
+  return db.select().from(manualApuracao)
+    .where(conds.length > 0 ? and(...conds) : undefined)
+    .orderBy(manualApuracao.referenceMonth, manualApuracao.kind, manualApuracao.sortOrder, manualApuracao.category);
+}
+
+/**
+ * Retorna lista de meses únicos com dados (para o seletor de mês).
+ */
+export async function getManualApuracaoMonths() {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT DISTINCT referenceMonth FROM manual_apuracao
+    ORDER BY referenceMonth DESC
+  `);
+  return ((result as any)[0] ?? []).map((r: any) => r.referenceMonth);
+}
+
+export async function createManualApuracao(data: {
+  referenceMonth: string;
+  kind: 'receita' | 'despesa';
+  category: string;
+  amount: number;
+  notes?: string;
+  sortOrder?: number;
+  createdBy?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(manualApuracao).values({
+    referenceMonth: data.referenceMonth,
+    kind: data.kind,
+    category: data.category,
+    amount: data.amount.toFixed(2),
+    notes: data.notes ?? null,
+    sortOrder: data.sortOrder ?? 0,
+    createdBy: data.createdBy ?? null,
+  });
+  return { id: (result as any)[0]?.insertId ?? 0 };
+}
+
+export async function updateManualApuracao(id: number, data: Partial<{
+  category: string;
+  amount: number;
+  notes: string;
+  sortOrder: number;
+}>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const update: any = {};
+  if (data.category !== undefined) update.category = data.category;
+  if (data.amount !== undefined) update.amount = data.amount.toFixed(2);
+  if (data.notes !== undefined) update.notes = data.notes || null;
+  if (data.sortOrder !== undefined) update.sortOrder = data.sortOrder;
+  await db.update(manualApuracao).set(update).where(eq(manualApuracao.id, id));
+  return { success: true };
+}
+
+export async function deleteManualApuracao(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(manualApuracao).where(eq(manualApuracao.id, id));
+  return { success: true };
+}
+
+/**
+ * Resumo agregado para o Dashboard de Apuração Manual.
+ *
+ * Comportamento:
+ *  - referenceMonth: mês específico (YYYY-MM) → retorna dados desse mês
+ *  - mode: 'ytd' → retorna acumulado de jan/yyyy até hoje
+ *  - mode: 'all' → retorna acumulado total da tabela
+ *
+ * Sempre devolve duas listas (receitas/despesas) ordenadas por valor decrescente
+ * dentro de cada tipo, mais o agregado mensal para gráfico de evolução.
+ */
+export async function getManualApuracaoSummary(params: {
+  mode: 'month' | 'ytd' | 'all';
+  referenceMonth?: string;  // só quando mode='month'
+}) {
+  const db = await getDb();
+  if (!db) {
+    return {
+      mode: params.mode,
+      period: null,
+      totals: { revenue: 0, expense: 0, result: 0, margin: 0 },
+      revenues: [],
+      expenses: [],
+      monthlySeries: [],
+    };
+  }
+
+  // Determina o filtro de período
+  let whereSql = sql``;
+  let periodLabel = '';
+  if (params.mode === 'month' && params.referenceMonth) {
+    whereSql = sql`WHERE referenceMonth = ${params.referenceMonth}`;
+    periodLabel = params.referenceMonth;
+  } else if (params.mode === 'ytd') {
+    const yearStart = `${new Date().getFullYear()}-01`;
+    whereSql = sql`WHERE referenceMonth >= ${yearStart}`;
+    periodLabel = `YTD ${new Date().getFullYear()}`;
+  } else {
+    periodLabel = 'Acumulado total';
+  }
+
+  // Agrega por categoria + kind
+  const aggRes = await db.execute(sql`
+    SELECT
+      kind,
+      category,
+      SUM(CAST(amount AS DECIMAL(18,2))) as total,
+      MIN(sortOrder) as sortOrder,
+      COUNT(*) as occurrences
+    FROM manual_apuracao
+    ${whereSql}
+    GROUP BY kind, category
+    ORDER BY kind, total DESC
+  `);
+  const aggRows = (aggRes as any)[0] ?? [];
+
+  const revenues = aggRows
+    .filter((r: any) => r.kind === 'receita')
+    .map((r: any) => ({
+      category: String(r.category),
+      amount: parseFloat(String(r.total ?? 0)),
+      occurrences: Number(r.occurrences ?? 0),
+    }));
+  const expenses = aggRows
+    .filter((r: any) => r.kind === 'despesa')
+    .map((r: any) => ({
+      category: String(r.category),
+      amount: parseFloat(String(r.total ?? 0)),
+      occurrences: Number(r.occurrences ?? 0),
+    }));
+
+  const revenueTotal = revenues.reduce((s: number, r: any) => s + r.amount, 0);
+  const expenseTotal = expenses.reduce((s: number, r: any) => s + r.amount, 0);
+  const result = revenueTotal - expenseTotal;
+  const margin = revenueTotal > 0 ? (result / revenueTotal) * 100 : 0;
+
+  // Série mensal (gráfico de evolução): agregado por mês
+  const seriesRes = await db.execute(sql`
+    SELECT
+      referenceMonth,
+      SUM(CASE WHEN kind = 'receita' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as revenue,
+      SUM(CASE WHEN kind = 'despesa' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as expense
+    FROM manual_apuracao
+    GROUP BY referenceMonth
+    ORDER BY referenceMonth ASC
+  `);
+  const monthlySeries = ((seriesRes as any)[0] ?? []).map((r: any) => {
+    const rev = parseFloat(String(r.revenue ?? 0));
+    const exp = parseFloat(String(r.expense ?? 0));
+    return {
+      month: r.referenceMonth,
+      revenue: rev,
+      expense: exp,
+      result: rev - exp,
+    };
+  });
+
+  return {
+    mode: params.mode,
+    period: periodLabel,
+    totals: { revenue: revenueTotal, expense: expenseTotal, result, margin },
+    revenues,
+    expenses,
+    monthlySeries,
   };
 }

@@ -50713,13 +50713,14 @@ __export(schema_exports, {
   internalMovements: () => internalMovements,
   managerialBalances: () => managerialBalances,
   manualAdjustments: () => manualAdjustments,
+  manualApuracao: () => manualApuracao,
   payables: () => payables,
   reconciliationSessions: () => reconciliationSessions,
   revenues: () => revenues,
   systemConfig: () => systemConfig,
   users: () => users
 });
-var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, internalMovements, dre, cashFlow, alerts, boletoDailyBalances, systemConfig, auditLogs;
+var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, internalMovements, manualApuracao, dre, cashFlow, alerts, boletoDailyBalances, systemConfig, auditLogs;
 var init_schema2 = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -51103,6 +51104,25 @@ var init_schema2 = __esm({
     }, (table) => ({
       dateIdx: index("im_date_idx").on(table.movementDate),
       typeIdx: index("im_type_idx").on(table.operationType)
+    }));
+    manualApuracao = mysqlTable("manual_apuracao", {
+      id: int("id").autoincrement().primaryKey(),
+      referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(),
+      // YYYY-MM
+      kind: mysqlEnum("kind", ["receita", "despesa"]).notNull(),
+      category: varchar("category", { length: 200 }).notNull(),
+      // ex: "Aplicação CDI", "Folha"
+      amount: decimal("amount", { precision: 18, scale: 2 }).default("0").notNull(),
+      notes: text("notes"),
+      sortOrder: int("sortOrder").default(0).notNull(),
+      // ordem de exibição
+      createdBy: varchar("createdBy", { length: 200 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      monthIdx: index("ma_month_idx").on(table.referenceMonth),
+      kindIdx: index("ma_kind_idx").on(table.kind),
+      monthKindIdx: index("ma_month_kind_idx").on(table.referenceMonth, table.kind)
     }));
     dre = mysqlTable("dre", {
       id: int("id").autoincrement().primaryKey(),
@@ -111893,6 +111913,133 @@ async function getExecutiveDashboard(params) {
     operationalHealth
   };
 }
+async function listManualApuracao(filters) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [];
+  if (filters?.referenceMonth) conds.push(eq(manualApuracao.referenceMonth, filters.referenceMonth));
+  if (filters?.kind) conds.push(eq(manualApuracao.kind, filters.kind));
+  return db.select().from(manualApuracao).where(conds.length > 0 ? and(...conds) : void 0).orderBy(manualApuracao.referenceMonth, manualApuracao.kind, manualApuracao.sortOrder, manualApuracao.category);
+}
+async function getManualApuracaoMonths() {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT DISTINCT referenceMonth FROM manual_apuracao
+    ORDER BY referenceMonth DESC
+  `);
+  return (result[0] ?? []).map((r) => r.referenceMonth);
+}
+async function createManualApuracao(data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(manualApuracao).values({
+    referenceMonth: data.referenceMonth,
+    kind: data.kind,
+    category: data.category,
+    amount: data.amount.toFixed(2),
+    notes: data.notes ?? null,
+    sortOrder: data.sortOrder ?? 0,
+    createdBy: data.createdBy ?? null
+  });
+  return { id: result[0]?.insertId ?? 0 };
+}
+async function updateManualApuracao(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const update = {};
+  if (data.category !== void 0) update.category = data.category;
+  if (data.amount !== void 0) update.amount = data.amount.toFixed(2);
+  if (data.notes !== void 0) update.notes = data.notes || null;
+  if (data.sortOrder !== void 0) update.sortOrder = data.sortOrder;
+  await db.update(manualApuracao).set(update).where(eq(manualApuracao.id, id));
+  return { success: true };
+}
+async function deleteManualApuracao(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(manualApuracao).where(eq(manualApuracao.id, id));
+  return { success: true };
+}
+async function getManualApuracaoSummary(params) {
+  const db = await getDb();
+  if (!db) {
+    return {
+      mode: params.mode,
+      period: null,
+      totals: { revenue: 0, expense: 0, result: 0, margin: 0 },
+      revenues: [],
+      expenses: [],
+      monthlySeries: []
+    };
+  }
+  let whereSql = sql``;
+  let periodLabel = "";
+  if (params.mode === "month" && params.referenceMonth) {
+    whereSql = sql`WHERE referenceMonth = ${params.referenceMonth}`;
+    periodLabel = params.referenceMonth;
+  } else if (params.mode === "ytd") {
+    const yearStart = `${(/* @__PURE__ */ new Date()).getFullYear()}-01`;
+    whereSql = sql`WHERE referenceMonth >= ${yearStart}`;
+    periodLabel = `YTD ${(/* @__PURE__ */ new Date()).getFullYear()}`;
+  } else {
+    periodLabel = "Acumulado total";
+  }
+  const aggRes = await db.execute(sql`
+    SELECT
+      kind,
+      category,
+      SUM(CAST(amount AS DECIMAL(18,2))) as total,
+      MIN(sortOrder) as sortOrder,
+      COUNT(*) as occurrences
+    FROM manual_apuracao
+    ${whereSql}
+    GROUP BY kind, category
+    ORDER BY kind, total DESC
+  `);
+  const aggRows = aggRes[0] ?? [];
+  const revenues2 = aggRows.filter((r) => r.kind === "receita").map((r) => ({
+    category: String(r.category),
+    amount: parseFloat(String(r.total ?? 0)),
+    occurrences: Number(r.occurrences ?? 0)
+  }));
+  const expenses2 = aggRows.filter((r) => r.kind === "despesa").map((r) => ({
+    category: String(r.category),
+    amount: parseFloat(String(r.total ?? 0)),
+    occurrences: Number(r.occurrences ?? 0)
+  }));
+  const revenueTotal = revenues2.reduce((s, r) => s + r.amount, 0);
+  const expenseTotal = expenses2.reduce((s, r) => s + r.amount, 0);
+  const result = revenueTotal - expenseTotal;
+  const margin = revenueTotal > 0 ? result / revenueTotal * 100 : 0;
+  const seriesRes = await db.execute(sql`
+    SELECT
+      referenceMonth,
+      SUM(CASE WHEN kind = 'receita' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as revenue,
+      SUM(CASE WHEN kind = 'despesa' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as expense
+    FROM manual_apuracao
+    GROUP BY referenceMonth
+    ORDER BY referenceMonth ASC
+  `);
+  const monthlySeries = (seriesRes[0] ?? []).map((r) => {
+    const rev = parseFloat(String(r.revenue ?? 0));
+    const exp = parseFloat(String(r.expense ?? 0));
+    return {
+      month: r.referenceMonth,
+      revenue: rev,
+      expense: exp,
+      result: rev - exp
+    };
+  });
+  return {
+    mode: params.mode,
+    period: periodLabel,
+    totals: { revenue: revenueTotal, expense: expenseTotal, result, margin },
+    revenues: revenues2,
+    expenses: expenses2,
+    monthlySeries
+  };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -135786,6 +135933,66 @@ var accountingRouter = router({
     return result;
   }),
   // ── Dashboard Executivo (interno — diretoria) ────────────────────────────
+  // ── Apuração Manual (modo emergência — independente do sistema principal) ──
+  listManualApuracao: protectedProcedure.input(external_exports.object({
+    referenceMonth: external_exports.string().optional(),
+    kind: external_exports.enum(["receita", "despesa"]).optional()
+  })).query(async ({ input }) => listManualApuracao(input)),
+  getManualApuracaoMonths: protectedProcedure.query(async () => getManualApuracaoMonths()),
+  getManualApuracaoSummary: protectedProcedure.input(external_exports.object({
+    mode: external_exports.enum(["month", "ytd", "all"]),
+    referenceMonth: external_exports.string().optional()
+  })).query(async ({ input }) => getManualApuracaoSummary(input)),
+  createManualApuracao: protectedProcedure.input(external_exports.object({
+    referenceMonth: external_exports.string(),
+    kind: external_exports.enum(["receita", "despesa"]),
+    category: external_exports.string().min(1),
+    amount: external_exports.number(),
+    notes: external_exports.string().optional(),
+    sortOrder: external_exports.number().int().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const result = await createManualApuracao({
+      ...input,
+      createdBy: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+    });
+    await audit(ctx, {
+      action: "manual_apuracao.create",
+      category: "contabilidade",
+      entityType: "manual_apuracao",
+      entityId: String(result.id),
+      summary: `Apura\xE7\xE3o manual: ${input.kind} ${input.category} R$ ${input.amount.toFixed(2)} em ${input.referenceMonth}`
+    });
+    return result;
+  }),
+  updateManualApuracao: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    category: external_exports.string().optional(),
+    amount: external_exports.number().optional(),
+    notes: external_exports.string().optional(),
+    sortOrder: external_exports.number().int().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const { id, ...data } = input;
+    await updateManualApuracao(id, data);
+    await audit(ctx, {
+      action: "manual_apuracao.update",
+      category: "contabilidade",
+      entityType: "manual_apuracao",
+      entityId: String(id),
+      summary: `Apura\xE7\xE3o manual #${id} atualizada`
+    });
+    return { success: true };
+  }),
+  deleteManualApuracao: protectedProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    await deleteManualApuracao(input.id);
+    await audit(ctx, {
+      action: "manual_apuracao.delete",
+      category: "contabilidade",
+      entityType: "manual_apuracao",
+      entityId: String(input.id),
+      summary: `Apura\xE7\xE3o manual #${input.id} exclu\xEDda`
+    });
+    return { success: true };
+  }),
   getExecutiveDashboard: protectedProcedure.input(external_exports.object({
     dateFrom: external_exports.string(),
     dateTo: external_exports.string()
