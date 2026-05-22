@@ -2032,6 +2032,14 @@ const accountingRouter = router({
       return result;
     }),
 
+  // ── Dashboard Executivo (interno — diretoria) ────────────────────────────
+  getExecutiveDashboard: protectedProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+    }))
+    .query(async ({ input }) => db.getExecutiveDashboard(input)),
+
   deleteCashFlow: adminProcedure
     .input(z.object({ referenceDate: z.string() }))
     .mutation(async ({ input }) => { await db.deleteCashFlow(input.referenceDate); return { success: true }; }),

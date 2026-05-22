@@ -9,6 +9,7 @@ export const translations = {
     // ── Navegação ──
     "nav.overview": "Visão Geral",
     "nav.dashboard": "Dashboard",
+    "nav.executive": "Executivo",
     "nav.alerts": "Alertas",
     "nav.users": "Usuários",
     "nav.audit": "Auditoria",
@@ -107,6 +108,7 @@ export const translations = {
     // ── Navigation ──
     "nav.overview": "Overview",
     "nav.dashboard": "Dashboard",
+    "nav.executive": "Executive",
     "nav.alerts": "Alerts",
     "nav.users": "Users",
     "nav.audit": "Audit Log",

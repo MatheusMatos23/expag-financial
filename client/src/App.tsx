@@ -26,6 +26,7 @@ const CreditPortfolio  = lazy(() => import("@/pages/CreditPortfolio"));
 const DRE                = lazy(() => import("@/pages/DRE"));
 const CashFlow           = lazy(() => import("@/pages/CashFlow"));
 const InternalMovements  = lazy(() => import("@/pages/InternalMovements"));
+const ExecutiveDashboard = lazy(() => import("@/pages/ExecutiveDashboard"));
 const CostCenters        = lazy(() => import("@/pages/CostCenters"));
 const Alerts           = lazy(() => import("@/pages/Alerts"));
 const NotFound         = lazy(() => import("@/pages/NotFound"));
@@ -50,6 +51,7 @@ function Router() {
       <Suspense fallback={<PageLoader />}>
         <Switch>
           <Route path="/"                   component={Dashboard} />
+          <Route path="/executivo"          component={ExecutiveDashboard} />
           <Route path="/conciliacao"        component={Reconciliation} />
           <Route path="/conciliacao/:id"    component={ReconciliationSession} />
           <Route path="/divergencias"       component={Divergences} />

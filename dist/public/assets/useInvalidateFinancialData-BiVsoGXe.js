@@ -1,0 +1,1 @@
+import{r as a}from"./vendor-trpc-CEjieXk9.js";import{t}from"./index-DtLS0k6s.js";function r(){const i=t.useUtils();return a.useCallback(()=>{i.reconciliation.invalidate(),i.controllership.invalidate(),i.accounting.invalidate(),i.dashboard.invalidate()},[i])}export{r as u};

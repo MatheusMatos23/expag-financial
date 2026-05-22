@@ -3738,3 +3738,213 @@ export async function getInternalMovementsSummary(filters?: {
     },
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD EXECUTIVO
+//
+// Função única que retorna todos os dados de alto nível para apresentação à
+// diretoria. Inclui período corrente + período anterior (para comparativo MoM)
+// + série de 12 meses (para gráficos de evolução).
+//
+// Estrutura intencionalmente "achatada" para facilitar consumo no frontend
+// sem múltiplas queries paralelas. O cliente envia o período (mês corrente
+// por default), backend faz todos os cálculos de uma vez.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type ExecutivePeriodKpis = {
+  tpv: number;                 // Total Payment Volume (créditos no internal_movements)
+  operationalRevenue: number;  // Receita Operacional
+  financialRevenue: number;    // Receita Financeira (juros, rendimentos)
+  totalRevenue: number;        // soma das duas
+  totalExpenses: number;       // todas as despesas
+  netProfit: number;           // totalRevenue - totalExpenses
+  margin: number;              // netProfit / operationalRevenue
+  transactionCount: number;    // # de movimentações internas no período
+};
+
+/**
+ * Calcula KPIs agregados para um período específico (entre dateFrom e dateTo).
+ * Reutilizada para período corrente e período anterior (comparativo MoM).
+ */
+async function calculateExecutivePeriodKpis(
+  dbConn: any,
+  dateFrom: string,
+  dateTo: string,
+): Promise<ExecutivePeriodKpis> {
+  // Receitas separadas por tipo (operacional vs financeira)
+  const revRes = await dbConn.execute(sql`
+    SELECT
+      SUM(CASE WHEN type = 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as financialRevenue,
+      SUM(CASE WHEN type != 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as operationalRevenue
+    FROM revenues
+    WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo}
+      AND status = 'realizado'
+  `);
+  const revRow = (revRes as any)[0]?.[0] ?? {};
+
+  // Despesas
+  const expRes = await dbConn.execute(sql`
+    SELECT COALESCE(SUM(CAST(amount AS DECIMAL(18,2))), 0) as total
+    FROM expenses
+    WHERE referenceDate BETWEEN ${dateFrom} AND ${dateTo}
+      AND status = 'realizado'
+  `);
+  const totalExpenses = parseFloat(String((expRes as any)[0]?.[0]?.total ?? 0));
+
+  // TPV — créditos operacionais (exclui transferências entre contas)
+  const tpvRes = await dbConn.execute(sql`
+    SELECT
+      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as tpv,
+      COALESCE(SUM(quantity), 0) as txCount
+    FROM internal_movements
+    WHERE movementDate BETWEEN ${dateFrom} AND ${dateTo}
+      AND isTransfer = 0
+  `);
+  const tpvRow = (tpvRes as any)[0]?.[0] ?? {};
+
+  const operationalRevenue = parseFloat(String(revRow.operationalRevenue ?? 0));
+  const financialRevenue = parseFloat(String(revRow.financialRevenue ?? 0));
+  const totalRevenue = operationalRevenue + financialRevenue;
+  const netProfit = totalRevenue - totalExpenses;
+  const margin = operationalRevenue > 0 ? (netProfit / operationalRevenue) * 100 : 0;
+
+  return {
+    tpv: parseFloat(String(tpvRow.tpv ?? 0)),
+    operationalRevenue,
+    financialRevenue,
+    totalRevenue,
+    totalExpenses,
+    netProfit,
+    margin,
+    transactionCount: Number(tpvRow.txCount ?? 0),
+  };
+}
+
+/**
+ * Endpoint principal do Dashboard Executivo.
+ *
+ * Retorna:
+ *  - current: KPIs do período selecionado
+ *  - previous: KPIs do período imediatamente anterior (mesmo tamanho) → comparativo MoM
+ *  - series12m: 12 meses de evolução (receita, margem, TPV por mês)
+ *  - revenueByType: composição da receita do período corrente
+ */
+export async function getExecutiveDashboard(params: {
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const dbConn = await getDb();
+  if (!dbConn) {
+    return null;
+  }
+
+  // ── 1) KPIs do período corrente ──
+  const current = await calculateExecutivePeriodKpis(dbConn, params.dateFrom, params.dateTo);
+
+  // ── 2) KPIs do período anterior (mesma duração, deslocada para trás) ──
+  const from = new Date(params.dateFrom);
+  const to = new Date(params.dateTo);
+  const durationMs = to.getTime() - from.getTime();
+  const prevTo = new Date(from.getTime() - 1);  // dia anterior a dateFrom
+  const prevFrom = new Date(prevTo.getTime() - durationMs);
+  const previous = await calculateExecutivePeriodKpis(
+    dbConn,
+    prevFrom.toISOString().slice(0, 10),
+    prevTo.toISOString().slice(0, 10),
+  );
+
+  // ── 3) Série de 12 meses (para gráficos de evolução) ──
+  const seriesRes = await dbConn.execute(sql`
+    SELECT
+      DATE_FORMAT(referenceDate, '%Y-%m') as month,
+      SUM(CASE WHEN type = 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as financialRevenue,
+      SUM(CASE WHEN type != 'receita_financeira' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END) as operationalRevenue
+    FROM revenues
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+      AND status = 'realizado'
+    GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
+  `);
+  const expSeriesRes = await dbConn.execute(sql`
+    SELECT
+      DATE_FORMAT(referenceDate, '%Y-%m') as month,
+      SUM(CAST(amount AS DECIMAL(18,2))) as totalExpenses
+    FROM expenses
+    WHERE referenceDate >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+      AND status = 'realizado'
+    GROUP BY DATE_FORMAT(referenceDate, '%Y-%m')
+  `);
+  const tpvSeriesRes = await dbConn.execute(sql`
+    SELECT
+      DATE_FORMAT(movementDate, '%Y-%m') as month,
+      SUM(CAST(creditAmount AS DECIMAL(18,2))) as tpv
+    FROM internal_movements
+    WHERE movementDate >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+      AND isTransfer = 0
+    GROUP BY DATE_FORMAT(movementDate, '%Y-%m')
+  `);
+
+  // Merge dos 3 datasets por mês
+  const seriesByMonth: Record<string, any> = {};
+  for (const r of ((seriesRes as any)[0] ?? [])) {
+    seriesByMonth[r.month] = {
+      month: r.month,
+      operationalRevenue: parseFloat(String(r.operationalRevenue ?? 0)),
+      financialRevenue: parseFloat(String(r.financialRevenue ?? 0)),
+      totalExpenses: 0,
+      tpv: 0,
+    };
+  }
+  for (const r of ((expSeriesRes as any)[0] ?? [])) {
+    if (!seriesByMonth[r.month]) {
+      seriesByMonth[r.month] = { month: r.month, operationalRevenue: 0, financialRevenue: 0, totalExpenses: 0, tpv: 0 };
+    }
+    seriesByMonth[r.month].totalExpenses = parseFloat(String(r.totalExpenses ?? 0));
+  }
+  for (const r of ((tpvSeriesRes as any)[0] ?? [])) {
+    if (!seriesByMonth[r.month]) {
+      seriesByMonth[r.month] = { month: r.month, operationalRevenue: 0, financialRevenue: 0, totalExpenses: 0, tpv: 0 };
+    }
+    seriesByMonth[r.month].tpv = parseFloat(String(r.tpv ?? 0));
+  }
+
+  // Garante 12 meses na série (mesmo se vazios) — importante para gráficos
+  const months12: string[] = [];
+  const baseDate = new Date();
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(baseDate.getFullYear(), baseDate.getMonth() - i, 1);
+    months12.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  const series12m = months12.map(m => {
+    const row = seriesByMonth[m] ?? { month: m, operationalRevenue: 0, financialRevenue: 0, totalExpenses: 0, tpv: 0 };
+    const totalRevenue = row.operationalRevenue + row.financialRevenue;
+    const netProfit = totalRevenue - row.totalExpenses;
+    const margin = row.operationalRevenue > 0 ? (netProfit / row.operationalRevenue) * 100 : 0;
+    return { ...row, totalRevenue, netProfit, margin };
+  });
+
+  // ── 4) Composição da receita por tipo (período corrente) ──
+  const typeRes = await dbConn.execute(sql`
+    SELECT type, SUM(CAST(amount AS DECIMAL(18,2))) as total, COUNT(*) as cnt
+    FROM revenues
+    WHERE referenceDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+      AND status = 'realizado'
+    GROUP BY type
+    ORDER BY total DESC
+  `);
+  const revenueByType = ((typeRes as any)[0] ?? []).map((r: any) => ({
+    type: String(r.type ?? 'outros'),
+    amount: parseFloat(String(r.total ?? 0)),
+    count: Number(r.cnt ?? 0),
+    percentage: current.totalRevenue > 0
+      ? (parseFloat(String(r.total ?? 0)) / current.totalRevenue) * 100
+      : 0,
+  }));
+
+  return {
+    period: { dateFrom: params.dateFrom, dateTo: params.dateTo },
+    current,
+    previous,
+    series12m,
+    revenueByType,
+  };
+}

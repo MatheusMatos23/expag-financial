@@ -350,6 +350,7 @@ const menuGroups = [
     labelKey: "nav.overview" as const,
     items: [
       { icon: LayoutDashboard, labelKey: "nav.dashboard" as const, path: "/" },
+      { icon: TrendingUp, labelKey: "nav.executive" as const, path: "/executivo" },
       { icon: AlertTriangle, labelKey: "nav.alerts" as const, path: "/alertas" },
       { icon: Users, labelKey: "nav.users" as const, path: "/usuarios" },
       { icon: ScrollText, labelKey: "nav.audit" as const, path: "/auditoria" },
