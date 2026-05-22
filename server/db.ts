@@ -3940,11 +3940,141 @@ export async function getExecutiveDashboard(params: {
       : 0,
   }));
 
+  // ── 5) Top 10 clientes por volume (período corrente) ──
+  // Agrega por clientName ignorando registros sem cliente identificado.
+  // YTD = "Year To Date" — acumulado do ano até hoje (usado pra comparativo).
+  const topClientsRes = await dbConn.execute(sql`
+    SELECT
+      COALESCE(NULLIF(clientName, ''), 'Sem identificação') as clientName,
+      SUM(CAST(amount AS DECIMAL(18,2))) as totalPeriod,
+      COUNT(*) as txCount
+    FROM revenues
+    WHERE referenceDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+      AND status = 'realizado'
+      AND clientName IS NOT NULL
+    GROUP BY clientName
+    ORDER BY totalPeriod DESC
+    LIMIT 10
+  `);
+  const topClientsRows = (topClientsRes as any)[0] ?? [];
+
+  // YTD do mesmo cliente (acumulado do ano até hoje) — pra mostrar trajetória
+  const yearStart = `${new Date().getFullYear()}-01-01`;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const ytdRes = topClientsRows.length > 0
+    ? await dbConn.execute(sql`
+        SELECT
+          COALESCE(NULLIF(clientName, ''), 'Sem identificação') as clientName,
+          SUM(CAST(amount AS DECIMAL(18,2))) as totalYtd
+        FROM revenues
+        WHERE referenceDate BETWEEN ${yearStart} AND ${todayISO}
+          AND status = 'realizado'
+          AND clientName IN (${sql.raw(topClientsRows.map((r: any) => `'${String(r.clientName).replace(/'/g, "''")}'`).join(','))})
+        GROUP BY clientName
+      `)
+    : [[]];
+  const ytdByClient: Record<string, number> = {};
+  for (const r of ((ytdRes as any)[0] ?? [])) {
+    ytdByClient[r.clientName] = parseFloat(String(r.totalYtd ?? 0));
+  }
+
+  const topClients = topClientsRows.map((r: any) => ({
+    clientName: r.clientName,
+    period: parseFloat(String(r.totalPeriod ?? 0)),
+    ytd: ytdByClient[r.clientName] ?? 0,
+    txCount: Number(r.txCount ?? 0),
+    percentage: current.totalRevenue > 0
+      ? (parseFloat(String(r.totalPeriod ?? 0)) / current.totalRevenue) * 100
+      : 0,
+  }));
+
+  // Concentração: % do top 5 e top 10 sobre o total do período
+  const concentrationTop5 = topClients.slice(0, 5).reduce((s: number, c: any) => s + c.percentage, 0);
+  const concentrationTop10 = topClients.reduce((s: number, c: any) => s + c.percentage, 0);
+  const concentrationTop1 = topClients[0]?.percentage ?? 0;
+
+  // ── 6) Carteira de Crédito ──
+  const creditTotalsRes = await dbConn.execute(sql`
+    SELECT
+      COUNT(*) as totalLoans,
+      SUM(CASE WHEN status = 'ativo' THEN 1 ELSE 0 END) as activeLoans,
+      SUM(CASE WHEN status = 'quitado' THEN 1 ELSE 0 END) as paidLoans,
+      SUM(CASE WHEN status = 'inadimplente' THEN 1 ELSE 0 END) as defaultLoans,
+      SUM(CASE WHEN status = 'renegociado' THEN 1 ELSE 0 END) as renegotiatedLoans,
+      COALESCE(SUM(CAST(outstandingBalance AS DECIMAL(18,2))), 0) as outstandingTotal,
+      COALESCE(SUM(CAST(principal AS DECIMAL(18,2))), 0) as principalTotal,
+      COALESCE(SUM(CAST(totalInterestEarned AS DECIMAL(18,2))), 0) as totalInterestEarned,
+      COALESCE(AVG(CAST(interestRate AS DECIMAL(8,4))), 0) as avgInterestRate
+    FROM credit_portfolio
+    WHERE status != 'cancelado'
+  `);
+  const creditRow = (creditTotalsRes as any)[0]?.[0] ?? {};
+
+  // Inadimplência: parcelas vencidas e ainda pendentes
+  const overdueRes = await dbConn.execute(sql`
+    SELECT
+      COUNT(*) as overdueCount,
+      COALESCE(SUM(CAST(totalAmount AS DECIMAL(18,2))), 0) as overdueAmount
+    FROM credit_installments
+    WHERE status IN ('pendente', 'parcial')
+      AND dueDate < CURDATE()
+  `);
+  const overdueRow = (overdueRes as any)[0]?.[0] ?? {};
+
+  // Total de parcelas pendentes (denominador da % de inadimplência)
+  const pendingRes = await dbConn.execute(sql`
+    SELECT
+      COUNT(*) as pendingCount,
+      COALESCE(SUM(CAST(totalAmount AS DECIMAL(18,2))), 0) as pendingAmount
+    FROM credit_installments
+    WHERE status IN ('pendente', 'parcial')
+  `);
+  const pendingRow = (pendingRes as any)[0]?.[0] ?? {};
+
+  // Juros recebidos no período (a partir de revenues do tipo financeira)
+  const interestPeriodRes = await dbConn.execute(sql`
+    SELECT COALESCE(SUM(CAST(amount AS DECIMAL(18,2))), 0) as total
+    FROM revenues
+    WHERE referenceDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+      AND status = 'realizado'
+      AND type = 'receita_financeira'
+  `);
+  const interestPeriod = parseFloat(String((interestPeriodRes as any)[0]?.[0]?.total ?? 0));
+
+  const overdueAmount = parseFloat(String(overdueRow.overdueAmount ?? 0));
+  const pendingAmount = parseFloat(String(pendingRow.pendingAmount ?? 0));
+  const defaultRate = pendingAmount > 0 ? (overdueAmount / pendingAmount) * 100 : 0;
+
+  const creditPortfolio = {
+    totalLoans: Number(creditRow.totalLoans ?? 0),
+    activeLoans: Number(creditRow.activeLoans ?? 0),
+    paidLoans: Number(creditRow.paidLoans ?? 0),
+    defaultLoans: Number(creditRow.defaultLoans ?? 0),
+    renegotiatedLoans: Number(creditRow.renegotiatedLoans ?? 0),
+    outstandingTotal: parseFloat(String(creditRow.outstandingTotal ?? 0)),
+    principalTotal: parseFloat(String(creditRow.principalTotal ?? 0)),
+    totalInterestEarned: parseFloat(String(creditRow.totalInterestEarned ?? 0)),
+    avgInterestRate: parseFloat(String(creditRow.avgInterestRate ?? 0)),
+    overdueCount: Number(overdueRow.overdueCount ?? 0),
+    overdueAmount,
+    pendingCount: Number(pendingRow.pendingCount ?? 0),
+    pendingAmount,
+    defaultRate,
+    interestPeriod,
+  };
+
   return {
     period: { dateFrom: params.dateFrom, dateTo: params.dateTo },
     current,
     previous,
     series12m,
     revenueByType,
+    topClients,
+    concentration: {
+      top1: concentrationTop1,
+      top5: concentrationTop5,
+      top10: concentrationTop10,
+    },
+    creditPortfolio,
   };
 }

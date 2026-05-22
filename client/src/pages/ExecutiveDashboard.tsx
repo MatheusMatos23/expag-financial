@@ -420,6 +420,190 @@ export default function ExecutiveDashboard() {
           </div>
         </div>
       </section>
+
+      {/* ── SEÇÃO 4: Top Clientes & Concentração ────────────────────────── */}
+      <section>
+        <SectionHeader>Top Clientes & Concentração</SectionHeader>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Lista Top 10 (ocupa 2 colunas) */}
+          <div className="lg:col-span-2 card-premium rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Ranking</p>
+                <p className="text-lg font-semibold text-foreground">Top 10 — período</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {(data as any).topClients.length} cliente{(data as any).topClients.length !== 1 ? "s" : ""} ativo{(data as any).topClients.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            {(data as any).topClients.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-12 text-center">
+                Sem dados de clientes no período
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {(data as any).topClients.map((c: any, i: number) => (
+                  <ClientRow key={c.clientName} rank={i + 1} client={c} maxValue={(data as any).topClients[0]?.period ?? 1} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Concentração de risco */}
+          <div className="card-premium rounded-2xl p-5 flex flex-col">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Concentração</p>
+            <p className="text-lg font-semibold text-foreground mb-4">Risco de dependência</p>
+
+            <div className="space-y-4 flex-1">
+              <ConcentrationGauge
+                label="Maior cliente"
+                value={(data as any).concentration.top1}
+                threshold={30}
+              />
+              <ConcentrationGauge
+                label="Top 5 juntos"
+                value={(data as any).concentration.top5}
+                threshold={60}
+              />
+              <ConcentrationGauge
+                label="Top 10 juntos"
+                value={(data as any).concentration.top10}
+                threshold={80}
+              />
+            </div>
+
+            {/* Avaliação automática */}
+            {(() => {
+              const t5 = (data as any).concentration.top5;
+              if (t5 >= 80) return (
+                <div className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-[10px] text-red-400">
+                  ⚠ Alto risco: top 5 clientes representam {t5.toFixed(0)}% da receita.
+                  Diversificar carteira é prioridade.
+                </div>
+              );
+              if (t5 >= 60) return (
+                <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-400">
+                  Atenção: top 5 representam {t5.toFixed(0)}% — concentração elevada.
+                </div>
+              );
+              return (
+                <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[10px] text-emerald-400">
+                  ✓ Concentração saudável: top 5 = {t5.toFixed(0)}% da receita.
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      </section>
+
+      {/* ── SEÇÃO 5: Carteira de Crédito ────────────────────────────────── */}
+      <section>
+        <SectionHeader>Carteira de Crédito</SectionHeader>
+        {(data as any).creditPortfolio.totalLoans === 0 ? (
+          <div className="card-premium rounded-2xl p-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              Sem empréstimos cadastrados na Carteira de Crédito.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* 4 KPI cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <CreditKpi
+                label="Saldo Emprestado"
+                value={compactCurrency((data as any).creditPortfolio.outstandingTotal)}
+                hint={`${(data as any).creditPortfolio.activeLoans} empréstimo${(data as any).creditPortfolio.activeLoans !== 1 ? "s" : ""} ativo${(data as any).creditPortfolio.activeLoans !== 1 ? "s" : ""}`}
+                color="text-sky-400"
+              />
+              <CreditKpi
+                label="Juros Recebidos"
+                value={compactCurrency((data as any).creditPortfolio.interestPeriod)}
+                hint="no período"
+                color="text-emerald-400"
+              />
+              <CreditKpi
+                label="Inadimplência"
+                value={`${(data as any).creditPortfolio.defaultRate.toFixed(1)}%`}
+                hint={`${compactCurrency((data as any).creditPortfolio.overdueAmount)} em ${(data as any).creditPortfolio.overdueCount} parcela${(data as any).creditPortfolio.overdueCount !== 1 ? "s" : ""}`}
+                color={(data as any).creditPortfolio.defaultRate > 10 ? "text-red-400" : (data as any).creditPortfolio.defaultRate > 5 ? "text-amber-400" : "text-emerald-400"}
+              />
+              <CreditKpi
+                label="Taxa Média"
+                value={`${(data as any).creditPortfolio.avgInterestRate.toFixed(2)}%`}
+                hint="ao mês"
+                color="text-violet-400"
+              />
+            </div>
+
+            {/* Distribuição por status */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="card-premium rounded-2xl p-5">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Por Status</p>
+                <p className="text-lg font-semibold text-foreground mb-4">Distribuição dos empréstimos</p>
+
+                <div className="space-y-3">
+                  <StatusBar
+                    label="Ativos"
+                    count={(data as any).creditPortfolio.activeLoans}
+                    total={(data as any).creditPortfolio.totalLoans}
+                    color="bg-emerald-500"
+                  />
+                  <StatusBar
+                    label="Quitados"
+                    count={(data as any).creditPortfolio.paidLoans}
+                    total={(data as any).creditPortfolio.totalLoans}
+                    color="bg-sky-500"
+                  />
+                  {(data as any).creditPortfolio.defaultLoans > 0 && (
+                    <StatusBar
+                      label="Inadimplentes"
+                      count={(data as any).creditPortfolio.defaultLoans}
+                      total={(data as any).creditPortfolio.totalLoans}
+                      color="bg-red-500"
+                    />
+                  )}
+                  {(data as any).creditPortfolio.renegotiatedLoans > 0 && (
+                    <StatusBar
+                      label="Renegociados"
+                      count={(data as any).creditPortfolio.renegotiatedLoans}
+                      total={(data as any).creditPortfolio.totalLoans}
+                      color="bg-amber-500"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Performance */}
+              <div className="card-premium rounded-2xl p-5">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Performance</p>
+                <p className="text-lg font-semibold text-foreground mb-4">Retorno da carteira</p>
+
+                <div className="space-y-4">
+                  <Indicator
+                    label="Principal Total Concedido"
+                    value={compactCurrency((data as any).creditPortfolio.principalTotal)}
+                    hint="Capital emprestado (histórico)"
+                  />
+                  <Indicator
+                    label="Juros Acumulados"
+                    value={compactCurrency((data as any).creditPortfolio.totalInterestEarned)}
+                    hint="Total recebido + projetado"
+                  />
+                  <Indicator
+                    label="ROI da Carteira"
+                    value={
+                      (data as any).creditPortfolio.principalTotal > 0
+                        ? `${(((data as any).creditPortfolio.totalInterestEarned / (data as any).creditPortfolio.principalTotal) * 100).toFixed(1)}%`
+                        : "—"
+                    }
+                    hint="Juros ÷ Principal"
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }
@@ -524,6 +708,129 @@ function Indicator({ label, value, hint }: { label: string; value: string; hint:
       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
       <p className="text-xl font-bold font-mono text-foreground">{value}</p>
       <p className="text-[10px] text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+// ── Linha do ranking Top 10 ──────────────────────────────────────────────────
+function ClientRow({ rank, client, maxValue }: { rank: number; client: any; maxValue: number }) {
+  const barWidth = maxValue > 0 ? (client.period / maxValue) * 100 : 0;
+  // Cor do rank: top 3 destacados, resto neutro
+  const rankColor = rank === 1
+    ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+    : rank === 2
+    ? "bg-slate-400/20 text-slate-300 border-slate-400/40"
+    : rank === 3
+    ? "bg-orange-600/20 text-orange-400 border-orange-600/40"
+    : "bg-accent/20 text-muted-foreground border-border";
+  return (
+    <div className="group relative flex items-center gap-3 py-2 px-2 -mx-2 rounded-lg hover:bg-accent/10 transition-colors">
+      <div className={cn(
+        "shrink-0 w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold",
+        rankColor
+      )}>
+        {rank}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <p className="text-sm font-medium text-foreground truncate">{client.clientName}</p>
+          <p className="text-sm font-mono font-semibold text-emerald-400 shrink-0">
+            {compactCurrency(client.period)}
+          </p>
+        </div>
+        <div className="relative h-1 bg-accent/20 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-emerald-500/60 to-emerald-400 transition-all"
+            style={{ width: `${barWidth}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between mt-1 text-[10px] text-muted-foreground">
+          <span>{client.txCount} transaç{client.txCount !== 1 ? "ões" : "ão"} · YTD {compactCurrency(client.ytd)}</span>
+          <span className="font-medium">{client.percentage.toFixed(1)}% da receita</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Gauge de concentração com cor por threshold ──────────────────────────────
+function ConcentrationGauge({ label, value, threshold }: {
+  label: string;
+  value: number;
+  threshold: number;
+}) {
+  const color = value >= threshold
+    ? "text-red-400"
+    : value >= threshold * 0.7
+    ? "text-amber-400"
+    : "text-emerald-400";
+  const barColor = value >= threshold
+    ? "bg-red-500"
+    : value >= threshold * 0.7
+    ? "bg-amber-500"
+    : "bg-emerald-500";
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className={cn("text-2xl font-bold font-mono tabular-nums", color)}>
+          {value.toFixed(0)}%
+        </p>
+      </div>
+      <div className="relative h-1.5 bg-accent/20 rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", barColor)}
+          style={{ width: `${Math.min(100, value)}%` }}
+        />
+        {/* Marcador de threshold */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-foreground/30"
+          style={{ left: `${threshold}%` }}
+          title={`Limite de alerta: ${threshold}%`}
+        />
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-1">
+        Alerta acima de {threshold}%
+      </p>
+    </div>
+  );
+}
+
+// ── KPI compacto para Carteira de Crédito ────────────────────────────────────
+function CreditKpi({ label, value, hint, color }: {
+  label: string;
+  value: string;
+  hint: string;
+  color: string;
+}) {
+  return (
+    <div className="card-premium rounded-2xl p-4">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">{label}</p>
+      <p className={cn("text-2xl font-bold font-mono tabular-nums", color)}>{value}</p>
+      <p className="text-[10px] text-muted-foreground mt-1">{hint}</p>
+    </div>
+  );
+}
+
+// ── Barra de status com label + count + percentual ───────────────────────────
+function StatusBar({ label, count, total, color }: {
+  label: string;
+  count: number;
+  total: number;
+  color: string;
+}) {
+  const pct = total > 0 ? (count / total) * 100 : 0;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <p className="text-xs text-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground">
+          <span className="font-mono font-semibold text-foreground">{count}</span> · {pct.toFixed(0)}%
+        </p>
+      </div>
+      <div className="h-2 bg-accent/20 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
