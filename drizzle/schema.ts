@@ -386,6 +386,30 @@ export const costCenters = mysqlTable("cost_centers", {
 });
 
 // DRE - Demonstração de Resultado
+// Movimentações Internas (Contabilidade)
+// Aba de visualização das operações na API Expag — agregado diário por tipo.
+// É independente: NÃO afeta DRE, Cash Flow, Receitas, Despesas ou Conciliação.
+// Linhas com isTransfer=true (transferência entre contas) aparecem nos relatórios
+// mas NÃO somam/subtraem do total geral porque são apenas movimentação interna.
+export const internalMovements = mysqlTable("internal_movements", {
+  id: int("id").autoincrement().primaryKey(),
+  movementDate: date("movementDate").notNull(),
+  operationType: varchar("operationType", { length: 200 }).notNull(),  // ex: "PIX ENVIADO", "DEPÓSITO POR BOLETO"
+  processor: varchar("processor", { length: 200 }),                    // ex: "BANCO DO BRASIL S.A.", "EXPAG", null
+  quantity: int("quantity").default(1).notNull(),                      // qtd de transações agregadas no dia
+  debitAmount: decimal("debitAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+  creditAmount: decimal("creditAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+  isTransfer: boolean("isTransfer").default(false).notNull(),          // true = transferência entre contas (neutro, não soma)
+  notes: text("notes"),
+  source: mysqlEnum("source", ["manual", "imported"]).default("manual").notNull(),
+  createdBy: varchar("createdBy", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  dateIdx: index("im_date_idx").on(table.movementDate),
+  typeIdx: index("im_type_idx").on(table.operationType),
+}));
+
 export const dre = mysqlTable("dre", {
   id: int("id").autoincrement().primaryKey(),
   referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(), // YYYY-MM

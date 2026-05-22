@@ -1891,6 +1891,115 @@ const accountingRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => { await db.deleteDRE(input.id); return { success: true }; }),
 
+  // ── Movimentações Internas (Contabilidade — API Expag) ──────────────────
+  // Aba independente, não afeta DRE/CashFlow/Receitas/Despesas/Conciliação.
+  listInternalMovements: protectedProcedure
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      operationType: z.string().optional(),
+      isTransfer: z.boolean().optional(),
+    }))
+    .query(async ({ input }) => db.listInternalMovements(input)),
+
+  getInternalMovementsSummary: protectedProcedure
+    .input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }))
+    .query(async ({ input }) => db.getInternalMovementsSummary(input)),
+
+  createInternalMovement: protectedProcedure
+    .input(z.object({
+      movementDate: z.string(),
+      operationType: z.string().min(1),
+      processor: z.string().optional(),
+      quantity: z.number().int().min(1).default(1),
+      debitAmount: z.number().default(0),
+      creditAmount: z.number().default(0),
+      isTransfer: z.boolean().default(false),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.createInternalMovement({
+        ...input,
+        createdBy: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
+      });
+      await audit(ctx, {
+        action: "internal_movement.create", category: "contabilidade",
+        entityType: "internal_movement", entityId: String(result.id),
+        summary: `Movimentação interna criada: ${input.operationType} ${input.movementDate} (R$ ${input.creditAmount.toFixed(2)} crédito, R$ ${input.debitAmount.toFixed(2)} débito)`,
+      });
+      return result;
+    }),
+
+  updateInternalMovement: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      movementDate: z.string().optional(),
+      operationType: z.string().optional(),
+      processor: z.string().optional(),
+      quantity: z.number().int().min(1).optional(),
+      debitAmount: z.number().optional(),
+      creditAmount: z.number().optional(),
+      isTransfer: z.boolean().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { id, ...data } = input;
+      await db.updateInternalMovement(id, data);
+      await audit(ctx, {
+        action: "internal_movement.update", category: "contabilidade",
+        entityType: "internal_movement", entityId: String(id),
+        summary: `Movimentação interna #${id} atualizada`,
+      });
+      return { success: true };
+    }),
+
+  deleteInternalMovement: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await db.deleteInternalMovement(input.id);
+      await audit(ctx, {
+        action: "internal_movement.delete", category: "contabilidade",
+        entityType: "internal_movement", entityId: String(input.id),
+        summary: `Movimentação interna #${input.id} excluída`,
+      });
+      return { success: true };
+    }),
+
+  // Importa do arquivo "Extrato Por Operação" — cliente envia o conteúdo
+  // já parseado (array de linhas). O parser fica no frontend pra evitar
+  // que o backend precise lidar com upload de arquivo binário.
+  importInternalMovements: protectedProcedure
+    .input(z.object({
+      rows: z.array(z.object({
+        movementDate: z.string(),
+        operationType: z.string(),
+        processor: z.string().nullable().optional(),
+        quantity: z.number().int().min(1),
+        debitAmount: z.number(),
+        creditAmount: z.number(),
+        isTransfer: z.boolean(),
+      })).min(1).max(5000),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.bulkInsertInternalMovements(
+        input.rows.map(r => ({
+          ...r,
+          source: 'imported' as const,
+          createdBy: ctx.user?.name ?? ctx.user?.email ?? 'Usuário',
+        }))
+      );
+      await audit(ctx, {
+        action: "internal_movement.import", category: "contabilidade",
+        entityType: "internal_movement",
+        summary: `Importou ${result.inserted} movimentação(ões) interna(s) de planilha`,
+        metadata: { count: result.inserted },
+      });
+      return result;
+    }),
+
   deleteCashFlow: adminProcedure
     .input(z.object({ referenceDate: z.string() }))
     .mutation(async ({ input }) => { await db.deleteCashFlow(input.referenceDate); return { success: true }; }),

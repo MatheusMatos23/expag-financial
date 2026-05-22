@@ -23,9 +23,10 @@ const Revenues         = lazy(() => import("@/pages/Revenues"));
 const Expenses         = lazy(() => import("@/pages/Expenses"));
 const Payables         = lazy(() => import("@/pages/Payables"));
 const CreditPortfolio  = lazy(() => import("@/pages/CreditPortfolio"));
-const DRE              = lazy(() => import("@/pages/DRE"));
-const CashFlow         = lazy(() => import("@/pages/CashFlow"));
-const CostCenters      = lazy(() => import("@/pages/CostCenters"));
+const DRE                = lazy(() => import("@/pages/DRE"));
+const CashFlow           = lazy(() => import("@/pages/CashFlow"));
+const InternalMovements  = lazy(() => import("@/pages/InternalMovements"));
+const CostCenters        = lazy(() => import("@/pages/CostCenters"));
 const Alerts           = lazy(() => import("@/pages/Alerts"));
 const NotFound         = lazy(() => import("@/pages/NotFound"));
 
@@ -62,6 +63,7 @@ function Router() {
           <Route path="/carteira-credito"   component={CreditPortfolio} />
           <Route path="/dre"                component={DRE} />
           <Route path="/fluxo-caixa"        component={CashFlow} />
+          <Route path="/movimentacoes-internas" component={InternalMovements} />
           <Route path="/centros-custo"      component={CostCenters} />
           <Route path="/alertas"            component={Alerts} />
           <Route path="/usuarios"           component={Users} />

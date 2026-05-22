@@ -50710,6 +50710,7 @@ __export(schema_exports, {
   divergences: () => divergences,
   dre: () => dre,
   expenses: () => expenses,
+  internalMovements: () => internalMovements,
   managerialBalances: () => managerialBalances,
   manualAdjustments: () => manualAdjustments,
   payables: () => payables,
@@ -50718,7 +50719,7 @@ __export(schema_exports, {
   systemConfig: () => systemConfig,
   users: () => users
 });
-var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, dre, cashFlow, alerts, boletoDailyBalances, systemConfig, auditLogs;
+var users, reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances, revenues, expenses, manualAdjustments, payables, creditPortfolio, creditInstallments, costCenters, internalMovements, dre, cashFlow, alerts, boletoDailyBalances, systemConfig, auditLogs;
 var init_schema2 = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -51075,6 +51076,28 @@ var init_schema2 = __esm({
       active: boolean("active").default(true).notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
+    internalMovements = mysqlTable("internal_movements", {
+      id: int("id").autoincrement().primaryKey(),
+      movementDate: date("movementDate").notNull(),
+      operationType: varchar("operationType", { length: 200 }).notNull(),
+      // ex: "PIX ENVIADO", "DEPÓSITO POR BOLETO"
+      processor: varchar("processor", { length: 200 }),
+      // ex: "BANCO DO BRASIL S.A.", "EXPAG", null
+      quantity: int("quantity").default(1).notNull(),
+      // qtd de transações agregadas no dia
+      debitAmount: decimal("debitAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+      creditAmount: decimal("creditAmount", { precision: 18, scale: 2 }).default("0").notNull(),
+      isTransfer: boolean("isTransfer").default(false).notNull(),
+      // true = transferência entre contas (neutro, não soma)
+      notes: text("notes"),
+      source: mysqlEnum("source", ["manual", "imported"]).default("manual").notNull(),
+      createdBy: varchar("createdBy", { length: 200 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      dateIdx: index("im_date_idx").on(table.movementDate),
+      typeIdx: index("im_type_idx").on(table.operationType)
+    }));
     dre = mysqlTable("dre", {
       id: int("id").autoincrement().primaryKey(),
       referenceMonth: varchar("referenceMonth", { length: 7 }).notNull(),
@@ -111415,6 +111438,126 @@ async function setBoletoApiAmount(params) {
     mode: "set"
   });
 }
+async function listInternalMovements(filters) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [];
+  if (filters?.dateFrom) conds.push(gte(internalMovements.movementDate, filters.dateFrom));
+  if (filters?.dateTo) conds.push(lte(internalMovements.movementDate, filters.dateTo));
+  if (filters?.operationType) conds.push(eq(internalMovements.operationType, filters.operationType));
+  if (typeof filters?.isTransfer === "boolean") conds.push(eq(internalMovements.isTransfer, filters.isTransfer));
+  return db.select().from(internalMovements).where(conds.length > 0 ? and(...conds) : void 0).orderBy(desc(internalMovements.movementDate), desc(internalMovements.creditAmount)).limit(2e3);
+}
+async function createInternalMovement(data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(internalMovements).values({
+    movementDate: data.movementDate,
+    operationType: data.operationType,
+    processor: data.processor ?? null,
+    quantity: data.quantity,
+    debitAmount: data.debitAmount.toFixed(2),
+    creditAmount: data.creditAmount.toFixed(2),
+    isTransfer: data.isTransfer,
+    notes: data.notes ?? null,
+    source: data.source ?? "manual",
+    createdBy: data.createdBy ?? null
+  });
+  return { id: result[0]?.insertId ?? 0 };
+}
+async function updateInternalMovement(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const update = {};
+  if (data.movementDate !== void 0) update.movementDate = data.movementDate;
+  if (data.operationType !== void 0) update.operationType = data.operationType;
+  if (data.processor !== void 0) update.processor = data.processor || null;
+  if (data.quantity !== void 0) update.quantity = data.quantity;
+  if (data.debitAmount !== void 0) update.debitAmount = data.debitAmount.toFixed(2);
+  if (data.creditAmount !== void 0) update.creditAmount = data.creditAmount.toFixed(2);
+  if (data.isTransfer !== void 0) update.isTransfer = data.isTransfer;
+  if (data.notes !== void 0) update.notes = data.notes || null;
+  await db.update(internalMovements).set(update).where(eq(internalMovements.id, id));
+  return { success: true };
+}
+async function deleteInternalMovement(id) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(internalMovements).where(eq(internalMovements.id, id));
+  return { success: true };
+}
+async function bulkInsertInternalMovements(rows) {
+  if (rows.length === 0) return { inserted: 0 };
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const values = rows.map((r) => ({
+    movementDate: r.movementDate,
+    operationType: r.operationType,
+    processor: r.processor ?? null,
+    quantity: r.quantity,
+    debitAmount: r.debitAmount.toFixed(2),
+    creditAmount: r.creditAmount.toFixed(2),
+    isTransfer: r.isTransfer,
+    source: r.source ?? "imported",
+    createdBy: r.createdBy ?? null
+  }));
+  const chunkSize = 200;
+  let inserted = 0;
+  for (let i = 0; i < values.length; i += chunkSize) {
+    const chunk = values.slice(i, i + chunkSize);
+    await db.insert(internalMovements).values(chunk);
+    inserted += chunk.length;
+  }
+  return { inserted };
+}
+async function getInternalMovementsSummary(filters) {
+  const db = await getDb();
+  if (!db) return { byType: [], totals: { operationalCredits: 0, operationalDebits: 0, operationalNet: 0, transferCredits: 0, transferDebits: 0, totalQuantity: 0 } };
+  const conds = [];
+  if (filters?.dateFrom) conds.push(gte(internalMovements.movementDate, filters.dateFrom));
+  if (filters?.dateTo) conds.push(lte(internalMovements.movementDate, filters.dateTo));
+  const byType = await db.select({
+    operationType: internalMovements.operationType,
+    isTransfer: internalMovements.isTransfer,
+    quantity: sql`SUM(${internalMovements.quantity})`,
+    debit: sql`SUM(${internalMovements.debitAmount})`,
+    credit: sql`SUM(${internalMovements.creditAmount})`,
+    count: sql`COUNT(*)`
+  }).from(internalMovements).where(conds.length > 0 ? and(...conds) : void 0).groupBy(internalMovements.operationType, internalMovements.isTransfer).orderBy(desc(sql`SUM(${internalMovements.creditAmount} + ${internalMovements.debitAmount} * -1)`));
+  let operationalCredits = 0, operationalDebits = 0;
+  let transferCredits = 0, transferDebits = 0;
+  let totalQuantity = 0;
+  for (const row of byType) {
+    const credit = parseFloat(String(row.credit ?? "0"));
+    const debit = Math.abs(parseFloat(String(row.debit ?? "0")));
+    totalQuantity += Number(row.quantity ?? 0);
+    if (row.isTransfer) {
+      transferCredits += credit;
+      transferDebits += debit;
+    } else {
+      operationalCredits += credit;
+      operationalDebits += debit;
+    }
+  }
+  return {
+    byType: byType.map((r) => ({
+      operationType: r.operationType,
+      isTransfer: r.isTransfer,
+      quantity: Number(r.quantity ?? 0),
+      debit: Math.abs(parseFloat(String(r.debit ?? "0"))),
+      credit: parseFloat(String(r.credit ?? "0")),
+      count: Number(r.count ?? 0)
+    })),
+    totals: {
+      operationalCredits,
+      operationalDebits,
+      operationalNet: operationalCredits - operationalDebits,
+      transferCredits,
+      transferDebits,
+      totalQuantity
+    }
+  };
+}
 
 // server/_core/cookies.ts
 var LOCAL_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "::1"]);
@@ -135187,6 +135330,104 @@ var accountingRouter = router({
   deleteDRE: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input }) => {
     await deleteDRE(input.id);
     return { success: true };
+  }),
+  // ── Movimentações Internas (Contabilidade — API Expag) ──────────────────
+  // Aba independente, não afeta DRE/CashFlow/Receitas/Despesas/Conciliação.
+  listInternalMovements: protectedProcedure.input(external_exports.object({
+    dateFrom: external_exports.string().optional(),
+    dateTo: external_exports.string().optional(),
+    operationType: external_exports.string().optional(),
+    isTransfer: external_exports.boolean().optional()
+  })).query(async ({ input }) => listInternalMovements(input)),
+  getInternalMovementsSummary: protectedProcedure.input(external_exports.object({
+    dateFrom: external_exports.string().optional(),
+    dateTo: external_exports.string().optional()
+  })).query(async ({ input }) => getInternalMovementsSummary(input)),
+  createInternalMovement: protectedProcedure.input(external_exports.object({
+    movementDate: external_exports.string(),
+    operationType: external_exports.string().min(1),
+    processor: external_exports.string().optional(),
+    quantity: external_exports.number().int().min(1).default(1),
+    debitAmount: external_exports.number().default(0),
+    creditAmount: external_exports.number().default(0),
+    isTransfer: external_exports.boolean().default(false),
+    notes: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const result = await createInternalMovement({
+      ...input,
+      createdBy: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+    });
+    await audit(ctx, {
+      action: "internal_movement.create",
+      category: "contabilidade",
+      entityType: "internal_movement",
+      entityId: String(result.id),
+      summary: `Movimenta\xE7\xE3o interna criada: ${input.operationType} ${input.movementDate} (R$ ${input.creditAmount.toFixed(2)} cr\xE9dito, R$ ${input.debitAmount.toFixed(2)} d\xE9bito)`
+    });
+    return result;
+  }),
+  updateInternalMovement: protectedProcedure.input(external_exports.object({
+    id: external_exports.number(),
+    movementDate: external_exports.string().optional(),
+    operationType: external_exports.string().optional(),
+    processor: external_exports.string().optional(),
+    quantity: external_exports.number().int().min(1).optional(),
+    debitAmount: external_exports.number().optional(),
+    creditAmount: external_exports.number().optional(),
+    isTransfer: external_exports.boolean().optional(),
+    notes: external_exports.string().optional()
+  })).mutation(async ({ input, ctx }) => {
+    const { id, ...data } = input;
+    await updateInternalMovement(id, data);
+    await audit(ctx, {
+      action: "internal_movement.update",
+      category: "contabilidade",
+      entityType: "internal_movement",
+      entityId: String(id),
+      summary: `Movimenta\xE7\xE3o interna #${id} atualizada`
+    });
+    return { success: true };
+  }),
+  deleteInternalMovement: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    await deleteInternalMovement(input.id);
+    await audit(ctx, {
+      action: "internal_movement.delete",
+      category: "contabilidade",
+      entityType: "internal_movement",
+      entityId: String(input.id),
+      summary: `Movimenta\xE7\xE3o interna #${input.id} exclu\xEDda`
+    });
+    return { success: true };
+  }),
+  // Importa do arquivo "Extrato Por Operação" — cliente envia o conteúdo
+  // já parseado (array de linhas). O parser fica no frontend pra evitar
+  // que o backend precise lidar com upload de arquivo binário.
+  importInternalMovements: protectedProcedure.input(external_exports.object({
+    rows: external_exports.array(external_exports.object({
+      movementDate: external_exports.string(),
+      operationType: external_exports.string(),
+      processor: external_exports.string().nullable().optional(),
+      quantity: external_exports.number().int().min(1),
+      debitAmount: external_exports.number(),
+      creditAmount: external_exports.number(),
+      isTransfer: external_exports.boolean()
+    })).min(1).max(5e3)
+  })).mutation(async ({ input, ctx }) => {
+    const result = await bulkInsertInternalMovements(
+      input.rows.map((r) => ({
+        ...r,
+        source: "imported",
+        createdBy: ctx.user?.name ?? ctx.user?.email ?? "Usu\xE1rio"
+      }))
+    );
+    await audit(ctx, {
+      action: "internal_movement.import",
+      category: "contabilidade",
+      entityType: "internal_movement",
+      summary: `Importou ${result.inserted} movimenta\xE7\xE3o(\xF5es) interna(s) de planilha`,
+      metadata: { count: result.inserted }
+    });
+    return result;
   }),
   deleteCashFlow: adminProcedure.input(external_exports.object({ referenceDate: external_exports.string() })).mutation(async ({ input }) => {
     await deleteCashFlow(input.referenceDate);

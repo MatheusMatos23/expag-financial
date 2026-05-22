@@ -27,6 +27,7 @@ export const translations = {
     "nav.layer3": "Camada 3 · Contabilidade",
     "nav.dre": "DRE",
     "nav.cashFlow": "Fluxo de Caixa",
+    "nav.internalMovements": "Movimentações Internas",
     "nav.costCenters": "Centros de Custo",
 
     // ── Comum ──
@@ -124,6 +125,7 @@ export const translations = {
     "nav.layer3": "Layer 3 · Accounting",
     "nav.dre": "Income Statement",
     "nav.cashFlow": "Cash Flow",
+    "nav.internalMovements": "Internal Movements",
     "nav.costCenters": "Cost Centers",
 
     // ── Common ──

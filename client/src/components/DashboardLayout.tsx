@@ -28,7 +28,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   AlertCircle, AlertTriangle, ArrowLeftRight, BadgeDollarSign, BarChart3,
   BookOpen, Building2, ChevronRight, CreditCard, Eye, EyeOff, FileText,
-  LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, ReceiptText, TrendingUp, Wallet, Users, ScrollText,
+  LayoutDashboard, Lock, LogOut, Mail, PanelLeft, Receipt, ReceiptText, Repeat, TrendingUp, Wallet, Users, ScrollText,
   Sun, Moon, Languages, Check,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -380,6 +380,7 @@ const menuGroups = [
     items: [
       { icon: BarChart3, labelKey: "nav.dre" as const, path: "/dre" },
       { icon: BookOpen, labelKey: "nav.cashFlow" as const, path: "/fluxo-caixa" },
+      { icon: Repeat, labelKey: "nav.internalMovements" as const, path: "/movimentacoes-internas" },
       { icon: Building2, labelKey: "nav.costCenters" as const, path: "/centros-custo" },
     ],
   },

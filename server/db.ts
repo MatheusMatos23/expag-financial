@@ -5,7 +5,7 @@ import {
   reconciliationSessions, bankTransactions, apiTransactions, divergences, managerialBalances,
   revenues, expenses, payables, creditPortfolio, creditInstallments,
   costCenters, dre, cashFlow, alerts, systemConfig,
-  manualAdjustments, auditLogs, boletoDailyBalances,
+  manualAdjustments, auditLogs, boletoDailyBalances, internalMovements,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -3486,4 +3486,209 @@ export async function setBoletoApiAmount(params: {
     apiAmount: params.apiAmount,
     mode: 'set',
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOVIMENTAÇÕES INTERNAS (Contabilidade — visualização da API Expag)
+//
+// Aba independente: NÃO afeta DRE, Cash Flow, Receitas, Despesas, Conciliação.
+// Importação aceita o formato "Extrato Por Operação" (1 linha = 1 tipo agregado
+// do dia, com débito e crédito totais + quantidade de transações).
+//
+// Regra de negócio: linhas com isTransfer=true (transferência entre contas)
+// aparecem nas listagens e nos totais SEPARADAMENTE, mas NÃO somam nem
+// subtraem do total geral, porque não é cash-in nem cash-out — é apenas
+// movimentação interna entre contas do próprio cliente.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function listInternalMovements(filters?: {
+  dateFrom?: string;
+  dateTo?: string;
+  operationType?: string;
+  isTransfer?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds: any[] = [];
+  if (filters?.dateFrom) conds.push(gte(internalMovements.movementDate, filters.dateFrom as any));
+  if (filters?.dateTo) conds.push(lte(internalMovements.movementDate, filters.dateTo as any));
+  if (filters?.operationType) conds.push(eq(internalMovements.operationType, filters.operationType));
+  if (typeof filters?.isTransfer === 'boolean') conds.push(eq(internalMovements.isTransfer, filters.isTransfer));
+  return db.select().from(internalMovements)
+    .where(conds.length > 0 ? and(...conds) : undefined)
+    .orderBy(desc(internalMovements.movementDate), desc(internalMovements.creditAmount))
+    .limit(2000);
+}
+
+export async function createInternalMovement(data: {
+  movementDate: string;
+  operationType: string;
+  processor?: string;
+  quantity: number;
+  debitAmount: number;
+  creditAmount: number;
+  isTransfer: boolean;
+  notes?: string;
+  source?: 'manual' | 'imported';
+  createdBy?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(internalMovements).values({
+    movementDate: data.movementDate as any,
+    operationType: data.operationType,
+    processor: data.processor ?? null,
+    quantity: data.quantity,
+    debitAmount: data.debitAmount.toFixed(2),
+    creditAmount: data.creditAmount.toFixed(2),
+    isTransfer: data.isTransfer,
+    notes: data.notes ?? null,
+    source: data.source ?? 'manual',
+    createdBy: data.createdBy ?? null,
+  });
+  return { id: (result as any)[0]?.insertId ?? 0 };
+}
+
+export async function updateInternalMovement(id: number, data: Partial<{
+  movementDate: string;
+  operationType: string;
+  processor: string;
+  quantity: number;
+  debitAmount: number;
+  creditAmount: number;
+  isTransfer: boolean;
+  notes: string;
+}>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const update: any = {};
+  if (data.movementDate !== undefined) update.movementDate = data.movementDate;
+  if (data.operationType !== undefined) update.operationType = data.operationType;
+  if (data.processor !== undefined) update.processor = data.processor || null;
+  if (data.quantity !== undefined) update.quantity = data.quantity;
+  if (data.debitAmount !== undefined) update.debitAmount = data.debitAmount.toFixed(2);
+  if (data.creditAmount !== undefined) update.creditAmount = data.creditAmount.toFixed(2);
+  if (data.isTransfer !== undefined) update.isTransfer = data.isTransfer;
+  if (data.notes !== undefined) update.notes = data.notes || null;
+  await db.update(internalMovements).set(update).where(eq(internalMovements.id, id));
+  return { success: true };
+}
+
+export async function deleteInternalMovement(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(internalMovements).where(eq(internalMovements.id, id));
+  return { success: true };
+}
+
+export async function bulkInsertInternalMovements(rows: Array<{
+  movementDate: string;
+  operationType: string;
+  processor?: string | null;
+  quantity: number;
+  debitAmount: number;
+  creditAmount: number;
+  isTransfer: boolean;
+  source?: 'manual' | 'imported';
+  createdBy?: string;
+}>): Promise<{ inserted: number }> {
+  if (rows.length === 0) return { inserted: 0 };
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const values = rows.map(r => ({
+    movementDate: r.movementDate as any,
+    operationType: r.operationType,
+    processor: r.processor ?? null,
+    quantity: r.quantity,
+    debitAmount: r.debitAmount.toFixed(2),
+    creditAmount: r.creditAmount.toFixed(2),
+    isTransfer: r.isTransfer,
+    source: r.source ?? 'imported',
+    createdBy: r.createdBy ?? null,
+  }));
+  // Insere em chunks pra não estourar limite de packet do MySQL
+  const chunkSize = 200;
+  let inserted = 0;
+  for (let i = 0; i < values.length; i += chunkSize) {
+    const chunk = values.slice(i, i + chunkSize);
+    await db.insert(internalMovements).values(chunk as any);
+    inserted += chunk.length;
+  }
+  return { inserted };
+}
+
+/**
+ * Retorna estatísticas agregadas das movimentações internas.
+ *
+ * Returns por tipo de operação:
+ * - quantidade total de transações
+ * - débito total (sempre absoluto/negativo)
+ * - crédito total (sempre absoluto/positivo)
+ * - liquido = crédito - débito (ignora linhas isTransfer)
+ * - flag isTransfer
+ *
+ * Separa totais gerais em dois grupos:
+ * - operacionais (isTransfer=false): somam ao total geral
+ * - transferências (isTransfer=true): aparecem mas não somam
+ */
+export async function getInternalMovementsSummary(filters?: {
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  const db = await getDb();
+  if (!db) return { byType: [], totals: { operationalCredits: 0, operationalDebits: 0, operationalNet: 0, transferCredits: 0, transferDebits: 0, totalQuantity: 0 } };
+
+  const conds: any[] = [];
+  if (filters?.dateFrom) conds.push(gte(internalMovements.movementDate, filters.dateFrom as any));
+  if (filters?.dateTo) conds.push(lte(internalMovements.movementDate, filters.dateTo as any));
+
+  // Agrupado por tipo
+  const byType = await db.select({
+    operationType: internalMovements.operationType,
+    isTransfer: internalMovements.isTransfer,
+    quantity: sql<number>`SUM(${internalMovements.quantity})`,
+    debit: sql<string>`SUM(${internalMovements.debitAmount})`,
+    credit: sql<string>`SUM(${internalMovements.creditAmount})`,
+    count: sql<number>`COUNT(*)`,
+  })
+    .from(internalMovements)
+    .where(conds.length > 0 ? and(...conds) : undefined)
+    .groupBy(internalMovements.operationType, internalMovements.isTransfer)
+    .orderBy(desc(sql`SUM(${internalMovements.creditAmount} + ${internalMovements.debitAmount} * -1)`));
+
+  // Totais (com e sem transferências)
+  let operationalCredits = 0, operationalDebits = 0;
+  let transferCredits = 0, transferDebits = 0;
+  let totalQuantity = 0;
+  for (const row of byType) {
+    const credit = parseFloat(String(row.credit ?? '0'));
+    const debit = Math.abs(parseFloat(String(row.debit ?? '0')));
+    totalQuantity += Number(row.quantity ?? 0);
+    if (row.isTransfer) {
+      transferCredits += credit;
+      transferDebits += debit;
+    } else {
+      operationalCredits += credit;
+      operationalDebits += debit;
+    }
+  }
+
+  return {
+    byType: byType.map(r => ({
+      operationType: r.operationType,
+      isTransfer: r.isTransfer,
+      quantity: Number(r.quantity ?? 0),
+      debit: Math.abs(parseFloat(String(r.debit ?? '0'))),
+      credit: parseFloat(String(r.credit ?? '0')),
+      count: Number(r.count ?? 0),
+    })),
+    totals: {
+      operationalCredits,
+      operationalDebits,
+      operationalNet: operationalCredits - operationalDebits,
+      transferCredits,
+      transferDebits,
+      totalQuantity,
+    },
+  };
 }
