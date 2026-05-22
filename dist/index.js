@@ -111845,12 +111845,15 @@ async function getExecutiveDashboard(params) {
   `);
   const openDivCount = Number(allOpenDivRes[0]?.[0]?.cnt ?? 0);
   const cashRes = await dbConn.execute(sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN type = 'credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) -
-      COALESCE(SUM(CASE WHEN type = 'debit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as balance
-    FROM bank_transactions
+    SELECT realCash, freeCash, bankBalance, referenceDate
+    FROM managerial_balances
+    ORDER BY referenceDate DESC
+    LIMIT 1
   `);
-  const cashBalance = parseFloat(String(cashRes[0]?.[0]?.balance ?? 0));
+  const cashRow = cashRes[0]?.[0];
+  const cashBalance = cashRow ? parseFloat(String(cashRow.realCash ?? 0)) : 0;
+  const cashFreeBalance = cashRow ? parseFloat(String(cashRow.freeCash ?? 0)) : 0;
+  const cashReferenceDate = cashRow?.referenceDate ? String(cashRow.referenceDate).slice(0, 10) : null;
   const resolutionRes = await dbConn.execute(sql`
     SELECT
       AVG(DATEDIFF(updatedAt, createdAt)) as avgDays,
@@ -111869,6 +111872,8 @@ async function getExecutiveDashboard(params) {
     criticalAmount: parseFloat(String(critRow.critAmount ?? 0)),
     openDivergences: openDivCount,
     cashBalance,
+    cashFreeBalance,
+    cashReferenceDate,
     avgResolutionDays,
     resolvedCount
   };

@@ -639,10 +639,19 @@ export default function ExecutiveDashboard() {
           />
           <HealthKPI
             label="Saldo de Caixa"
-            value={compactCurrency((data as any).operationalHealth.cashBalance)}
+            value={
+              (data as any).operationalHealth.cashReferenceDate
+                ? compactCurrency((data as any).operationalHealth.cashBalance)
+                : "—"
+            }
             icon={Wallet}
-            hint="Disponível agora"
+            hint={
+              (data as any).operationalHealth.cashReferenceDate
+                ? `Saldo Gerencial · ${formatBrDate((data as any).operationalHealth.cashReferenceDate)} · Livre: ${compactCurrency((data as any).operationalHealth.cashFreeBalance)}`
+                : "Sem registro em Saldo Gerencial"
+            }
             status={
+              !(data as any).operationalHealth.cashReferenceDate ? "neutral" :
               (data as any).operationalHealth.cashBalance > 0 ? "good" :
               (data as any).operationalHealth.cashBalance === 0 ? "warning" : "critical"
             }
@@ -1048,4 +1057,9 @@ function formatMonth(month: string): string {
   const [y, m] = month.split("-");
   const months = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   return `${months[parseInt(m, 10) - 1]}/${y.slice(2)}`;
+}
+
+function formatBrDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }

@@ -4100,15 +4100,30 @@ export async function getExecutiveDashboard(params: {
   `);
   const openDivCount = Number((allOpenDivRes as any)[0]?.[0]?.cnt ?? 0);
 
-  // Saldo de caixa disponível: soma dos saldos por banco
-  // (mesma lógica de getBankBalancesByBank — somente créditos - débitos)
+  // Saldo de Caixa: vem do último registro de managerial_balances (saldo
+  // consolidado informado manualmente na aba Saldo Gerencial). É a fonte
+  // mais confiável porque já considera saldos de abertura, dinheiro de
+  // clientes vs próprio, e ajustes de divergência.
+  //
+  // Campos relevantes em managerial_balances:
+  //   - realCash:    bankBalance - clientBalance - committedBalance ± divergenceBalance
+  //   - freeCash:    parte do realCash que não está comprometida
+  //   - bankBalance: saldo bruto nos bancos
+  //
+  // Usamos realCash (mais completo) e referenceDate para informar ao usuário
+  // a data do saldo (relevante quando o último registro não é de hoje).
   const cashRes = await dbConn.execute(sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN type = 'credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) -
-      COALESCE(SUM(CASE WHEN type = 'debit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as balance
-    FROM bank_transactions
+    SELECT realCash, freeCash, bankBalance, referenceDate
+    FROM managerial_balances
+    ORDER BY referenceDate DESC
+    LIMIT 1
   `);
-  const cashBalance = parseFloat(String((cashRes as any)[0]?.[0]?.balance ?? 0));
+  const cashRow = (cashRes as any)[0]?.[0];
+  const cashBalance = cashRow ? parseFloat(String(cashRow.realCash ?? 0)) : 0;
+  const cashFreeBalance = cashRow ? parseFloat(String(cashRow.freeCash ?? 0)) : 0;
+  const cashReferenceDate: string | null = cashRow?.referenceDate
+    ? String(cashRow.referenceDate).slice(0, 10)
+    : null;
 
   // Tempo médio para regularização (em dias)
   // De divergence.createdAt até updatedAt quando status='regularizado'
@@ -4131,6 +4146,8 @@ export async function getExecutiveDashboard(params: {
     criticalAmount: parseFloat(String(critRow.critAmount ?? 0)),
     openDivergences: openDivCount,
     cashBalance,
+    cashFreeBalance,
+    cashReferenceDate,
     avgResolutionDays,
     resolvedCount,
   };
