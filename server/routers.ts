@@ -2045,6 +2045,9 @@ const accountingRouter = router({
   getManualApuracaoMonths: protectedProcedure
     .query(async () => db.getManualApuracaoMonths()),
 
+  getManualApuracaoCategories: protectedProcedure
+    .query(async () => db.getManualApuracaoCategories()),
+
   getManualApuracaoSummary: protectedProcedure
     .input(z.object({
       mode: z.enum(['month', 'ytd', 'all']),

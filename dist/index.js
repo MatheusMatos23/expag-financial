@@ -111934,6 +111934,20 @@ async function getManualApuracaoMonths() {
   `);
   return (result[0] ?? []).map((r) => r.referenceMonth);
 }
+async function getManualApuracaoCategories() {
+  const db = await getDb();
+  if (!db) return { receita: [], despesa: [] };
+  const result = await db.execute(sql`
+    SELECT kind, category, COUNT(*) as cnt
+    FROM manual_apuracao
+    GROUP BY kind, category
+    ORDER BY cnt DESC, category ASC
+  `);
+  const rows = result[0] ?? [];
+  const receita = rows.filter((r) => r.kind === "receita").map((r) => String(r.category));
+  const despesa = rows.filter((r) => r.kind === "despesa").map((r) => String(r.category));
+  return { receita, despesa };
+}
 async function createManualApuracao(data) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -135984,6 +135998,7 @@ var accountingRouter = router({
     apiSource: external_exports.enum(["expag", "cinqbank"]).optional()
   })).query(async ({ input }) => listManualApuracao(input)),
   getManualApuracaoMonths: protectedProcedure.query(async () => getManualApuracaoMonths()),
+  getManualApuracaoCategories: protectedProcedure.query(async () => getManualApuracaoCategories()),
   getManualApuracaoSummary: protectedProcedure.input(external_exports.object({
     mode: external_exports.enum(["month", "ytd", "all"]),
     referenceMonth: external_exports.string().optional(),

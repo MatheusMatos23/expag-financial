@@ -149,8 +149,21 @@ function InputView() {
     apiSource: apiFilter === "all" ? undefined : apiFilter,
   });
   const { data: monthsAvailable, refetch: refetchMonths } = trpc.accounting.getManualApuracaoMonths.useQuery();
+  const { data: savedCategories, refetch: refetchCats } = trpc.accounting.getManualApuracaoCategories.useQuery();
 
-  const reload = () => { refetch(); refetchMonths(); };
+  // Combina categorias já usadas (prioridade) + sugestões padrão (preenche lacunas)
+  const allRevenueSuggestions = useMemo(() => {
+    const set = new Set<string>(savedCategories?.receita ?? []);
+    SUGGESTED_REVENUES.forEach(s => set.add(s));
+    return Array.from(set);
+  }, [savedCategories]);
+  const allExpenseSuggestions = useMemo(() => {
+    const set = new Set<string>(savedCategories?.despesa ?? []);
+    SUGGESTED_EXPENSES.forEach(s => set.add(s));
+    return Array.from(set);
+  }, [savedCategories]);
+
+  const reload = () => { refetch(); refetchMonths(); refetchCats(); };
 
   // Mutations
   const createMutation = trpc.accounting.createManualApuracao.useMutation({
@@ -370,10 +383,10 @@ function InputView() {
                 placeholder={form.kind === "receita" ? "Ex: Aplicação CDI" : "Ex: Folha"}
                 className="mt-1 h-9 text-xs" />
               <datalist id="rev-suggestions">
-                {SUGGESTED_REVENUES.map(s => <option key={s} value={s} />)}
+                {allRevenueSuggestions.map(s => <option key={s} value={s} />)}
               </datalist>
               <datalist id="exp-suggestions">
-                {SUGGESTED_EXPENSES.map(s => <option key={s} value={s} />)}
+                {allExpenseSuggestions.map(s => <option key={s} value={s} />)}
               </datalist>
             </div>
 

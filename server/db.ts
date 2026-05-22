@@ -4210,6 +4210,25 @@ export async function getManualApuracaoMonths() {
   return ((result as any)[0] ?? []).map((r: any) => r.referenceMonth);
 }
 
+/**
+ * Retorna categorias já usadas pelo usuário, separadas por kind.
+ * Ordena por frequência (mais usadas primeiro) para facilitar autocomplete.
+ */
+export async function getManualApuracaoCategories() {
+  const db = await getDb();
+  if (!db) return { receita: [], despesa: [] };
+  const result = await db.execute(sql`
+    SELECT kind, category, COUNT(*) as cnt
+    FROM manual_apuracao
+    GROUP BY kind, category
+    ORDER BY cnt DESC, category ASC
+  `);
+  const rows = (result as any)[0] ?? [];
+  const receita = rows.filter((r: any) => r.kind === 'receita').map((r: any) => String(r.category));
+  const despesa = rows.filter((r: any) => r.kind === 'despesa').map((r: any) => String(r.category));
+  return { receita, despesa };
+}
+
 export async function createManualApuracao(data: {
   referenceMonth: string;
   kind: 'receita' | 'despesa';
