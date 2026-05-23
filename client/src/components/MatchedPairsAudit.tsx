@@ -65,7 +65,6 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
   const { data, isLoading, refetch } = trpc.reconciliation.getMatchedPairs.useQuery(
     {
       sessionId,
-      exactOnly: true, // só pares com valor idêntico (Δ = 0)
       search: parsedAmount === undefined ? (search || undefined) : undefined,
       amount: parsedAmount,
       amountTolerance: parsedAmount ? 2 : undefined,
@@ -73,7 +72,7 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
       dateTo: dateTo || undefined,
       bankName: bankFilter || undefined,
       page,
-      pageSize: 200, // pegamos um lote maior para ordenar e paginar no cliente
+      pageSize: 200,
     },
     { refetchInterval: 15000 }
   );

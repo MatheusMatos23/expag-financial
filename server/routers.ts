@@ -227,6 +227,59 @@ async function processReconciliationJob(
       }
       await db.insertApiTransactionsBatch(apiRows);
 
+      // ── LINK MATCHED PAIRS ─────────────────────────────────────────────────
+      // Após os batch inserts, as transações têm IDs do BD mas NÃO têm
+      // matchedApiTransactionId/matchedBankTransactionId preenchidos.
+      // Este bloco liga os pares para que getMatchedPairs (usado na tab
+      // "✓ Conciliados") consiga fazer o JOIN e mostrar os pares.
+      //
+      // Estratégia: o engine casou por externalId. Usamos o mesmo critério
+      // para linkar os IDs do BD.
+      const safetyLink = await db.getDb();
+      if (safetyLink) {
+        // 1) Link por externalId (mais confiável — E2E único)
+        await safetyLink.execute(sql`
+          UPDATE bank_transactions bt
+          INNER JOIN api_transactions at
+            ON at.sessionId = bt.sessionId
+            AND at.externalId = bt.externalId
+            AND bt.externalId IS NOT NULL
+            AND at.externalId IS NOT NULL
+          SET bt.matchedApiTransactionId = at.id,
+              at.matchedBankTransactionId = bt.id
+          WHERE bt.sessionId = ${sessionId}
+            AND bt.matchStatus IN ('matched', 'manual')
+            AND at.matchStatus IN ('matched', 'manual')
+            AND bt.matchedApiTransactionId IS NULL
+        `);
+
+        // 2) Fallback: link por data + amount + type para pares sem externalId
+        await safetyLink.execute(sql`
+          UPDATE bank_transactions bt
+          INNER JOIN api_transactions at
+            ON at.sessionId = bt.sessionId
+            AND at.transactionDate = bt.transactionDate
+            AND CAST(at.amount AS DECIMAL(18,2)) = CAST(bt.amount AS DECIMAL(18,2))
+            AND at.type = bt.type
+          SET bt.matchedApiTransactionId = at.id,
+              at.matchedBankTransactionId = bt.id
+          WHERE bt.sessionId = ${sessionId}
+            AND bt.matchStatus IN ('matched', 'manual')
+            AND at.matchStatus IN ('matched', 'manual')
+            AND bt.matchedApiTransactionId IS NULL
+            AND at.matchedBankTransactionId IS NULL
+        `);
+
+        // Log resultado
+        const [linkCount] = await safetyLink.execute(sql`
+          SELECT COUNT(*) as cnt FROM bank_transactions
+          WHERE sessionId = ${sessionId}
+            AND matchStatus IN ('matched','manual')
+            AND matchedApiTransactionId IS NOT NULL
+        `) as any;
+        console.log(`[RECONCILIATION] Linked ${(linkCount as any)[0]?.cnt ?? 0} matched pairs (bank→api)`);
+      }
+
       // ── BATCH INSERT: divergências ────────────────────────────────────────────
       const BANK_LABELS: Record<string, string> = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
       const divRows: Parameters<typeof db.insertDivergencesBatch>[0] = [];

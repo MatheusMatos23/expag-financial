@@ -2671,11 +2671,27 @@ export async function getMatchedPairs(params: {
   const offset = (page - 1) * pageSize;
 
   // Constrói as condições WHERE dinamicamente
+  // JOIN primário: matchedApiTransactionId (link direto criado na conciliação).
+  // Fallback: se matchedApiTransactionId for NULL (sessões antigas criadas antes
+  // do link automático), faz JOIN por externalId no mesmo sessionId.
+  // Este fallback permite que sessões existentes mostrem pares sem migração.
   const conditions: any[] = [
     sql`bt.sessionId = ${params.sessionId}`,
     sql`bt.matchStatus IN ('matched','manual')`,
-    sql`bt.matchedApiTransactionId IS NOT NULL`,
   ];
+
+  // JOIN flexível: prefere matchedApiTransactionId, fallback por externalId
+  const joinClause = sql`
+    LEFT JOIN api_transactions at ON (
+      (bt.matchedApiTransactionId IS NOT NULL AND at.id = bt.matchedApiTransactionId)
+      OR
+      (bt.matchedApiTransactionId IS NULL AND at.sessionId = bt.sessionId
+       AND at.externalId = bt.externalId AND bt.externalId IS NOT NULL AND at.externalId IS NOT NULL
+       AND at.matchStatus IN ('matched','manual'))
+    )
+  `;
+  // Garante que encontrou um par (exclui bank_txs sem nenhum API match)
+  conditions.push(sql`at.id IS NOT NULL`);
 
   if (params.search && params.search.trim().length > 0) {
     const pattern = `%${params.search.trim()}%`;
@@ -2709,7 +2725,7 @@ export async function getMatchedPairs(params: {
   const countRes = await db.execute(sql`
     SELECT COUNT(*) AS total
     FROM bank_transactions bt
-    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    ${joinClause}
     WHERE ${whereClause}
   `);
   const totalCount = parseInt(String(((countRes as any)[0] ?? [])[0]?.total ?? 0));
@@ -2755,7 +2771,7 @@ export async function getMatchedPairs(params: {
       ABS(bt.amount - at.amount) AS amount_diff,
       DATEDIFF(bt.transactionDate, at.transactionDate) AS day_diff
     FROM bank_transactions bt
-    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    ${joinClause}
     WHERE ${whereClause}
     ORDER BY ${orderClause}
     LIMIT ${pageSize} OFFSET ${offset}

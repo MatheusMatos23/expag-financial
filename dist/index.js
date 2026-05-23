@@ -110899,9 +110899,18 @@ async function getMatchedPairs(params) {
   const offset = (page - 1) * pageSize;
   const conditions = [
     sql`bt.sessionId = ${params.sessionId}`,
-    sql`bt.matchStatus IN ('matched','manual')`,
-    sql`bt.matchedApiTransactionId IS NOT NULL`
+    sql`bt.matchStatus IN ('matched','manual')`
   ];
+  const joinClause = sql`
+    LEFT JOIN api_transactions at ON (
+      (bt.matchedApiTransactionId IS NOT NULL AND at.id = bt.matchedApiTransactionId)
+      OR
+      (bt.matchedApiTransactionId IS NULL AND at.sessionId = bt.sessionId
+       AND at.externalId = bt.externalId AND bt.externalId IS NOT NULL AND at.externalId IS NOT NULL
+       AND at.matchStatus IN ('matched','manual'))
+    )
+  `;
+  conditions.push(sql`at.id IS NOT NULL`);
   if (params.search && params.search.trim().length > 0) {
     const pattern = `%${params.search.trim()}%`;
     conditions.push(sql`(
@@ -110928,7 +110937,7 @@ async function getMatchedPairs(params) {
   const countRes = await db.execute(sql`
     SELECT COUNT(*) AS total
     FROM bank_transactions bt
-    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    ${joinClause}
     WHERE ${whereClause}
   `);
   const totalCount = parseInt(String((countRes[0] ?? [])[0]?.total ?? 0));
@@ -110970,7 +110979,7 @@ async function getMatchedPairs(params) {
       ABS(bt.amount - at.amount) AS amount_diff,
       DATEDIFF(bt.transactionDate, at.transactionDate) AS day_diff
     FROM bank_transactions bt
-    INNER JOIN api_transactions at ON at.id = bt.matchedApiTransactionId
+    ${joinClause}
     WHERE ${whereClause}
     ORDER BY ${orderClause}
     LIMIT ${pageSize} OFFSET ${offset}
@@ -134409,6 +134418,45 @@ async function processReconciliationJob(sessionId, input, ctx) {
       });
     }
     await insertApiTransactionsBatch(apiRows);
+    const safetyLink = await getDb();
+    if (safetyLink) {
+      await safetyLink.execute(sql`
+          UPDATE bank_transactions bt
+          INNER JOIN api_transactions at
+            ON at.sessionId = bt.sessionId
+            AND at.externalId = bt.externalId
+            AND bt.externalId IS NOT NULL
+            AND at.externalId IS NOT NULL
+          SET bt.matchedApiTransactionId = at.id,
+              at.matchedBankTransactionId = bt.id
+          WHERE bt.sessionId = ${sessionId}
+            AND bt.matchStatus IN ('matched', 'manual')
+            AND at.matchStatus IN ('matched', 'manual')
+            AND bt.matchedApiTransactionId IS NULL
+        `);
+      await safetyLink.execute(sql`
+          UPDATE bank_transactions bt
+          INNER JOIN api_transactions at
+            ON at.sessionId = bt.sessionId
+            AND at.transactionDate = bt.transactionDate
+            AND CAST(at.amount AS DECIMAL(18,2)) = CAST(bt.amount AS DECIMAL(18,2))
+            AND at.type = bt.type
+          SET bt.matchedApiTransactionId = at.id,
+              at.matchedBankTransactionId = bt.id
+          WHERE bt.sessionId = ${sessionId}
+            AND bt.matchStatus IN ('matched', 'manual')
+            AND at.matchStatus IN ('matched', 'manual')
+            AND bt.matchedApiTransactionId IS NULL
+            AND at.matchedBankTransactionId IS NULL
+        `);
+      const [linkCount] = await safetyLink.execute(sql`
+          SELECT COUNT(*) as cnt FROM bank_transactions
+          WHERE sessionId = ${sessionId}
+            AND matchStatus IN ('matched','manual')
+            AND matchedApiTransactionId IS NOT NULL
+        `);
+      console.log(`[RECONCILIATION] Linked ${linkCount[0]?.cnt ?? 0} matched pairs (bank\u2192api)`);
+    }
     const BANK_LABELS = { sicoob: "Sicoob", bb: "Banco do Brasil", jd: "JD" };
     const divRows = [];
     for (const match of result.matches) {
