@@ -624,11 +624,11 @@ export default function ReconciliationSession() {
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <button
-          onClick={() => setView("audit")}
+          onClick={() => { setActiveTab("matched"); setView("audit"); }}
           className="text-left hover:ring-2 hover:ring-emerald-500/40 rounded-xl transition-shadow"
           title="Clique para auditar e desconciliar pares"
         >
-          <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="clique para auditar →" highlight />
+          <KPI label="Conciliados"   value={liveMatchedCount}   color="text-emerald-400" sub="auditar / desconciliar →" highlight />
         </button>
         <KPI label="Divergências"  value={livePendingCount}  color="text-amber-400" sub={`${liveDivergentCount} não conciliados banco`} />
         <KPI label="Taxa Matching"
@@ -792,7 +792,14 @@ export default function ReconciliationSession() {
           {TABS.map(tab => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                // Ao clicar em "Conciliados", mostra automaticamente a visão
+                // de auditoria com botão de desconciliar. Qualquer outra tab
+                // volta pra visão de tabela normal.
+                if (tab.key === "matched") setView("audit");
+                else if (view === "audit") setView("table");
+              }}
               className={cn(
                 "px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
                 activeTab === tab.key
