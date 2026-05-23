@@ -88848,21 +88848,37 @@ function reconcileMultiBank(banks, apiTxs) {
       const apiByE2E = /* @__PURE__ */ new Map();
       apiTxs.forEach((tx, idx) => {
         if (tx.externalId && !usedApiIds.has(idx)) {
-          apiByE2E.set(tx.externalId.toUpperCase(), { tx, idx });
+          const key = tx.externalId.toUpperCase();
+          if (!apiByE2E.has(key)) apiByE2E.set(key, []);
+          apiByE2E.get(key).push({ tx, idx });
         }
       });
       for (const bankTx of bank.txs) {
         if (!bankTx.externalId) continue;
         const key = bankTx.externalId.toUpperCase();
-        const apiMatch = apiByE2E.get(key);
-        if (!apiMatch || usedApiIds.has(apiMatch.idx)) continue;
-        usedApiIds.add(apiMatch.idx);
-        apiByE2E.delete(key);
-        const diff = Math.abs(bankTx.amount - apiMatch.tx.amount);
-        const status = diff <= AMOUNT_TOLERANCE && bankTx.type === apiMatch.tx.type ? "matched" : "divergent";
+        const candidates = apiByE2E.get(key);
+        if (!candidates || candidates.length === 0) continue;
+        const available = candidates.filter((c) => !usedApiIds.has(c.idx));
+        if (available.length === 0) continue;
+        let best = available[0];
+        let bestDiff = Math.abs(bankTx.amount - best.tx.amount);
+        for (let i = 1; i < available.length; i++) {
+          const d = Math.abs(bankTx.amount - available[i].tx.amount);
+          if (d < bestDiff) {
+            best = available[i];
+            bestDiff = d;
+          }
+        }
+        const maxAmount = Math.max(bankTx.amount, best.tx.amount);
+        if (maxAmount > 0 && bestDiff / maxAmount > 0.5) {
+          continue;
+        }
+        usedApiIds.add(best.idx);
+        const diff = bestDiff;
+        const status = diff <= AMOUNT_TOLERANCE && bankTx.type === best.tx.type ? "matched" : "divergent";
         allMatches.push({
           bankTx,
-          apiTx: apiMatch.tx,
+          apiTx: best.tx,
           status,
           matchType: "exact_e2e",
           confidence: 100,

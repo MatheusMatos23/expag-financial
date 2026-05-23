@@ -81,29 +81,62 @@ export function reconcileMultiBank(
     }
 
     // ── Passo 1: match por END2END (apenas JD — externalId format E+32 chars) ──
+    //
+    // CORREÇÃO: quando múltiplas transações API têm o mesmo E2E (ex: o valor
+    // real do PIX + a tarifa cobrada), o Map guardava só a última e podia casar
+    // a tarifa (R$ 5,50) com o PIX do banco (R$ 427), ignorando o valor real.
+    //
+    // Agora: agrupa TODAS as API txs por E2E, e na hora de casar escolhe a
+    // de valor mais próximo ao banco. Se a melhor opção ainda tiver diferença
+    // > 50% do valor do banco, rejeita o match (vai pra unmatched/divergência).
     if (bank.useE2E) {
-      const apiByE2E = new Map<string, { tx: ParsedTransaction; idx: number }>();
+      // Agrupa API txs por E2E (pode ter mais de uma com mesmo código)
+      const apiByE2E = new Map<string, Array<{ tx: ParsedTransaction; idx: number }>>();
       apiTxs.forEach((tx, idx) => {
         if (tx.externalId && !usedApiIds.has(idx)) {
-          apiByE2E.set(tx.externalId.toUpperCase(), { tx, idx });
+          const key = tx.externalId.toUpperCase();
+          if (!apiByE2E.has(key)) apiByE2E.set(key, []);
+          apiByE2E.get(key)!.push({ tx, idx });
         }
       });
 
       for (const bankTx of bank.txs) {
         if (!bankTx.externalId) continue;
         const key = bankTx.externalId.toUpperCase();
-        const apiMatch = apiByE2E.get(key);
-        if (!apiMatch || usedApiIds.has(apiMatch.idx)) continue;
+        const candidates = apiByE2E.get(key);
+        if (!candidates || candidates.length === 0) continue;
 
-        usedApiIds.add(apiMatch.idx);
-        apiByE2E.delete(key);
-        const diff = Math.abs(bankTx.amount - apiMatch.tx.amount);
+        // Filtra candidatos já usados
+        const available = candidates.filter(c => !usedApiIds.has(c.idx));
+        if (available.length === 0) continue;
+
+        // Escolhe o candidato com valor mais próximo ao banco
+        let best = available[0];
+        let bestDiff = Math.abs(bankTx.amount - best.tx.amount);
+        for (let i = 1; i < available.length; i++) {
+          const d = Math.abs(bankTx.amount - available[i].tx.amount);
+          if (d < bestDiff) { best = available[i]; bestDiff = d; }
+        }
+
+        // REJEITAR se a diferença for > 50% do valor do banco.
+        // Isso evita casar R$ 427 (banco) com R$ 5,50 (tarifa da API).
+        // O limite de 50% é generoso — na prática a diferença entre
+        // tarifa e valor real é sempre > 90%.
+        const maxAmount = Math.max(bankTx.amount, best.tx.amount);
+        if (maxAmount > 0 && (bestDiff / maxAmount) > 0.50) {
+          // E2E bate mas valores muito diferentes — NÃO conciliar.
+          // Vai cair no Passo 2 (data+valor) ou virar unmatched.
+          continue;
+        }
+
+        usedApiIds.add(best.idx);
+        const diff = bestDiff;
         const status =
-          diff <= AMOUNT_TOLERANCE && bankTx.type === apiMatch.tx.type
+          diff <= AMOUNT_TOLERANCE && bankTx.type === best.tx.type
             ? "matched"
             : "divergent";
         allMatches.push({
-          bankTx, apiTx: apiMatch.tx, status,
+          bankTx, apiTx: best.tx, status,
           matchType: "exact_e2e", confidence: 100,
           difference: diff, bankName: bank.name,
         });
