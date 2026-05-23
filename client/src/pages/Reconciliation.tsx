@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { MatchedPairsAudit } from "@/components/MatchedPairsAudit";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -159,6 +158,11 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
     onSuccess: () => { toast.success("Atualizado."); refetch(); invalidateAcrossScreens(); },
     onError: (e) => toast.error(e.message),
   });
+  const unmatchMutation = trpc.reconciliation.unmatchPair.useMutation({
+    onSuccess: () => { toast.success("Par desconciliado — voltou para divergências."); refetch(); invalidateAcrossScreens(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const [confirmUnmatchId, setConfirmUnmatchId] = useState<number | null>(null);
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-16">
@@ -187,6 +191,27 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   const bankDebits  = (bankTxs ?? []).filter((t: any) => t.type === "debit").reduce((s: number, t: any) => s + parseFloat(t.amount ?? 0), 0);
   const apiCredits  = (apiTxs ?? []).filter((t: any) => t.type === "credit").reduce((s: number, t: any) => s + parseFloat(t.amount ?? 0), 0);
   const apiDebits   = (apiTxs ?? []).filter((t: any) => t.type === "debit").reduce((s: number, t: any) => s + parseFloat(t.amount ?? 0), 0);
+
+  // ── Construir pares conciliados localmente ──────────────────────────────────
+  // Usa matchedApiTransactionId (link direto) ou fallback por externalId.
+  // Não precisa de query extra — usa os dados já carregados.
+  const apiById = new Map<number, any>();
+  const apiByExt = new Map<string, any>();
+  for (const t of (apiTxs ?? [])) {
+    apiById.set(t.id, t);
+    if (t.externalId && (t.matchStatus === 'matched' || t.matchStatus === 'manual')) {
+      apiByExt.set(t.externalId, t);
+    }
+  }
+  const matchedPairs = (bankTxs ?? [])
+    .filter((bt: any) => bt.matchStatus === 'matched' || bt.matchStatus === 'manual')
+    .map((bt: any) => {
+      const api = bt.matchedApiTransactionId
+        ? apiById.get(bt.matchedApiTransactionId)
+        : (bt.externalId ? apiByExt.get(bt.externalId) : null);
+      return { bank: bt, api: api ?? null };
+    })
+    .filter((p: any) => p.api !== null); // só pares com ambos os lados
 
   const TABS = [
     { key: "divs",         label: "Divergências",     count: (divs ?? []).length,    color: "text-yellow-400" },
@@ -348,9 +373,70 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
             </table>
           )}
 
-          {/* Conciliados — visão de auditoria com botão desconciliar */}
+          {/* Conciliados — tabela simples igual Banco/API, com botão desconciliar */}
           {tab === "conciliados" && (
-            <MatchedPairsAudit sessionId={sessionId} />
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-accent/10">
+                  {["Data","Banco","Descrição Banco","Cliente API","Vlr Banco","Vlr API","Δ","Ação"].map(c => (
+                    <th key={c} className="text-left px-3 py-2.5 text-muted-foreground font-medium whitespace-nowrap">{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {matchedPairs.length === 0 ? (
+                  <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">Nenhum par conciliado nesta sessão.</td></tr>
+                ) : matchedPairs.map((pair: any) => {
+                  const bankAmt = parseFloat(pair.bank.amount ?? 0);
+                  const apiAmt = parseFloat(pair.api.amount ?? 0);
+                  const diff = Math.abs(bankAmt - apiAmt);
+                  const isConfirming = confirmUnmatchId === pair.bank.id;
+                  return (
+                    <tr key={pair.bank.id} className="hover:bg-accent/20">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(pair.bank.transactionDate)}</td>
+                      <td className="px-3 py-2 font-medium">{pair.bank.bankName ?? "—"}</td>
+                      <td className="px-3 py-2 max-w-[180px] truncate" title={pair.bank.description ?? ""}>{pair.bank.description ?? "—"}</td>
+                      <td className="px-3 py-2 max-w-[150px] truncate text-muted-foreground" title={pair.api.clientName ?? pair.api.description ?? ""}>
+                        {pair.api.clientName ?? pair.api.description ?? "—"}
+                      </td>
+                      <td className={cn("px-3 py-2 font-mono font-semibold whitespace-nowrap", pair.bank.type === "credit" ? "text-emerald-400" : "text-red-400")}>
+                        {formatCurrency(bankAmt)}
+                      </td>
+                      <td className={cn("px-3 py-2 font-mono font-semibold whitespace-nowrap", pair.api.type === "credit" ? "text-blue-400" : "text-orange-400")}>
+                        {formatCurrency(apiAmt)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
+                        {diff > 0.001 ? formatCurrency(diff) : "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {isConfirming ? (
+                          <div className="inline-flex items-center gap-1">
+                            <span className="text-[10px] text-amber-400 font-semibold">Confirmar?</span>
+                            <button
+                              onClick={() => { unmatchMutation.mutate({ bankTransactionId: pair.bank.id }); setConfirmUnmatchId(null); }}
+                              disabled={unmatchMutation.isPending}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-60"
+                            >Sim</button>
+                            <button
+                              onClick={() => setConfirmUnmatchId(null)}
+                              className="px-2 py-0.5 rounded text-[10px] text-muted-foreground hover:bg-muted/30"
+                            >Não</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmUnmatchId(pair.bank.id)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10"
+                          >
+                            <Unlink className="w-3 h-3" />
+                            Desconciliar
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
 
           {/* Banco */}
