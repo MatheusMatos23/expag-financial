@@ -33,7 +33,7 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
   const [bankFilter, setBankFilter] = useState("");
   const [sort, setSort] = useState<SortMode>("amount_desc");
   const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(50);
 
   // Confirmação inline ── key do par a confirmar, null se nenhum
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
       dateTo: dateTo || undefined,
       bankName: bankFilter || undefined,
       page,
-      pageSize: 200,
+      pageSize: 500,
     },
     { refetchInterval: 15000 }
   );
@@ -312,33 +312,47 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
             </table>
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/10 text-[11px]">
+          <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/10 text-[11px]">
               <span className="text-muted-foreground">
-                Mostrando {((page - 1) * pageSize + 1).toLocaleString("pt-BR")}–
-                {Math.min(page * pageSize, totalRows).toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")}
+                {totalRows > 0 ? `${((page - 1) * pageSize + 1).toLocaleString("pt-BR")}–${Math.min(page * pageSize, totalRows).toLocaleString("pt-BR")} de ${totalRows.toLocaleString("pt-BR")}` : "0 pares"}
               </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                  className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <span className="px-2 text-muted-foreground">
-                  Página {page} de {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page >= totalPages}
-                  className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Linhas:</span>
+                  {[25, 50, 100, 200].map(n => (
+                    <button key={n}
+                      onClick={() => { setPageSize(n); setPage(1); }}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                        pageSize === n
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent/20"
+                      }`}
+                    >{n}</button>
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="px-2 text-muted-foreground">
+                      {page}/{totalPages}
+                    </span>
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page >= totalPages}
+                      className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
-          )}
         </div>
       )}
     </div>

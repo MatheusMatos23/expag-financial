@@ -110895,7 +110895,7 @@ async function getMatchedPairs(params) {
     return { rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 0 };
   }
   const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(200, Math.max(10, params.pageSize ?? 50));
+  const pageSize = Math.min(500, Math.max(10, params.pageSize ?? 50));
   const offset = (page - 1) * pageSize;
   const conditions = [
     sql`bt.sessionId = ${params.sessionId}`,
