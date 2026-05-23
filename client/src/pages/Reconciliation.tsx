@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight, FileSpreadsheet,
   RefreshCw, ChevronDown, ChevronUp, Trash2, Eye, ArrowLeft, X,
-  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus
+  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus, Unlink
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { MatchedPairsAudit } from "@/components/MatchedPairsAudit";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -188,9 +189,10 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   const apiDebits   = (apiTxs ?? []).filter((t: any) => t.type === "debit").reduce((s: number, t: any) => s + parseFloat(t.amount ?? 0), 0);
 
   const TABS = [
-    { key: "divs",       label: "Divergências",     count: (divs ?? []).length,    color: "text-yellow-400" },
-    { key: "banco",      label: "Transações Banco", count: (bankTxs ?? []).length, color: "text-blue-400" },
-    { key: "api",        label: "Transações API",   count: (apiTxs ?? []).length,  color: "text-purple-400" },
+    { key: "divs",         label: "Divergências",     count: (divs ?? []).length,    color: "text-yellow-400" },
+    { key: "conciliados",  label: "✓ Conciliados",    count: liveMatchedCount,       color: "text-emerald-400" },
+    { key: "banco",        label: "Transações Banco", count: (bankTxs ?? []).length, color: "text-blue-400" },
+    { key: "api",          label: "Transações API",   count: (apiTxs ?? []).length,  color: "text-purple-400" },
   ] as const;
 
   return (
@@ -344,6 +346,11 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* Conciliados — visão de auditoria com botão desconciliar */}
+          {tab === "conciliados" && (
+            <MatchedPairsAudit sessionId={sessionId} />
           )}
 
           {/* Banco */}

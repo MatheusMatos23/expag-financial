@@ -86,6 +86,7 @@ export function MatchedPairsAudit({ sessionId, prefilledAmount }: Props) {
       refetch();
       utils.reconciliation.getSessionStats.invalidate();
       utils.reconciliation.getDivergences.invalidate();
+      utils.reconciliation.getSessionTransactions.invalidate();
     },
     onError: (e) => {
       toast.error(e.message);
