@@ -3062,29 +3062,66 @@ export async function unmatchFromDivergence(divergenceId: number): Promise<{
   }
 
   // 3. Localiza a transação API correspondente
-  // Tenta por sessionId + amount + data; se vier mais de um, prefere por clientName
+  // Prioridade 1: link direto via matchedApiTransactionId (mais confiável)
   let apiTx: any = null;
-  const apiSearch = await db.execute(sql`
-    SELECT id, transactionDate, amount, type, description, clientName, matchStatus
-    FROM api_transactions
-    WHERE sessionId = ${sessionId}
-      AND amount = ${apiAmountStr}
-      AND transactionDate = ${divDate}
-    LIMIT 10
-  `);
-  const apiCandidates: any[] = (apiSearch as any)[0] ?? [];
-  if (apiCandidates.length === 1) {
-    apiTx = apiCandidates[0];
-  } else if (apiCandidates.length > 1 && div.clientName) {
-    // Tenta refinar pelo clientName
-    apiTx = apiCandidates.find((c: any) =>
-      String(c.clientName ?? "").trim().toLowerCase() === String(div.clientName).trim().toLowerCase()
-    ) ?? apiCandidates[0];
-  } else if (apiCandidates.length > 0) {
-    apiTx = apiCandidates[0];
+  if (bankTx?.matchedApiTransactionId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions WHERE id = ${bankTx.matchedApiTransactionId} LIMIT 1
+    `);
+    apiTx = ((r as any)[0] ?? [])[0] ?? null;
   }
+
+  // Prioridade 2: link direto via apiTransactionId na divergência
+  if (!apiTx && div.apiTransactionId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions WHERE id = ${div.apiTransactionId} LIMIT 1
+    `);
+    apiTx = ((r as any)[0] ?? [])[0] ?? null;
+  }
+
+  // Prioridade 3: busca por externalId (E2E)
+  if (!apiTx && div.externalId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions
+      WHERE sessionId = ${sessionId} AND externalId = ${div.externalId}
+      LIMIT 1
+    `);
+    apiTx = ((r as any)[0] ?? [])[0] ?? null;
+  }
+
+  // Prioridade 4: busca por amount + date (com tolerância de R$ 5,00)
   if (!apiTx) {
-    throw new Error("Transação API correspondente não encontrada nesta sessão.");
+    const apiAmount = parseFloat(apiAmountStr);
+    const minApi = (apiAmount - 5.0).toFixed(2);
+    const maxApi = (apiAmount + 5.0).toFixed(2);
+    const apiSearch = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions
+      WHERE sessionId = ${sessionId}
+        AND CAST(amount AS DECIMAL(18,2)) BETWEEN ${minApi} AND ${maxApi}
+        AND transactionDate = ${divDate}
+      LIMIT 10
+    `);
+    const apiCandidates: any[] = (apiSearch as any)[0] ?? [];
+    if (apiCandidates.length === 1) {
+      apiTx = apiCandidates[0];
+    } else if (apiCandidates.length > 1 && div.clientName) {
+      apiTx = apiCandidates.find((c: any) =>
+        String(c.clientName ?? "").trim().toLowerCase() === String(div.clientName).trim().toLowerCase()
+      ) ?? apiCandidates[0];
+    } else if (apiCandidates.length > 0) {
+      apiTx = apiCandidates[0];
+    }
+  }
+
+  if (!apiTx) {
+    throw new Error(
+      `Transação API correspondente não encontrada nesta sessão. ` +
+      `Tente desconciliar pela aba "✓ Conciliados" na sessão, ou verifique se a transação API existe.`
+    );
   }
 
   // 4. Garante que ambos estão como pending (limpa qualquer vínculo residual)
@@ -3180,8 +3217,32 @@ export async function unmatchPair(params: {
     const r = await db.execute(sql`SELECT * FROM bank_transactions WHERE id = ${params.bankTransactionId} LIMIT 1`);
     bankTx = (r as any)[0]?.[0];
     if (!bankTx) throw new Error("Transação bancária não encontrada.");
+    // Link direto
     if (bankTx.matchedApiTransactionId) {
       const r2 = await db.execute(sql`SELECT * FROM api_transactions WHERE id = ${bankTx.matchedApiTransactionId} LIMIT 1`);
+      apiTx = (r2 as any)[0]?.[0];
+    }
+    // Fallback por externalId (sessões onde matchedApiTransactionId não foi linkado)
+    if (!apiTx && bankTx.externalId) {
+      const r2 = await db.execute(sql`
+        SELECT * FROM api_transactions
+        WHERE sessionId = ${bankTx.sessionId}
+          AND externalId = ${bankTx.externalId}
+          AND matchStatus IN ('matched','manual')
+        LIMIT 1
+      `);
+      apiTx = (r2 as any)[0]?.[0];
+    }
+    // Fallback por date + amount + type
+    if (!apiTx) {
+      const r2 = await db.execute(sql`
+        SELECT * FROM api_transactions
+        WHERE sessionId = ${bankTx.sessionId}
+          AND transactionDate = ${bankTx.transactionDate}
+          AND ABS(CAST(amount AS DECIMAL(18,2)) - CAST(${String(bankTx.amount)} AS DECIMAL(18,2))) < 5
+          AND matchStatus IN ('matched','manual')
+        LIMIT 1
+      `);
       apiTx = (r2 as any)[0]?.[0];
     }
   } else if (params.apiTransactionId) {

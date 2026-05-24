@@ -111192,26 +111192,56 @@ async function unmatchFromDivergence(divergenceId) {
     throw new Error(`Transa\xE7\xE3o banc\xE1ria correspondente n\xE3o encontrada nesta sess\xE3o (banco: ${div.bankName}, valor: ${div.bankAmount}, data: ${divDate}).`);
   }
   let apiTx = null;
-  const apiSearch = await db.execute(sql`
-    SELECT id, transactionDate, amount, type, description, clientName, matchStatus
-    FROM api_transactions
-    WHERE sessionId = ${sessionId}
-      AND amount = ${apiAmountStr}
-      AND transactionDate = ${divDate}
-    LIMIT 10
-  `);
-  const apiCandidates = apiSearch[0] ?? [];
-  if (apiCandidates.length === 1) {
-    apiTx = apiCandidates[0];
-  } else if (apiCandidates.length > 1 && div.clientName) {
-    apiTx = apiCandidates.find(
-      (c) => String(c.clientName ?? "").trim().toLowerCase() === String(div.clientName).trim().toLowerCase()
-    ) ?? apiCandidates[0];
-  } else if (apiCandidates.length > 0) {
-    apiTx = apiCandidates[0];
+  if (bankTx?.matchedApiTransactionId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions WHERE id = ${bankTx.matchedApiTransactionId} LIMIT 1
+    `);
+    apiTx = (r[0] ?? [])[0] ?? null;
+  }
+  if (!apiTx && div.apiTransactionId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions WHERE id = ${div.apiTransactionId} LIMIT 1
+    `);
+    apiTx = (r[0] ?? [])[0] ?? null;
+  }
+  if (!apiTx && div.externalId) {
+    const r = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions
+      WHERE sessionId = ${sessionId} AND externalId = ${div.externalId}
+      LIMIT 1
+    `);
+    apiTx = (r[0] ?? [])[0] ?? null;
   }
   if (!apiTx) {
-    throw new Error("Transa\xE7\xE3o API correspondente n\xE3o encontrada nesta sess\xE3o.");
+    const apiAmount = parseFloat(apiAmountStr);
+    const minApi = (apiAmount - 5).toFixed(2);
+    const maxApi = (apiAmount + 5).toFixed(2);
+    const apiSearch = await db.execute(sql`
+      SELECT id, transactionDate, amount, type, description, clientName, matchStatus
+      FROM api_transactions
+      WHERE sessionId = ${sessionId}
+        AND CAST(amount AS DECIMAL(18,2)) BETWEEN ${minApi} AND ${maxApi}
+        AND transactionDate = ${divDate}
+      LIMIT 10
+    `);
+    const apiCandidates = apiSearch[0] ?? [];
+    if (apiCandidates.length === 1) {
+      apiTx = apiCandidates[0];
+    } else if (apiCandidates.length > 1 && div.clientName) {
+      apiTx = apiCandidates.find(
+        (c) => String(c.clientName ?? "").trim().toLowerCase() === String(div.clientName).trim().toLowerCase()
+      ) ?? apiCandidates[0];
+    } else if (apiCandidates.length > 0) {
+      apiTx = apiCandidates[0];
+    }
+  }
+  if (!apiTx) {
+    throw new Error(
+      `Transa\xE7\xE3o API correspondente n\xE3o encontrada nesta sess\xE3o. Tente desconciliar pela aba "\u2713 Conciliados" na sess\xE3o, ou verifique se a transa\xE7\xE3o API existe.`
+    );
   }
   await db.execute(sql`
     UPDATE bank_transactions
@@ -111276,6 +111306,27 @@ async function unmatchPair(params) {
     if (!bankTx) throw new Error("Transa\xE7\xE3o banc\xE1ria n\xE3o encontrada.");
     if (bankTx.matchedApiTransactionId) {
       const r2 = await db.execute(sql`SELECT * FROM api_transactions WHERE id = ${bankTx.matchedApiTransactionId} LIMIT 1`);
+      apiTx = r2[0]?.[0];
+    }
+    if (!apiTx && bankTx.externalId) {
+      const r2 = await db.execute(sql`
+        SELECT * FROM api_transactions
+        WHERE sessionId = ${bankTx.sessionId}
+          AND externalId = ${bankTx.externalId}
+          AND matchStatus IN ('matched','manual')
+        LIMIT 1
+      `);
+      apiTx = r2[0]?.[0];
+    }
+    if (!apiTx) {
+      const r2 = await db.execute(sql`
+        SELECT * FROM api_transactions
+        WHERE sessionId = ${bankTx.sessionId}
+          AND transactionDate = ${bankTx.transactionDate}
+          AND ABS(CAST(amount AS DECIMAL(18,2)) - CAST(${String(bankTx.amount)} AS DECIMAL(18,2))) < 5
+          AND matchStatus IN ('matched','manual')
+        LIMIT 1
+      `);
       apiTx = r2[0]?.[0];
     }
   } else if (params.apiTransactionId) {
