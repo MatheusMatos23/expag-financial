@@ -149,6 +149,13 @@ export const divergences = mysqlTable("divergences", {
   nidNote: text("ndiNote"),
   nidFoundDate: date("ndiFoundDate"),       // data em que foi identificado
   nidClientName: varchar("ndiClientName", { length: 200 }), // cliente identificado
+  // Rastreio do ciclo de vida completo do NID — quando entrou, quando
+  // identificou, quando conciliou, com quem, e por qual motivo.
+  nidMarkedAt: timestamp("nidMarkedAt"),           // quando foi marcado como NID
+  nidReconciledAt: timestamp("nidReconciledAt"),   // quando foi conciliado/resolvido
+  nidReconciledWithId: int("nidReconciledWithId"), // ID da divergência par
+  nidReconciledBy: varchar("nidReconciledBy", { length: 200 }), // quem conciliou
+  nidReconcileType: varchar("nidReconcileType", { length: 50 }), // 'api_payment' | 'bank_return'
   // Estorno: transação estornada automaticamente detectada
   isEstorno: boolean("isEstorno").default(false),
   bankTransactionId: int("bankTransactionId"),

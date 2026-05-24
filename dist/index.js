@@ -50854,6 +50854,18 @@ var init_schema2 = __esm({
       // data em que foi identificado
       nidClientName: varchar("ndiClientName", { length: 200 }),
       // cliente identificado
+      // Rastreio do ciclo de vida completo do NID — quando entrou, quando
+      // identificou, quando conciliou, com quem, e por qual motivo.
+      nidMarkedAt: timestamp("nidMarkedAt"),
+      // quando foi marcado como NID
+      nidReconciledAt: timestamp("nidReconciledAt"),
+      // quando foi conciliado/resolvido
+      nidReconciledWithId: int("nidReconciledWithId"),
+      // ID da divergência par
+      nidReconciledBy: varchar("nidReconciledBy", { length: 200 }),
+      // quem conciliou
+      nidReconcileType: varchar("nidReconcileType", { length: 50 }),
+      // 'api_payment' | 'bank_return'
       // Estorno: transação estornada automaticamente detectada
       isEstorno: boolean("isEstorno").default(false),
       bankTransactionId: int("bankTransactionId"),
@@ -110063,8 +110075,8 @@ async function reconcileNidWithDivergence(params) {
   if (!nidRow) throw new Error("NID n\xE3o encontrada");
   if (!tgtRow) throw new Error("Diverg\xEAncia alvo n\xE3o encontrada");
   if (!nidRow.isNid) throw new Error("Diverg\xEAncia de origem n\xE3o \xE9 uma NID");
-  if (tgtRow.divergenceType !== "bank_shortage") {
-    throw new Error("Diverg\xEAncia alvo precisa ser do tipo 'falta no banco' (API sem par no banco)");
+  if (!["bank_shortage", "bank_surplus"].includes(String(tgtRow.divergenceType))) {
+    throw new Error("Diverg\xEAncia alvo precisa ser do tipo 'falta no banco' (API) ou 'sobra no banco' (devolu\xE7\xE3o)");
   }
   if (["regularizado", "reclassificado", "baixado"].includes(String(nidRow.status))) {
     throw new Error("NID j\xE1 est\xE1 regularizada");
@@ -110079,34 +110091,47 @@ async function reconcileNidWithDivergence(params) {
       `Valores n\xE3o batem: NID R$ ${nidAmount.toFixed(2)} vs Diverg\xEAncia R$ ${tgtAmount.toFixed(2)}`
     );
   }
-  if (nidRow.bankTransactionId && tgtRow.apiTransactionId) {
-    await db.execute(sql`
-      UPDATE bank_transactions
-      SET matchStatus = 'manual',
-          matchType = 'manual',
+  const reconcileType = tgtRow.divergenceType === "bank_shortage" ? "api_payment" : "bank_return";
+  const actionLabel = reconcileType === "api_payment" ? `NID conciliada com pagamento da API (diverg\xEAncia #${params.targetDivergenceId})` : `NID conciliada com devolu\xE7\xE3o banc\xE1ria (diverg\xEAncia #${params.targetDivergenceId})`;
+  if (reconcileType === "api_payment") {
+    if (nidRow.bankTransactionId && tgtRow.apiTransactionId) {
+      await db.execute(sql`
+        UPDATE bank_transactions SET matchStatus='manual', matchType='manual',
           matchedApiTransactionId = ${tgtRow.apiTransactionId}
-      WHERE id = ${nidRow.bankTransactionId}
-    `);
-    await db.execute(sql`
-      UPDATE api_transactions
-      SET matchStatus = 'manual',
-          matchType = 'manual',
+        WHERE id = ${nidRow.bankTransactionId}
+      `);
+      await db.execute(sql`
+        UPDATE api_transactions SET matchStatus='manual', matchType='manual',
           matchedBankTransactionId = ${nidRow.bankTransactionId}
-      WHERE id = ${tgtRow.apiTransactionId}
-    `);
+        WHERE id = ${tgtRow.apiTransactionId}
+      `);
+    } else {
+      if (nidRow.bankTransactionId) {
+        await db.execute(sql`UPDATE bank_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${nidRow.bankTransactionId}`);
+      }
+      if (tgtRow.apiTransactionId) {
+        await db.execute(sql`UPDATE api_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${tgtRow.apiTransactionId}`);
+      }
+    }
   } else {
     if (nidRow.bankTransactionId) {
       await db.execute(sql`UPDATE bank_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${nidRow.bankTransactionId}`);
     }
-    if (tgtRow.apiTransactionId) {
-      await db.execute(sql`UPDATE api_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${tgtRow.apiTransactionId}`);
+    if (tgtRow.bankTransactionId) {
+      await db.execute(sql`UPDATE bank_transactions SET matchStatus='manual', matchType='manual' WHERE id = ${tgtRow.bankTransactionId}`);
     }
   }
-  const note = `Conciliada com ${tgtRow.divergenceType === "bank_shortage" ? "pagamento da API" : "NID"} #${tgtRow.id === params.targetDivergenceId ? params.targetDivergenceId : params.nidId} por ${params.createdByName}`;
   await db.execute(sql`
     UPDATE divergences
     SET status = 'regularizado',
-        actionTaken = ${`NID \u2194 pagamento conciliados manualmente por ${params.createdByName}`}
+        actionTaken = ${`${actionLabel} por ${params.createdByName}`},
+        nidReconciledAt = NOW(),
+        nidReconciledWithId = CASE
+          WHEN id = ${params.nidId} THEN ${params.targetDivergenceId}
+          ELSE ${params.nidId}
+        END,
+        nidReconciledBy = ${params.createdByName},
+        nidReconcileType = ${reconcileType}
     WHERE id IN (${params.nidId}, ${params.targetDivergenceId})
   `);
   const sessionsToUpdate = /* @__PURE__ */ new Set();
@@ -110129,7 +110154,8 @@ async function reconcileNidWithDivergence(params) {
   return {
     success: true,
     nidSessionId: nidRow.sessionId ?? void 0,
-    targetSessionId: tgtRow.sessionId ?? void 0
+    targetSessionId: tgtRow.sessionId ?? void 0,
+    reconcileType
   };
 }
 async function getNidReconcileCandidates(nidId) {
@@ -110143,13 +110169,20 @@ async function getNidReconcileCandidates(nidId) {
   const result = await db.execute(sql`
     SELECT d.id, d.sessionId, d.divergenceDate, d.amount, d.bankName, d.clientName,
            d.apiDescription, d.bankDescription, d.priority, d.status, d.divergenceType,
-           rs.referenceDate as sessionDate
+           d.transactionType,
+           rs.referenceDate as sessionDate,
+           CASE
+             WHEN d.divergenceType = 'bank_shortage' THEN 'api_payment'
+             WHEN d.divergenceType = 'bank_surplus' THEN 'bank_return'
+             ELSE 'other'
+           END as reconcileType
     FROM divergences d
     LEFT JOIN reconciliation_sessions rs ON rs.id = d.sessionId
-    WHERE d.divergenceType = 'bank_shortage'
+    WHERE d.divergenceType IN ('bank_shortage', 'bank_surplus')
       AND d.status NOT IN ('regularizado','reclassificado','baixado')
       AND CAST(d.amount AS DECIMAL(18,2)) BETWEEN ${min2} AND ${max2}
       AND d.id != ${nidId}
+      AND (d.isNdi = 0 OR d.isNdi IS NULL)
     ORDER BY ABS(DATEDIFF(d.divergenceDate, ${nid.divergenceDate})) ASC, d.divergenceDate DESC
     LIMIT 50
   `);
@@ -110160,6 +110193,7 @@ async function markDivergencesAsNid(ids, nidNote) {
   if (!db) throw new Error("DB unavailable");
   await db.execute(sql`
     UPDATE divergences SET isNdi = 1, ndiNote = ${nidNote || null},
+    nidMarkedAt = NOW(),
     status = 'em_analise', observation = CONCAT(COALESCE(observation,''), ' | NID: aguardando identificação')
     WHERE id IN (${sql.raw(ids.join(","))})
   `);

@@ -181,6 +181,69 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
                   </>
                 )}
               </div>
+
+              {/* Timeline de histórico do NID */}
+              <div className="bg-accent/5 border border-border rounded-xl p-3 space-y-2">
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Histórico</p>
+                <div className="space-y-2 text-[10px] border-l-2 border-border pl-3 ml-1">
+                  {/* Criação da divergência */}
+                  <div className="relative">
+                    <div className="absolute -left-[19px] top-0.5 w-2 h-2 rounded-full bg-muted-foreground" />
+                    <p className="text-muted-foreground">
+                      <span className="text-foreground font-medium">Divergência criada</span>
+                      {div.divergenceDate && ` · ${formatDate(div.divergenceDate)}`}
+                      {div.bankName && ` · ${div.bankName}`}
+                    </p>
+                  </div>
+                  {/* Marcado como NID */}
+                  <div className="relative">
+                    <div className="absolute -left-[19px] top-0.5 w-2 h-2 rounded-full bg-amber-500" />
+                    <p className="text-muted-foreground">
+                      <span className="text-amber-400 font-medium">Marcado como NID</span>
+                      {div.nidMarkedAt && ` · ${formatDate(div.nidMarkedAt)}`}
+                    </p>
+                  </div>
+                  {/* Identificado */}
+                  {div.nidClientName && (
+                    <div className="relative">
+                      <div className="absolute -left-[19px] top-0.5 w-2 h-2 rounded-full bg-blue-500" />
+                      <p className="text-muted-foreground">
+                        <span className="text-blue-400 font-medium">Identificado</span>
+                        {div.nidFoundDate && ` · ${formatDate(div.nidFoundDate)}`}
+                        {` · `}<span className="text-foreground">{div.nidClientName}</span>
+                        {div.responsible && ` · por ${div.responsible}`}
+                      </p>
+                    </div>
+                  )}
+                  {/* Conciliado */}
+                  {div.nidReconciledAt && (
+                    <div className="relative">
+                      <div className="absolute -left-[19px] top-0.5 w-2 h-2 rounded-full bg-emerald-500" />
+                      <p className="text-muted-foreground">
+                        <span className="text-emerald-400 font-medium">Conciliado</span>
+                        {` · ${formatDate(div.nidReconciledAt)}`}
+                        {div.nidReconcileType === 'api_payment' && (
+                          <span className="text-blue-400"> · Pagamento API</span>
+                        )}
+                        {div.nidReconcileType === 'bank_return' && (
+                          <span className="text-amber-400"> · Devolução Banco</span>
+                        )}
+                        {div.nidReconciledWithId && ` · Div. #${div.nidReconciledWithId}`}
+                        {div.nidReconciledBy && ` · por ${div.nidReconciledBy}`}
+                      </p>
+                    </div>
+                  )}
+                  {/* Pendente */}
+                  {!div.nidReconciledAt && div.status !== 'regularizado' && (
+                    <div className="relative">
+                      <div className="absolute -left-[19px] top-0.5 w-2 h-2 rounded-full bg-muted-foreground/50 animate-pulse" />
+                      <p className="text-muted-foreground italic">
+                        {isIdentified ? "Aguardando conciliação..." : "Aguardando identificação..."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
 
@@ -289,15 +352,21 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
             </div>
           )}
 
-          {/* ── TAB: RECONCILE (conciliar com pagamento — passo 2) ───────── */}
+          {/* ── TAB: RECONCILE (conciliar — passo 2) ───────── */}
           {tab === "reconcile" && (
             <div className="space-y-4">
               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-1.5 text-xs">
-                <p className="text-emerald-400 font-semibold">Passo 2: Conciliar com pagamento da API</p>
+                <p className="text-emerald-400 font-semibold">Passo 2: Conciliar com divergência existente</p>
                 <p className="text-muted-foreground">
-                  Selecione abaixo a divergência da API (de outra conciliação) que
-                  corresponde a esta NID. Ao conciliar, ambas são regularizadas e a
-                  taxa de matching sobe em duas sessões.
+                  Selecione abaixo a divergência que corresponde a esta NID.
+                  Pode ser de dois tipos:
+                </p>
+                <div className="space-y-1 text-muted-foreground mt-1.5">
+                  <p>• <span className="text-blue-400 font-medium">Pagamento API</span> — o dinheiro entrou na API dias depois (falta no banco)</p>
+                  <p>• <span className="text-amber-400 font-medium">Devolução Banco</span> — o PIX foi devolvido pelo banco (sobra no banco)</p>
+                </div>
+                <p className="text-muted-foreground mt-1.5">
+                  Ao conciliar, ambas saem da aba Divergências e ficam no histórico do NID.
                 </p>
               </div>
 
@@ -322,40 +391,57 @@ function NidSidebar({ div, onClose, onUpdate, onUnmark, onResolve, onReconcile }
                       Nenhuma divergência com este valor encontrada ainda.
                     </p>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Aguarde a próxima conciliação onde o pagamento da API chegar.
+                      Aguarde a próxima conciliação — pode aparecer como pagamento pela API
+                      ou como devolução pelo banco.
                     </p>
                   </div>
                 )}
 
                 {!loadingCandidates && candidates && candidates.length > 0 && (
                   <div className="space-y-2">
-                    {candidates.map((c: any) => (
-                      <div key={c.id} className="border border-border rounded-xl p-3 hover:border-emerald-500/30 transition-colors">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-mono text-emerald-400">
-                              R$ {parseFloat(String(c.amount)).toFixed(2)}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">
-                              Divergência #{c.id} · Sessão #{c.sessionId} · {formatDate(c.divergenceDate)}
-                            </p>
+                    {candidates.map((c: any) => {
+                      const isReturn = c.reconcileType === 'bank_return';
+                      const badgeColor = isReturn
+                        ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                        : "bg-blue-500/10 text-blue-400 border-blue-500/30";
+                      const badgeLabel = isReturn ? "Devolução Banco" : "Pagamento API";
+                      return (
+                        <div key={c.id} className={cn("border rounded-xl p-3 hover:border-emerald-500/30 transition-colors",
+                          isReturn ? "border-amber-500/20" : "border-border"
+                        )}>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className="text-xs font-mono text-emerald-400">
+                                  R$ {parseFloat(String(c.amount)).toFixed(2)}
+                                </p>
+                                <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold border", badgeColor)}>
+                                  {badgeLabel}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground">
+                                Divergência #{c.id} · Sessão #{c.sessionId} · {formatDate(c.divergenceDate)}
+                                {c.bankName && ` · ${c.bankName}`}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 gap-1"
+                              onClick={() => onReconcile(c.id)}
+                            >
+                              <CheckCircle2 className="w-3 h-3" /> Conciliar
+                            </Button>
                           </div>
-                          <Button
-                            size="sm"
-                            className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 gap-1"
-                            onClick={() => onReconcile(c.id)}
-                          >
-                            <CheckCircle2 className="w-3 h-3" /> Conciliar
-                          </Button>
+                          {(c.clientName || c.apiDescription || c.bankDescription) && (
+                            <div className="text-[10px] text-muted-foreground space-y-0.5">
+                              {c.clientName && (<p><strong className="text-foreground">{c.clientName}</strong></p>)}
+                              {c.apiDescription && (<p className="truncate">API: {c.apiDescription}</p>)}
+                              {isReturn && c.bankDescription && (<p className="truncate">Banco: {c.bankDescription}</p>)}
+                            </div>
+                          )}
                         </div>
-                        {(c.clientName || c.apiDescription) && (
-                          <div className="text-[10px] text-muted-foreground space-y-0.5">
-                            {c.clientName && (<p><strong className="text-foreground">{c.clientName}</strong></p>)}
-                            {c.apiDescription && (<p className="truncate">{c.apiDescription}</p>)}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -411,13 +497,22 @@ export default function NID() {
 
   const items = ((rawData as any) ?? []) as any[];
 
+  // Separar ativos de resolvidos
+  const RESOLVED_STATUSES = ['regularizado', 'reclassificado', 'baixado'];
+  const [statusFilter, setStatusFilter] = useState<"active" | "resolved" | "all">("active");
+
   const filtered = items.filter(d => {
     const s = search.toLowerCase();
     const matchSearch = !s || [d.bankDescription, d.clientName, d.bankName, d.externalId, d.nidNote, d.nidClientName]
       .some((v: any) => v && String(v).toLowerCase().includes(s));
     const matchPriority = priorityFilter === "all" || d.priority === priorityFilter;
-    return matchSearch && matchPriority;
+    const isResolved = RESOLVED_STATUSES.includes(d.status);
+    const matchStatus = statusFilter === "all" || (statusFilter === "active" ? !isResolved : isResolved);
+    return matchSearch && matchPriority && matchStatus;
   });
+
+  const activeCount = items.filter(d => !RESOLVED_STATUSES.includes(d.status)).length;
+  const resolvedCount = items.filter(d => RESOLVED_STATUSES.includes(d.status)).length;
 
   const totalAmount = filtered.reduce((s: number, d: any) => s + parseFloat(String(d.amount ?? 0)), 0);
   const avgDays     = filtered.length > 0 ? Math.round(filtered.reduce((s: number, d: any) => s + daysOpen(d.divergenceDate), 0) / filtered.length) : 0;
@@ -476,23 +571,43 @@ export default function NID() {
         </div>
       )}
 
-      {/* Priority filter */}
-      <div className="flex gap-1">
-        {[
-          { key: "all",      label: `Todos (${filtered.length})` },
-          { key: "critical", label: "Crítico" },
-          { key: "high",     label: "Alta" },
-          { key: "medium",   label: "Média" },
-        ].map(f => (
-          <button key={f.key} onClick={() => setPriorityFilter(f.key)}
-            className={cn("px-3 py-1 text-xs rounded-full border transition-colors",
-              priorityFilter === f.key
-                ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
-                : "text-muted-foreground border-border hover:border-orange-500/30"
-            )}>
-            {f.label}
-          </button>
-        ))}
+      {/* Status + Priority filters */}
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="flex gap-1">
+          {([
+            { key: "active",   label: `Pendentes (${activeCount})` },
+            { key: "resolved", label: `Histórico (${resolvedCount})` },
+            { key: "all",      label: "Todos" },
+          ] as const).map(f => (
+            <button key={f.key} onClick={() => setStatusFilter(f.key)}
+              className={cn("px-3 py-1 text-xs rounded-full border transition-colors",
+                statusFilter === f.key
+                  ? f.key === "resolved" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                    : "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                  : "text-muted-foreground border-border hover:border-orange-500/30"
+              )}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="h-4 w-px bg-border" />
+        <div className="flex gap-1">
+          {[
+            { key: "all",      label: `Todos` },
+            { key: "critical", label: "Crítico" },
+            { key: "high",     label: "Alta" },
+            { key: "medium",   label: "Média" },
+          ].map(f => (
+            <button key={f.key} onClick={() => setPriorityFilter(f.key)}
+              className={cn("px-3 py-1 text-xs rounded-full border transition-colors",
+                priorityFilter === f.key
+                  ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                  : "text-muted-foreground border-border hover:border-orange-500/30"
+              )}>
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* List */}
@@ -551,8 +666,27 @@ export default function NID() {
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1">
-                          {hasInvestigation && <div className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Em investigação" />}
-                          <span className="text-[10px] text-muted-foreground capitalize">{d.status ?? "pendente"}</span>
+                          {d.status === 'regularizado' ? (
+                            <>
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              {d.nidReconcileType === 'bank_return' ? (
+                                <span className="text-[10px] text-amber-400 font-medium">Devolvido</span>
+                              ) : d.nidReconcileType === 'api_payment' ? (
+                                <span className="text-[10px] text-blue-400 font-medium">Conciliado API</span>
+                              ) : (
+                                <span className="text-[10px] text-emerald-400 font-medium">Regularizado</span>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {hasInvestigation && <div className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Em investigação" />}
+                              {d.nidClientName ? (
+                                <span className="text-[10px] text-blue-400 font-medium">Identificado</span>
+                              ) : (
+                                <span className="text-[10px] text-orange-400">Pendente</span>
+                              )}
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
