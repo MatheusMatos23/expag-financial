@@ -95,8 +95,12 @@ async function processReconciliationJob(
 
     const dedicatedDebits: Array<{ tx: any; cfg: { category: string; label: string } }> = [];
     const dedicatedCredits: Array<{ tx: any; cfg: { category: string; label: string } }> = [];
+    // Diagnóstico: conta quantas transações vieram com cada COD
+    const codDistribution: Record<string, number> = {};
     const allApiTxs = allApiTxsRaw.filter(tx => {
-      const code = String(tx.accountCode ?? "").trim();
+      // Normaliza COD: remove decimais (Excel pode trazer "220.0") e espaços
+      const code = String(tx.accountCode ?? "").trim().split(".")[0].split(",")[0];
+      codDistribution[code || "(vazio)"] = (codDistribution[code || "(vazio)"] ?? 0) + 1;
       const cfg = DEDICATED_ACCOUNTS[code];
       if (!cfg) return true; // não é conta dedicada → fluxo normal
 
@@ -108,6 +112,7 @@ async function processReconciliationJob(
       }
       return false; // remove do fluxo normal de conciliação
     });
+    console.log(`[CONTA DEDICADA] Distribuição de COD:`, JSON.stringify(codDistribution));
     console.log(`[CONTA DEDICADA] ${dedicatedDebits.length} débitos → despesas, ${dedicatedCredits.length} créditos → divergências`);
 
       // Parse cada banco — parser resiliente (fallback p/ genérico se layout mudou)

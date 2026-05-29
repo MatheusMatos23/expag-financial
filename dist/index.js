@@ -134382,8 +134382,10 @@ async function processReconciliationJob(sessionId, input, ctx) {
     };
     const dedicatedDebits = [];
     const dedicatedCredits = [];
+    const codDistribution = {};
     const allApiTxs = allApiTxsRaw.filter((tx) => {
-      const code = String(tx.accountCode ?? "").trim();
+      const code = String(tx.accountCode ?? "").trim().split(".")[0].split(",")[0];
+      codDistribution[code || "(vazio)"] = (codDistribution[code || "(vazio)"] ?? 0) + 1;
       const cfg = DEDICATED_ACCOUNTS[code];
       if (!cfg) return true;
       if (tx.type === "debit") {
@@ -134393,6 +134395,7 @@ async function processReconciliationJob(sessionId, input, ctx) {
       }
       return false;
     });
+    console.log(`[CONTA DEDICADA] Distribui\xE7\xE3o de COD:`, JSON.stringify(codDistribution));
     console.log(`[CONTA DEDICADA] ${dedicatedDebits.length} d\xE9bitos \u2192 despesas, ${dedicatedCredits.length} cr\xE9ditos \u2192 diverg\xEAncias`);
     const parsedBanks = input.banks.map((b) => {
       const buffer = Buffer.from(b.fileBase64, "base64");
