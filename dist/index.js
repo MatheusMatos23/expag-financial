@@ -135398,6 +135398,40 @@ var reconciliationRouter = router({
     const sumCount = matched.count + divergent.count + internal.count + tariff.count;
     const sumVolume = matched.volume + divergent.volume + internal.volume + tariff.volume;
     const balanced = sumCount === total.count;
+    const bankRes = await dbConn.execute(s`
+        SELECT
+          bankName,
+          COUNT(*) as totalCnt,
+          COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as totalVol,
+          SUM(CASE WHEN type='credit' THEN 1 ELSE 0 END) as creditCnt,
+          COALESCE(SUM(CASE WHEN type='credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0) as creditVol,
+          SUM(CASE WHEN type='debit' THEN 1 ELSE 0 END) as debitCnt,
+          COALESCE(SUM(CASE WHEN type='debit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0) as debitVol,
+          SUM(CASE WHEN matchStatus IN ('matched','manual') THEN 1 ELSE 0 END) as matchedCnt,
+          COALESCE(SUM(CASE WHEN matchStatus IN ('matched','manual') THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0) as matchedVol,
+          SUM(CASE WHEN matchStatus = 'divergent' THEN 1 ELSE 0 END) as divergentCnt,
+          COALESCE(SUM(CASE WHEN matchStatus = 'divergent' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0) as divergentVol
+        FROM bank_transactions
+        WHERE sessionId = ${input.sessionId}
+        GROUP BY bankName
+        ORDER BY totalVol DESC
+      `);
+    const banks = (bankRes[0] ?? []).map((b) => {
+      const totalCnt = parseInt(String(b.totalCnt ?? 0));
+      const matchedCnt = parseInt(String(b.matchedCnt ?? 0));
+      const divergentCnt = parseInt(String(b.divergentCnt ?? 0));
+      return {
+        bankName: String(b.bankName ?? "\u2014"),
+        total: { count: totalCnt, volume: parseFloat(String(b.totalVol ?? 0)) },
+        credits: { count: parseInt(String(b.creditCnt ?? 0)), volume: parseFloat(String(b.creditVol ?? 0)) },
+        debits: { count: parseInt(String(b.debitCnt ?? 0)), volume: parseFloat(String(b.debitVol ?? 0)) },
+        matched: { count: matchedCnt, volume: parseFloat(String(b.matchedVol ?? 0)) },
+        divergent: { count: divergentCnt, volume: parseFloat(String(b.divergentVol ?? 0)) },
+        // Conferência: créditos + débitos = total | Decomposição: conciliado + divergente = total
+        balanced: matchedCnt + divergentCnt === totalCnt,
+        matchRate: totalCnt > 0 ? Math.round(matchedCnt / totalCnt * 100) : 0
+      };
+    });
     return {
       total,
       matched,
@@ -135406,7 +135440,8 @@ var reconciliationRouter = router({
       tariff,
       sumCount,
       sumVolume,
-      balanced
+      balanced,
+      banks
     };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────

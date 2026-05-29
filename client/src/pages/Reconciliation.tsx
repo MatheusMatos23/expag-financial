@@ -131,6 +131,69 @@ function BalanceBar({ bankVal, apiVal, label }: { bankVal: number; apiVal: numbe
 
 // ── Session Detail ────────────────────────────────────────────────────────────
 
+function BankClosureCard({ bank }: { bank: any }) {
+  const rateColor = bank.matchRate >= 95 ? "text-emerald-400"
+    : bank.matchRate >= 80 ? "text-amber-400" : "text-red-400";
+  return (
+    <div className="card-premium rounded-xl p-4 space-y-3">
+      {/* Cabeçalho: nome + taxa */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-blue-400" />
+          <p className="text-sm font-semibold text-foreground">{bank.bankName}</p>
+        </div>
+        <span className={cn("text-xs font-bold font-mono", rateColor)}>{bank.matchRate}%</span>
+      </div>
+
+      {/* Conferência: Créditos + Débitos = Total */}
+      <div className="space-y-1.5">
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Conferência (entradas e saídas)</p>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-emerald-400">↑ Créditos ({bank.credits.count})</span>
+          <span className="font-mono text-emerald-400">{formatCurrency(bank.credits.volume)}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-red-400">↓ Débitos ({bank.debits.count})</span>
+          <span className="font-mono text-red-400">{formatCurrency(bank.debits.volume)}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs pt-1 border-t border-border">
+          <span className="text-muted-foreground font-medium">Total ({bank.total.count})</span>
+          <span className="font-mono font-semibold text-foreground">{formatCurrency(bank.total.volume)}</span>
+        </div>
+      </div>
+
+      {/* Decomposição: Conciliado + Divergente */}
+      <div className="space-y-1.5 pt-1">
+        <div className="flex items-center justify-between">
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Decomposição</p>
+          {bank.balanced ? (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-emerald-400">
+              <CheckCircle className="w-2.5 h-2.5" /> bate
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-amber-400">
+              <AlertTriangle className="w-2.5 h-2.5" /> conferir
+            </span>
+          )}
+        </div>
+        {/* Barra visual */}
+        <div className="flex h-2 rounded-full overflow-hidden bg-accent/20">
+          <div className="bg-emerald-500" style={{ width: `${bank.total.count > 0 ? (bank.matched.count / bank.total.count) * 100 : 0}%` }} />
+          <div className="bg-yellow-500" style={{ width: `${bank.total.count > 0 ? (bank.divergent.count / bank.total.count) * 100 : 0}%` }} />
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-emerald-400">✓ Conciliado ({bank.matched.count})</span>
+          <span className="font-mono text-emerald-400">{formatCurrency(bank.matched.volume)}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-yellow-400">⚠ Divergente ({bank.divergent.count})</span>
+          <span className="font-mono text-yellow-400">{formatCurrency(bank.divergent.volume)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClosurePart({ label, count, volume, color, bold }: {
   label: string; count: number; volume: number; color: string; bold?: boolean;
 }) {
@@ -319,6 +382,18 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
             <ClosurePart label="Transferências" count={closure.internal.count} volume={closure.internal.volume} color="text-cyan-400" />
             <span className="text-muted-foreground">+</span>
             <ClosurePart label="Tarifas" count={closure.tariff.count} volume={closure.tariff.volume} color="text-purple-400" />
+          </div>
+        </div>
+      )}
+
+      {/* Conferência por Banco */}
+      {closure && closure.banks && closure.banks.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-foreground uppercase tracking-wider px-1">Conferência por Banco</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {closure.banks.map((b: any) => (
+              <BankClosureCard key={b.bankName} bank={b} />
+            ))}
           </div>
         </div>
       )}
