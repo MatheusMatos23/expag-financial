@@ -209,7 +209,7 @@ function ClosurePart({ label, count, volume, color, bold }: {
 function SessionDetail({ sessionId, onBack, onDelete }: {
   sessionId: number; onBack: () => void; onDelete: () => void;
 }) {
-  const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs"|"transferencias">("divs");
+  const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs"|"transferencias"|"boletos">("divs");
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionTransactions.useQuery({ id: sessionId });
   const { data: closure } = trpc.reconciliation.getSessionClosure.useQuery({ sessionId });
 
@@ -251,7 +251,8 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
 
   // Transferências internas (channel especial) — separadas das demais API txs
   const internalTransfers = (apiTxs ?? []).filter((t: any) => t.channel === "TRANSFERENCIA_INTERNA");
-  const apiTxsNormal = (apiTxs ?? []).filter((t: any) => t.channel !== "TRANSFERENCIA_INTERNA");
+  const boletoDeposits = (apiTxs ?? []).filter((t: any) => t.channel === "DEPOSITO_BOLETO");
+  const apiTxsNormal = (apiTxs ?? []).filter((t: any) => t.channel !== "TRANSFERENCIA_INTERNA" && t.channel !== "DEPOSITO_BOLETO");
 
   // ── Valores live (fonte de verdade: getSessionStats) ────────────────────────
   // getSessionStats faz COUNT real no banco (bank_transactions com matchStatus
@@ -297,6 +298,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
     { key: "divs",          label: "Divergências",          count: (divs ?? []).length,        color: "text-yellow-400" },
     { key: "conciliados",   label: "✓ Conciliados",         count: liveMatchedCount,           color: "text-emerald-400" },
     { key: "transferencias",label: "⇄ Transferências",      count: internalTransfers.length,   color: "text-cyan-400" },
+    { key: "boletos",       label: "🧾 Dep. Boleto",         count: boletoDeposits.length,      color: "text-fuchsia-400" },
     { key: "banco",         label: "Transações Banco",      count: (bankTxs ?? []).length,     color: "text-blue-400" },
     { key: "api",           label: "Transações API",        count: apiTxsNormal.length,        color: "text-purple-400" },
   ] as const;
@@ -380,6 +382,8 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
             <ClosurePart label="Divergências" count={closure.divergent.count} volume={closure.divergent.volume} color="text-yellow-400" />
             <span className="text-muted-foreground">+</span>
             <ClosurePart label="Transferências" count={closure.internal.count} volume={closure.internal.volume} color="text-cyan-400" />
+            <span className="text-muted-foreground">+</span>
+            <ClosurePart label="Dep. Boleto" count={closure.boleto?.count ?? 0} volume={closure.boleto?.volume ?? 0} color="text-fuchsia-400" />
             <span className="text-muted-foreground">+</span>
             <ClosurePart label="Tarifas" count={closure.tariff.count} volume={closure.tariff.volume} color="text-purple-400" />
           </div>
@@ -665,6 +669,45 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                       <td className="px-3 py-2 max-w-[160px] truncate text-muted-foreground" title={t.clientName ?? ""}>{t.clientName ?? "—"}</td>
                       <td className="px-3 py-2 max-w-[220px] truncate" title={t.description ?? ""}>{t.description ?? "—"}</td>
                       <td className={cn("px-3 py-2 font-mono font-semibold whitespace-nowrap", t.type === "credit" ? "text-cyan-400" : "text-orange-400")}>
+                        {t.type === "credit" ? "+" : "-"}{formatCurrency(t.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Depósito por Boleto — movimento interno da API (sem par no banco) */}
+          {tab === "boletos" && (
+            <div>
+              <div className="bg-fuchsia-500/5 border-b border-fuchsia-500/20 px-4 py-3 text-xs text-muted-foreground">
+                <span className="text-fuchsia-400 font-medium">Depósitos por boleto.</span>{" "}
+                São movimento interno da API — não têm par no extrato bancário, não conciliam e não viram divergência.
+                Aparecem aqui só para bater valores e consultas.
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-accent/10">
+                    {["Data","C/D","Cliente","Descrição","Valor"].map(c => (
+                      <th key={c} className="text-left px-3 py-2.5 text-muted-foreground font-medium whitespace-nowrap">{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {boletoDeposits.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">Nenhum depósito por boleto nesta sessão.</td></tr>
+                  ) : boletoDeposits.slice(0, 500).map((t: any, i: number) => (
+                    <tr key={i} className="hover:bg-accent/20">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={cn("font-bold text-xs", t.type === "credit" ? "text-fuchsia-400" : "text-orange-400")}>
+                          {t.type === "credit" ? "C" : "D"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 max-w-[160px] truncate text-muted-foreground" title={t.clientName ?? ""}>{t.clientName ?? "—"}</td>
+                      <td className="px-3 py-2 max-w-[220px] truncate" title={t.description ?? ""}>{t.description ?? "—"}</td>
+                      <td className={cn("px-3 py-2 font-mono font-semibold whitespace-nowrap", t.type === "credit" ? "text-fuchsia-400" : "text-orange-400")}>
                         {t.type === "credit" ? "+" : "-"}{formatCurrency(t.amount)}
                       </td>
                     </tr>

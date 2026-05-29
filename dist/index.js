@@ -134247,6 +134247,9 @@ var TARIFF_OPERATIONS = /* @__PURE__ */ new Set([
 var INTERNAL_OPERATIONS = /* @__PURE__ */ new Set([
   "TRANSFER\xCANCIA ENTRE CONTAS"
 ]);
+var BOLETO_DEPOSIT_OPERATIONS = /* @__PURE__ */ new Set([
+  "DEP\xD3SITO POR BOLETO"
+]);
 function parseAPI(buffer) {
   const wb = XLSX2.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -134280,6 +134283,7 @@ function parseAPI(buffer) {
     if (isRejected) continue;
     const isTariff = TARIFF_OPERATIONS.has(op);
     const isInternal = INTERNAL_OPERATIONS.has(op);
+    const isBoletoDeposit = BOLETO_DEPOSIT_OPERATIONS.has(op);
     const isE2E = /^E[A-Z0-9]{28,}$/i.test(auth);
     const authNorm = auth.startsWith("D_") ? auth.slice(2) : auth;
     const externalId = isE2E ? auth : isEstorno && authNorm ? authNorm : void 0;
@@ -134294,6 +134298,7 @@ function parseAPI(buffer) {
       clientName,
       isTariff,
       isInternal,
+      isBoletoDeposit,
       isEstorno,
       apiStatus,
       accountCode
@@ -134485,13 +134490,16 @@ async function processReconciliationJob(sessionId, input, ctx) {
       })
     }));
     const apiTxsForEngine = allApiTxs.filter(
-      (t2) => bankDates.has(t2.date) && !t2.isInternal && !t2.isTariff
+      (t2) => bankDates.has(t2.date) && !t2.isInternal && !t2.isTariff && !t2.isBoletoDeposit
     );
     const apiTariffTxs = allApiTxs.filter(
-      (t2) => bankDates.has(t2.date) && !t2.isInternal && t2.isTariff
+      (t2) => bankDates.has(t2.date) && !t2.isInternal && t2.isTariff && !t2.isBoletoDeposit
     );
     const apiInternalTxs = allApiTxs.filter(
-      (t2) => bankDates.has(t2.date) && t2.isInternal && !t2.isTariff
+      (t2) => bankDates.has(t2.date) && t2.isInternal && !t2.isTariff && !t2.isBoletoDeposit
+    );
+    const apiBoletoTxs = allApiTxs.filter(
+      (t2) => bankDates.has(t2.date) && t2.isBoletoDeposit
     );
     const apiTxs = apiTxsForEngine;
     const { reconcileMultiBank: reconcileMultiBank2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
@@ -134574,6 +134582,19 @@ async function processReconciliationJob(sessionId, input, ctx) {
         description: tx.description,
         amount: tx.amount.toFixed(2),
         channel: "TRANSFERENCIA_INTERNA",
+        clientName: tx.clientName,
+        externalId: tx.externalId,
+        matchStatus: "manual"
+      });
+    }
+    for (const tx of apiBoletoTxs) {
+      apiRows.push({
+        sessionId,
+        type: tx.type,
+        transactionDate: tx.date,
+        description: tx.description,
+        amount: tx.amount.toFixed(2),
+        channel: "DEPOSITO_BOLETO",
         clientName: tx.clientName,
         externalId: tx.externalId,
         matchStatus: "manual"
@@ -135374,7 +135395,7 @@ var reconciliationRouter = router({
     const dbConn = await getDb();
     if (!dbConn) return null;
     const { sql: s } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
-    const [totalRes, matchedRes, divergentRes, internalRes, tariffRes] = await Promise.all([
+    const [totalRes, matchedRes, divergentRes, internalRes, boletoRes, tariffRes] = await Promise.all([
       // Total de transações API da sessão
       dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId}`),
       // Conciliadas (matched) — exclui transferências e tarifas
@@ -135383,8 +135404,10 @@ var reconciliationRouter = router({
       dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'divergent'`),
       // Transferências internas
       dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND channel = 'TRANSFERENCIA_INTERNA'`),
-      // Tarifas (manual mas não transferência)
-      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'manual' AND (channel IS NULL OR channel != 'TRANSFERENCIA_INTERNA')`)
+      // Depósitos por boleto
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND channel = 'DEPOSITO_BOLETO'`),
+      // Tarifas (manual mas não transferência nem boleto)
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'manual' AND (channel IS NULL OR channel NOT IN ('TRANSFERENCIA_INTERNA','DEPOSITO_BOLETO'))`)
     ]);
     const parse3 = (r) => ({
       count: parseInt(String(r[0]?.[0]?.cnt ?? 0)),
@@ -135394,9 +135417,10 @@ var reconciliationRouter = router({
     const matched = parse3(matchedRes);
     const divergent = parse3(divergentRes);
     const internal = parse3(internalRes);
+    const boleto = parse3(boletoRes);
     const tariff = parse3(tariffRes);
-    const sumCount = matched.count + divergent.count + internal.count + tariff.count;
-    const sumVolume = matched.volume + divergent.volume + internal.volume + tariff.volume;
+    const sumCount = matched.count + divergent.count + internal.count + boleto.count + tariff.count;
+    const sumVolume = matched.volume + divergent.volume + internal.volume + boleto.volume + tariff.volume;
     const balanced = sumCount === total.count;
     const bankRes = await dbConn.execute(s`
         SELECT
@@ -135437,6 +135461,7 @@ var reconciliationRouter = router({
       matched,
       divergent,
       internal,
+      boleto,
       tariff,
       sumCount,
       sumVolume,

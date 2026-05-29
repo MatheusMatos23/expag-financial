@@ -22,6 +22,8 @@ export interface ParsedTransaction {
   timeStr?: string;
   /** COD da conta (coluna 0 do extrato API) — usado para regras de conta dedicada */
   accountCode?: string;
+  /** true → depósito por boleto: movimento interno da API, não tem par no banco */
+  isBoletoDeposit?: boolean;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -414,6 +416,12 @@ const INTERNAL_OPERATIONS = new Set([
   "TRANSFERÊNCIA ENTRE CONTAS",
 ]);
 
+// Operações de depósito que são movimento interno da API (não têm par no
+// banco). Aparecem na aba própria para bater valor, mas não viram divergência.
+const BOLETO_DEPOSIT_OPERATIONS = new Set([
+  "DEPÓSITO POR BOLETO",
+]);
+
 export function parseAPI(buffer: Buffer): ParsedTransaction[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -460,6 +468,7 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
 
     const isTariff   = TARIFF_OPERATIONS.has(op);
     const isInternal = INTERNAL_OPERATIONS.has(op);
+    const isBoletoDeposit = BOLETO_DEPOSIT_OPERATIONS.has(op);
 
     // END2END: apenas IDs que começam com E + 28+ chars (sem hífens)
     const isE2E = /^E[A-Z0-9]{28,}$/i.test(auth);
@@ -478,6 +487,7 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
       clientName,
       isTariff,
       isInternal,
+      isBoletoDeposit,
       isEstorno,
       apiStatus,
       accountCode,
