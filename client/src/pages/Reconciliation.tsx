@@ -685,7 +685,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function Reconciliation() {
-  const [referenceDate, setReferenceDate] = useState(new Date().toISOString().split("T")[0]);
+  const [referenceDate, setReferenceDate] = useState("");
   const [apiFile, setApiFile] = useState<File | null>(null);
   const [bankFiles, setBankFiles] = useState<Record<string, File | null>>({ jd: null, sicoob: null, bb: null });
   const [customBanks, setCustomBanks] = useState<CustomBank[]>([]);
@@ -743,7 +743,23 @@ export default function Reconciliation() {
     if (totalBanks === 0) { toast.error("Selecione ao menos 1 extrato bancário."); return; }
     if (totalBanks > 8) { toast.error("Máximo de 8 bancos por conciliação."); return; }
     if (!apiFile) { toast.error("Selecione o arquivo API Clientes."); return; }
-    if (!referenceDate) { toast.error("Informe a data de referência."); return; }
+    if (!referenceDate) {
+      toast.error("Informe a data de referência antes de conciliar.");
+      return;
+    }
+    // Aviso quando a data de referência é hoje — caso comum de esquecimento.
+    // O usuário às vezes concilia dados de um período passado mas deixa a data
+    // como hoje sem perceber. Pede confirmação explícita.
+    const today = new Date().toISOString().split("T")[0];
+    if (referenceDate === today) {
+      const ok = window.confirm(
+        `A data de referência está como HOJE (${formatDate(referenceDate)}).\n\n` +
+        `Confirme que os dados que você está importando são realmente desta data. ` +
+        `Se forem de outro período, cancele e ajuste a data primeiro.\n\n` +
+        `Deseja continuar com a data de hoje?`
+      );
+      if (!ok) return;
+    }
     // Valida nomes de bancos personalizados
     const customWithoutName = customBanks.filter(b => b.file && !b.name.trim());
     if (customWithoutName.length > 0) { toast.error("Dê um nome a todos os bancos adicionados."); return; }
@@ -836,8 +852,20 @@ export default function Reconciliation() {
           </div>
           <div className="flex items-end gap-4">
             <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Data de Referência *</Label>
-              <Input type="date" value={referenceDate} onChange={e => setReferenceDate(e.target.value)} className="h-9 text-xs w-44" />
+              <Label className="text-xs text-muted-foreground mb-1.5 block">
+                Data de Referência <span className="text-red-400">*</span>
+              </Label>
+              <Input type="date" value={referenceDate} onChange={e => setReferenceDate(e.target.value)}
+                className={cn("h-9 text-xs w-44", !referenceDate && "border-amber-500/50 ring-1 ring-amber-500/30")} />
+              {!referenceDate ? (
+                <p className="text-[10px] text-amber-400 mt-1 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Escolha a data do período que está importando
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Período de referência: {formatDate(referenceDate)}
+                </p>
+              )}
             </div>
           </div>
           <div>
@@ -920,7 +948,7 @@ export default function Reconciliation() {
             </div>
           )}
           <Button onClick={handleRun}
-            disabled={!apiFile || (Object.values(bankFiles).every(f => !f) && customBanks.every(b => !b.file)) || reconcileMutation.isPending}
+            disabled={!referenceDate || !apiFile || (Object.values(bankFiles).every(f => !f) && customBanks.every(b => !b.file)) || reconcileMutation.isPending}
             className="w-full gap-2">
             {reconcileMutation.isPending
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processando...</>
