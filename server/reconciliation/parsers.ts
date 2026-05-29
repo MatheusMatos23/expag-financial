@@ -20,6 +20,8 @@ export interface ParsedTransaction {
   apiStatus?: string;
   /** Hora/minuto da transação para matching de estornos */
   timeStr?: string;
+  /** COD da conta (coluna 0 do extrato API) — usado para regras de conta dedicada */
+  accountCode?: string;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -399,6 +401,7 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
     const descRaw    = String(row[10] ?? "").trim();
     const clientName = String(row[2]  ?? "").trim() || undefined;
     const apiStatus  = String(row[16] ?? "").trim().toUpperCase();
+    const accountCode = String(row[0] ?? "").trim() || undefined; // COD da conta
 
     // STATUS: filtros
     const isRejected = apiStatus === "REJEITADO" || apiStatus === "CANCELADO";
@@ -429,6 +432,7 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
       isInternal,
       isEstorno,
       apiStatus,
+      accountCode,
     });
   }
 

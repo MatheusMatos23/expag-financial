@@ -76,7 +76,39 @@ async function processReconciliationJob(
   const t0 = Date.now();
   try {
     const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
-    const allApiTxs = parseStatement(apiBuffer, "api");
+    const allApiTxsRaw = parseStatement(apiBuffer, "api");
+
+    // ── CONTAS DEDICADAS (COD 220/221) ──────────────────────────────────────
+    // Regra de negócio: certas contas da API são usadas SÓ para pagamento.
+    // Tudo que SAI (débito) dessas contas é despesa direta — não entra na
+    // conciliação. Tudo que ENTRA (crédito) é inesperado → vira divergência
+    // para o usuário justificar.
+    //
+    // COD 220 → Despesas Gerais (categoria operacional)
+    // COD 221 → Folha de Pagamento (categoria folha)
+    //
+    // (Futuramente isso vira uma tela de configuração — por ora chumbado.)
+    const DEDICATED_ACCOUNTS: Record<string, { category: string; label: string }> = {
+      "220": { category: "operacional", label: "Despesas Gerais" },
+      "221": { category: "folha",       label: "Folha de Pagamento" },
+    };
+
+    const dedicatedDebits: Array<{ tx: any; cfg: { category: string; label: string } }> = [];
+    const dedicatedCredits: Array<{ tx: any; cfg: { category: string; label: string } }> = [];
+    const allApiTxs = allApiTxsRaw.filter(tx => {
+      const code = String(tx.accountCode ?? "").trim();
+      const cfg = DEDICATED_ACCOUNTS[code];
+      if (!cfg) return true; // não é conta dedicada → fluxo normal
+
+      // É conta dedicada — separa do fluxo de conciliação
+      if (tx.type === "debit") {
+        dedicatedDebits.push({ tx, cfg });
+      } else {
+        dedicatedCredits.push({ tx, cfg });
+      }
+      return false; // remove do fluxo normal de conciliação
+    });
+    console.log(`[CONTA DEDICADA] ${dedicatedDebits.length} débitos → despesas, ${dedicatedCredits.length} créditos → divergências`);
 
       // Parse cada banco — parser resiliente (fallback p/ genérico se layout mudou)
       const parsedBanks = input.banks.map(b => {
@@ -343,6 +375,44 @@ async function processReconciliationJob(
       }));
       await db.insertExpensesBatch(tariffExpenseRows);
       autoDespesaCount = tariffExpenseRows.length;
+
+      // ── CONTAS DEDICADAS (COD 220/221) → despesas + divergências ────────────
+      // Débitos viram despesas direto. Créditos viram divergências (entrada
+      // inesperada numa conta de pagamento → usuário precisa justificar).
+      if (dbConn) {
+        try { await dbConn.execute(sql`DELETE FROM expenses WHERE sessionId = ${sessionId} AND origin = 'auto_conta_dedicada'`); } catch {}
+      }
+      const dedicatedExpenseRows = dedicatedDebits.map(({ tx, cfg }) => ({
+        referenceDate: tx.date,
+        category: cfg.category,
+        subcategory: cfg.label,
+        description: tx.description || `${cfg.label} — ${tx.clientName ?? "conta dedicada"}`,
+        amount: tx.amount.toFixed(2),
+        supplier: tx.clientName ?? undefined,
+        sessionId,
+        origin: "auto_conta_dedicada",
+        createdByName: "Conta Dedicada (automático)",
+      }));
+      if (dedicatedExpenseRows.length > 0) {
+        await db.insertExpensesBatch(dedicatedExpenseRows);
+        autoDespesaCount += dedicatedExpenseRows.length;
+      }
+      for (const { tx, cfg } of dedicatedCredits) {
+        divRows.push({
+          sessionId, divergenceDate: tx.date,
+          bankName: "API",
+          clientName: tx.clientName,
+          divergenceType: "bank_shortage",
+          amount: tx.amount.toFixed(2),
+          apiAmount: tx.amount.toFixed(2),
+          externalId: tx.externalId,
+          apiDescription: tx.description,
+          category: "outros",
+          priority: "high",
+          transactionType: tx.type,
+          observation: `Crédito inesperado na conta dedicada de ${cfg.label} (COD ${tx.accountCode}) — justifique a entrada.`,
+        });
+      }
 
       // ── BATCH: tarifas API → receitas (pré-separadas antes do engine) ─────────
       // result.unmatchedApi já não contém tarifas (filtradas em apiTxsForEngine)

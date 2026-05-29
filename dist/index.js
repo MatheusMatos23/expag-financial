@@ -134252,6 +134252,7 @@ function parseAPI(buffer) {
     const descRaw = String(row[10] ?? "").trim();
     const clientName = String(row[2] ?? "").trim() || void 0;
     const apiStatus = String(row[16] ?? "").trim().toUpperCase();
+    const accountCode = String(row[0] ?? "").trim() || void 0;
     const isRejected = apiStatus === "REJEITADO" || apiStatus === "CANCELADO";
     const isEstorno = apiStatus === "ESTORNADO";
     if (isRejected) continue;
@@ -134272,7 +134273,8 @@ function parseAPI(buffer) {
       isTariff,
       isInternal,
       isEstorno,
-      apiStatus
+      apiStatus,
+      accountCode
     });
   }
   const estornos = results.filter((t2) => t2.isEstorno);
@@ -134373,7 +134375,25 @@ async function processReconciliationJob(sessionId, input, ctx) {
   const t0 = Date.now();
   try {
     const apiBuffer = Buffer.from(input.apiFileBase64, "base64");
-    const allApiTxs = parseStatement(apiBuffer, "api");
+    const allApiTxsRaw = parseStatement(apiBuffer, "api");
+    const DEDICATED_ACCOUNTS = {
+      "220": { category: "operacional", label: "Despesas Gerais" },
+      "221": { category: "folha", label: "Folha de Pagamento" }
+    };
+    const dedicatedDebits = [];
+    const dedicatedCredits = [];
+    const allApiTxs = allApiTxsRaw.filter((tx) => {
+      const code = String(tx.accountCode ?? "").trim();
+      const cfg = DEDICATED_ACCOUNTS[code];
+      if (!cfg) return true;
+      if (tx.type === "debit") {
+        dedicatedDebits.push({ tx, cfg });
+      } else {
+        dedicatedCredits.push({ tx, cfg });
+      }
+      return false;
+    });
+    console.log(`[CONTA DEDICADA] ${dedicatedDebits.length} d\xE9bitos \u2192 despesas, ${dedicatedCredits.length} cr\xE9ditos \u2192 diverg\xEAncias`);
     const parsedBanks = input.banks.map((b) => {
       const buffer = Buffer.from(b.fileBase64, "base64");
       const txs = parseStatementResilient(buffer, b.parserType);
@@ -134619,6 +134639,44 @@ async function processReconciliationJob(sessionId, input, ctx) {
     }));
     await insertExpensesBatch(tariffExpenseRows);
     autoDespesaCount = tariffExpenseRows.length;
+    if (dbConn) {
+      try {
+        await dbConn.execute(sql`DELETE FROM expenses WHERE sessionId = ${sessionId} AND origin = 'auto_conta_dedicada'`);
+      } catch {
+      }
+    }
+    const dedicatedExpenseRows = dedicatedDebits.map(({ tx, cfg }) => ({
+      referenceDate: tx.date,
+      category: cfg.category,
+      subcategory: cfg.label,
+      description: tx.description || `${cfg.label} \u2014 ${tx.clientName ?? "conta dedicada"}`,
+      amount: tx.amount.toFixed(2),
+      supplier: tx.clientName ?? void 0,
+      sessionId,
+      origin: "auto_conta_dedicada",
+      createdByName: "Conta Dedicada (autom\xE1tico)"
+    }));
+    if (dedicatedExpenseRows.length > 0) {
+      await insertExpensesBatch(dedicatedExpenseRows);
+      autoDespesaCount += dedicatedExpenseRows.length;
+    }
+    for (const { tx, cfg } of dedicatedCredits) {
+      divRows.push({
+        sessionId,
+        divergenceDate: tx.date,
+        bankName: "API",
+        clientName: tx.clientName,
+        divergenceType: "bank_shortage",
+        amount: tx.amount.toFixed(2),
+        apiAmount: tx.amount.toFixed(2),
+        externalId: tx.externalId,
+        apiDescription: tx.description,
+        category: "outros",
+        priority: "high",
+        transactionType: tx.type,
+        observation: `Cr\xE9dito inesperado na conta dedicada de ${cfg.label} (COD ${tx.accountCode}) \u2014 justifique a entrada.`
+      });
+    }
     const tariffRevRows = apiTariffTxs.map((tx) => ({
       referenceDate: tx.date,
       type: "receita_operacional",
