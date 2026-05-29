@@ -131,6 +131,10 @@ export default function Controladoria() {
   const divValue  = data?.divValue      ?? 0;
   const divCount  = data?.divCount      ?? 0;
 
+  // Período sem nenhum lançamento — mostra aviso em vez de só zeros,
+  // para o usuário não achar que o sistema está quebrado.
+  const isEmpty = !isLoading && totalRev === 0 && totalExp === 0 && divCount === 0;
+
   return (
     <div className="space-y-6">
 
@@ -161,6 +165,34 @@ export default function Controladoria() {
           </Button>
         </div>
       </div>
+
+      {/* Aviso de período sem dados */}
+      {isEmpty && (
+        <div className="card-premium rounded-2xl p-6 border border-amber-500/20 bg-amber-500/5">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+              <Calendar className="w-4.5 h-4.5 text-amber-400" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-foreground">Nenhum lançamento neste período</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Não há receitas, despesas ou divergências entre {fmtDate(dateFrom)} e {fmtDate(dateTo)}.
+                Tente ampliar o intervalo — seus dados podem estar em outra data.
+              </p>
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                {PERIODS.map((p, i) => (
+                  i !== periodIdx && (
+                    <button key={p.label} onClick={() => setPeriodIdx(i)}
+                      className="px-3 py-1.5 text-xs rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors font-medium">
+                      Ver {p.label}
+                    </button>
+                  )
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
