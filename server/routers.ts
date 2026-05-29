@@ -112,7 +112,7 @@ async function processReconciliationJob(
       }
       return false; // remove do fluxo normal de conciliação
     });
-    console.log(`[CONTA DEDICADA] Distribuição de COD:`, JSON.stringify(codDistribution));
+    console.log(`[CONTA DEDICADA] CODs no arquivo:`, JSON.stringify(codDistribution));
     console.log(`[CONTA DEDICADA] ${dedicatedDebits.length} débitos → despesas, ${dedicatedCredits.length} créditos → divergências`);
 
       // Parse cada banco — parser resiliente (fallback p/ genérico se layout mudou)

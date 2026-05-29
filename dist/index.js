@@ -134020,6 +134020,26 @@ function parseBRNumber(raw) {
   const n = parseFloat(s.replace(/\./g, "").replace(",", "."));
   return isNaN(n) ? 0 : Math.abs(n);
 }
+function parseMoneyFlexible(raw) {
+  if (raw == null) return { value: 0, isNegative: false };
+  let s = String(raw).replace(/\u00a0/g, "").replace(/r\$/gi, "").replace(/\s/g, "").replace(/\s*[CD]$/i, "").trim();
+  const isNegative = /^-/.test(s) || /\(/.test(s);
+  s = s.replace(/[()]/g, "").replace(/^[+-]/, "");
+  s = s.replace(/[^\d.,]/g, "");
+  if (!s) return { value: 0, isNegative };
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+  let normalized;
+  if (lastDot === -1 && lastComma === -1) {
+    normalized = s;
+  } else if (lastComma > lastDot) {
+    normalized = s.replace(/\./g, "").replace(",", ".");
+  } else {
+    normalized = s.replace(/,/g, "");
+  }
+  const n = parseFloat(normalized);
+  return { value: isNaN(n) ? 0 : Math.abs(n), isNegative };
+}
 function parseJSDate(val) {
   if (!val) return "";
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -134196,8 +134216,9 @@ function parseJD(buffer) {
     const row = rows[i];
     const op = String(row[3] ?? "").toLowerCase().trim();
     if (op !== "credito" && op !== "debito") continue;
-    const val = parseFloat(String(row[4] ?? "0"));
-    if (isNaN(val) || val === 0) continue;
+    const parsedVal4 = parseMoneyFlexible(row[4]);
+    const val = parsedVal4.isNegative ? -parsedVal4.value : parsedVal4.value;
+    if (val === 0) continue;
     const dateStr = parseJSDate(row[6]);
     if (!dateStr || dateStr < "2020-01-01") continue;
     const e2e = String(row[2] ?? "").trim().replace(/^'/, "");
@@ -134241,8 +134262,9 @@ function parseAPI(buffer) {
   if (headerIdx < 0) return results;
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
-    const valRaw = parseFloat(String(row[8] ?? "0").replace(",", "."));
-    if (isNaN(valRaw) || valRaw === 0) continue;
+    const parsedMoney = parseMoneyFlexible(row[8]);
+    const valRaw = parsedMoney.isNegative ? -parsedMoney.value : parsedMoney.value;
+    if (valRaw === 0) continue;
     const dateTimeStr = String(row[7] ?? "").trim();
     const [datePart, timePart] = dateTimeStr.split(" ");
     const dateStr = parseBRDate(datePart ?? "");
