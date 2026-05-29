@@ -134417,7 +134417,7 @@ async function processReconciliationJob(sessionId, input, ctx) {
       }
       return false;
     });
-    console.log(`[CONTA DEDICADA] Distribui\xE7\xE3o de COD:`, JSON.stringify(codDistribution));
+    console.log(`[CONTA DEDICADA] CODs no arquivo:`, JSON.stringify(codDistribution));
     console.log(`[CONTA DEDICADA] ${dedicatedDebits.length} d\xE9bitos \u2192 despesas, ${dedicatedCredits.length} cr\xE9ditos \u2192 diverg\xEAncias`);
     const parsedBanks = input.banks.map((b) => {
       const buffer = Buffer.from(b.fileBase64, "base64");
@@ -134490,6 +134490,9 @@ async function processReconciliationJob(sessionId, input, ctx) {
     const apiTariffTxs = allApiTxs.filter(
       (t2) => bankDates.has(t2.date) && !t2.isInternal && t2.isTariff
     );
+    const apiInternalTxs = allApiTxs.filter(
+      (t2) => bankDates.has(t2.date) && t2.isInternal && !t2.isTariff
+    );
     const apiTxs = apiTxsForEngine;
     const { reconcileMultiBank: reconcileMultiBank2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const result = reconcileMultiBank2(parsedBanksClean, apiTxs);
@@ -134558,6 +134561,19 @@ async function processReconciliationJob(sessionId, input, ctx) {
         description: tx.description,
         amount: tx.amount.toFixed(2),
         channel: tx.channel,
+        clientName: tx.clientName,
+        externalId: tx.externalId,
+        matchStatus: "manual"
+      });
+    }
+    for (const tx of apiInternalTxs) {
+      apiRows.push({
+        sessionId,
+        type: tx.type,
+        transactionDate: tx.date,
+        description: tx.description,
+        amount: tx.amount.toFixed(2),
+        channel: "TRANSFERENCIA_INTERNA",
         clientName: tx.clientName,
         externalId: tx.externalId,
         matchStatus: "manual"
@@ -135349,6 +135365,48 @@ var reconciliationRouter = router({
       // Legacy (mantido para compatibilidade com ReconciliationSession.tsx)
       pendingCount: pendingDivs,
       divergentCount: unmatchedBankCount
+    };
+  }),
+  // ── Fechamento da sessão: "Total API = Conciliado + Divergências + Transferências + Tarifas" ──
+  // Retorna contagem e volume (R$) de cada categoria da API para validar que
+  // os números fecham. Transferências internas têm channel='TRANSFERENCIA_INTERNA'.
+  getSessionClosure: protectedProcedure.input(external_exports.object({ sessionId: external_exports.number() })).query(async ({ input }) => {
+    const dbConn = await getDb();
+    if (!dbConn) return null;
+    const { sql: s } = await Promise.resolve().then(() => (init_drizzle_orm(), drizzle_orm_exports));
+    const [totalRes, matchedRes, divergentRes, internalRes, tariffRes] = await Promise.all([
+      // Total de transações API da sessão
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId}`),
+      // Conciliadas (matched) — exclui transferências e tarifas
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'matched'`),
+      // Divergentes (API sem par)
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'divergent'`),
+      // Transferências internas
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND channel = 'TRANSFERENCIA_INTERNA'`),
+      // Tarifas (manual mas não transferência)
+      dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'manual' AND (channel IS NULL OR channel != 'TRANSFERENCIA_INTERNA')`)
+    ]);
+    const parse3 = (r) => ({
+      count: parseInt(String(r[0]?.[0]?.cnt ?? 0)),
+      volume: parseFloat(String(r[0]?.[0]?.vol ?? 0))
+    });
+    const total = parse3(totalRes);
+    const matched = parse3(matchedRes);
+    const divergent = parse3(divergentRes);
+    const internal = parse3(internalRes);
+    const tariff = parse3(tariffRes);
+    const sumCount = matched.count + divergent.count + internal.count + tariff.count;
+    const sumVolume = matched.volume + divergent.volume + internal.volume + tariff.volume;
+    const balanced = sumCount === total.count;
+    return {
+      total,
+      matched,
+      divergent,
+      internal,
+      tariff,
+      sumCount,
+      sumVolume,
+      balanced
     };
   }),
   // ── Conciliação Manual ────────────────────────────────────────────────────

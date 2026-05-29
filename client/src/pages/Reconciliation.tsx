@@ -131,11 +131,24 @@ function BalanceBar({ bankVal, apiVal, label }: { bankVal: number; apiVal: numbe
 
 // ── Session Detail ────────────────────────────────────────────────────────────
 
+function ClosurePart({ label, count, volume, color, bold }: {
+  label: string; count: number; volume: number; color: string; bold?: boolean;
+}) {
+  return (
+    <div className={cn("px-2.5 py-1.5 rounded-lg bg-accent/10 border border-border", bold && "border-foreground/20")}>
+      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={cn("font-mono font-semibold", color, bold && "font-bold")}>{count}</p>
+      <p className="text-[9px] text-muted-foreground font-mono">{formatCurrency(volume)}</p>
+    </div>
+  );
+}
+
 function SessionDetail({ sessionId, onBack, onDelete }: {
   sessionId: number; onBack: () => void; onDelete: () => void;
 }) {
-  const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs">("divs");
+  const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs"|"transferencias">("divs");
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionTransactions.useQuery({ id: sessionId });
+  const { data: closure } = trpc.reconciliation.getSessionClosure.useQuery({ sessionId });
 
   // Live stats da sessão — mesma fonte de verdade usada pelo Dashboard.
   // Recalcula a cada 5s via COUNT real no banco, não depende do campo
@@ -172,6 +185,10 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   if (!data) return <div className="text-center py-12 text-muted-foreground text-sm">Sessão não encontrada.</div>;
 
   const { session: sess, bankTxs, apiTxs, divs } = data as any;
+
+  // Transferências internas (channel especial) — separadas das demais API txs
+  const internalTransfers = (apiTxs ?? []).filter((t: any) => t.channel === "TRANSFERENCIA_INTERNA");
+  const apiTxsNormal = (apiTxs ?? []).filter((t: any) => t.channel !== "TRANSFERENCIA_INTERNA");
 
   // ── Valores live (fonte de verdade: getSessionStats) ────────────────────────
   // getSessionStats faz COUNT real no banco (bank_transactions com matchStatus
@@ -214,10 +231,11 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
     .filter((p: any) => p.api !== null); // só pares com ambos os lados
 
   const TABS = [
-    { key: "divs",         label: "Divergências",     count: (divs ?? []).length,    color: "text-yellow-400" },
-    { key: "conciliados",  label: "✓ Conciliados",    count: liveMatchedCount,       color: "text-emerald-400" },
-    { key: "banco",        label: "Transações Banco", count: (bankTxs ?? []).length, color: "text-blue-400" },
-    { key: "api",          label: "Transações API",   count: (apiTxs ?? []).length,  color: "text-purple-400" },
+    { key: "divs",          label: "Divergências",          count: (divs ?? []).length,        color: "text-yellow-400" },
+    { key: "conciliados",   label: "✓ Conciliados",         count: liveMatchedCount,           color: "text-emerald-400" },
+    { key: "transferencias",label: "⇄ Transferências",      count: internalTransfers.length,   color: "text-cyan-400" },
+    { key: "banco",         label: "Transações Banco",      count: (bankTxs ?? []).length,     color: "text-blue-400" },
+    { key: "api",           label: "Transações API",        count: apiTxsNormal.length,        color: "text-purple-400" },
   ] as const;
 
   return (
@@ -275,6 +293,35 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
           </p>
         </div>
       </div>
+
+      {/* Fechamento da API: Total = Conciliado + Divergências + Transferências + Tarifas */}
+      {closure && (
+        <div className="card-premium rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Fechamento da API</p>
+            {closure.balanced ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                <CheckCircle className="w-3 h-3" /> Números batem
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                <AlertTriangle className="w-3 h-3" /> Divergência de {Math.abs(closure.total.count - closure.sumCount)} transação(ões)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <ClosurePart label="Total API" count={closure.total.count} volume={closure.total.volume} color="text-foreground" bold />
+            <span className="text-muted-foreground font-bold">=</span>
+            <ClosurePart label="Conciliado" count={closure.matched.count} volume={closure.matched.volume} color="text-emerald-400" />
+            <span className="text-muted-foreground">+</span>
+            <ClosurePart label="Divergências" count={closure.divergent.count} volume={closure.divergent.volume} color="text-yellow-400" />
+            <span className="text-muted-foreground">+</span>
+            <ClosurePart label="Transferências" count={closure.internal.count} volume={closure.internal.volume} color="text-cyan-400" />
+            <span className="text-muted-foreground">+</span>
+            <ClosurePart label="Tarifas" count={closure.tariff.count} volume={closure.tariff.volume} color="text-purple-400" />
+          </div>
+        </div>
+      )}
 
       {/* Barras de Equilíbrio */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -489,7 +536,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(apiTxs ?? []).slice(0, 500).map((t: any, i: number) => (
+                {apiTxsNormal.slice(0, 500).map((t: any, i: number) => (
                   <tr key={i} className="hover:bg-accent/20">
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
                     <td className="px-3 py-2 text-center">
@@ -510,6 +557,46 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* Transferências Internas — movimento entre contas (soma zero) */}
+          {tab === "transferencias" && (
+            <div>
+              <div className="bg-cyan-500/5 border-b border-cyan-500/20 px-4 py-3 text-xs text-muted-foreground">
+                <span className="text-cyan-400 font-medium">Transferências entre contas próprias.</span>{" "}
+                São movimento interno (soma zero) — não conciliam e não viram divergência.
+                Aparecem aqui só para o total da API fechar.
+                <span className="text-muted-foreground/70"> (Contas dedicadas COD 220/221 não entram aqui — viram despesa.)</span>
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-accent/10">
+                    {["Data","C/D","Cliente","Descrição","Valor"].map(c => (
+                      <th key={c} className="text-left px-3 py-2.5 text-muted-foreground font-medium whitespace-nowrap">{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {internalTransfers.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">Nenhuma transferência interna nesta sessão.</td></tr>
+                  ) : internalTransfers.slice(0, 500).map((t: any, i: number) => (
+                    <tr key={i} className="hover:bg-accent/20">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={cn("font-bold text-xs", t.type === "credit" ? "text-cyan-400" : "text-orange-400")}>
+                          {t.type === "credit" ? "C" : "D"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 max-w-[160px] truncate text-muted-foreground" title={t.clientName ?? ""}>{t.clientName ?? "—"}</td>
+                      <td className="px-3 py-2 max-w-[220px] truncate" title={t.description ?? ""}>{t.description ?? "—"}</td>
+                      <td className={cn("px-3 py-2 font-mono font-semibold whitespace-nowrap", t.type === "credit" ? "text-cyan-400" : "text-orange-400")}>
+                        {t.type === "credit" ? "+" : "-"}{formatCurrency(t.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
         {tab === "divs" && (divs ?? []).length > 500 && (

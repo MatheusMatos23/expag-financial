@@ -182,6 +182,13 @@ async function processReconciliationJob(
       const apiTariffTxs = allApiTxs.filter(t =>
         bankDates.has(t.date) && !t.isInternal && t.isTariff
       );
+      // ── Transferências internas (TRANSFERÊNCIA ENTRE CONTAS) ──────────────
+      // São movimento interno (soma zero) — não conciliam, não viram divergência.
+      // Ficam numa lista separada para a aba "Transferências Internas".
+      // NÃO inclui as de conta dedicada (COD 220/221) — essas já viraram despesa.
+      const apiInternalTxs = allApiTxs.filter(t =>
+        bankDates.has(t.date) && t.isInternal && !t.isTariff
+      );
       const apiTxs = apiTxsForEngine; // alias para manter compatibilidade
 
       // Rodar conciliação multi-banco (SEM as tarifas bancárias)
@@ -259,6 +266,16 @@ async function processReconciliationJob(
           sessionId, type: tx.type, transactionDate: tx.date,
           description: tx.description, amount: tx.amount.toFixed(2),
           channel: tx.channel, clientName: tx.clientName, externalId: tx.externalId,
+          matchStatus: "manual",
+        });
+      }
+      // Transferências internas: channel especial + matchStatus 'manual'
+      // Não conciliam, não viram divergência — ficam na aba "Transferências Internas".
+      for (const tx of apiInternalTxs as any[]) {
+        apiRows.push({
+          sessionId, type: tx.type, transactionDate: tx.date,
+          description: tx.description, amount: tx.amount.toFixed(2),
+          channel: "TRANSFERENCIA_INTERNA", clientName: tx.clientName, externalId: tx.externalId,
           matchStatus: "manual",
         });
       }
@@ -1183,6 +1200,51 @@ const reconciliationRouter = router({
         // Legacy (mantido para compatibilidade com ReconciliationSession.tsx)
         pendingCount:       pendingDivs,
         divergentCount:     unmatchedBankCount,
+      };
+    }),
+
+  // ── Fechamento da sessão: "Total API = Conciliado + Divergências + Transferências + Tarifas" ──
+  // Retorna contagem e volume (R$) de cada categoria da API para validar que
+  // os números fecham. Transferências internas têm channel='TRANSFERENCIA_INTERNA'.
+  getSessionClosure: protectedProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .query(async ({ input }) => {
+      const dbConn = await db.getDb();
+      if (!dbConn) return null;
+      const { sql: s } = await import("drizzle-orm");
+
+      const [totalRes, matchedRes, divergentRes, internalRes, tariffRes] = await Promise.all([
+        // Total de transações API da sessão
+        dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId}`),
+        // Conciliadas (matched) — exclui transferências e tarifas
+        dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'matched'`),
+        // Divergentes (API sem par)
+        dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'divergent'`),
+        // Transferências internas
+        dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND channel = 'TRANSFERENCIA_INTERNA'`),
+        // Tarifas (manual mas não transferência)
+        dbConn.execute(s`SELECT COUNT(*) as cnt, COALESCE(SUM(CAST(amount AS DECIMAL(18,2))),0) as vol FROM api_transactions WHERE sessionId = ${input.sessionId} AND matchStatus = 'manual' AND (channel IS NULL OR channel != 'TRANSFERENCIA_INTERNA')`),
+      ]);
+
+      const parse = (r: any) => ({
+        count: parseInt(String((r as any)[0]?.[0]?.cnt ?? 0)),
+        volume: parseFloat(String((r as any)[0]?.[0]?.vol ?? 0)),
+      });
+
+      const total = parse(totalRes);
+      const matched = parse(matchedRes);
+      const divergent = parse(divergentRes);
+      const internal = parse(internalRes);
+      const tariff = parse(tariffRes);
+
+      // Soma das partes (deve bater com total)
+      const sumCount = matched.count + divergent.count + internal.count + tariff.count;
+      const sumVolume = matched.volume + divergent.volume + internal.volume + tariff.volume;
+      const balanced = sumCount === total.count;
+
+      return {
+        total, matched, divergent, internal, tariff,
+        sumCount, sumVolume, balanced,
       };
     }),
 
