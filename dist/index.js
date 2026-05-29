@@ -109202,6 +109202,53 @@ async function getSessionsByReferenceDate(referenceDate) {
 function invalidateReconciliationCache() {
   _cache.clear();
 }
+async function dedupSessionDivergences(sessionId) {
+  const db = await getDb();
+  if (!db) return { removed: 0 };
+  const groupsRes = await db.execute(sql`
+    SELECT d.divergenceDate, d.bankAmount, d.bankName, COUNT(*) as divCount,
+           (SELECT COUNT(*) FROM bank_transactions bt
+            WHERE bt.sessionId = ${sessionId}
+              AND bt.transactionDate = d.divergenceDate
+              AND CAST(bt.amount AS DECIMAL(18,2)) = CAST(d.bankAmount AS DECIMAL(18,2))
+              AND COALESCE(bt.bankName,'') = COALESCE(d.bankName,'')
+              AND bt.matchStatus NOT IN ('matched','manual')
+           ) as bankCount
+    FROM divergences d
+    WHERE d.sessionId = ${sessionId}
+      AND d.divergenceType = 'bank_surplus'
+      AND d.status NOT IN ('regularizado','reclassificado','baixado')
+      AND d.bankAmount IS NOT NULL
+    GROUP BY d.divergenceDate, d.bankAmount, d.bankName
+    HAVING divCount > bankCount
+  `);
+  const groups = groupsRes[0] ?? [];
+  let removed = 0;
+  for (const g of groups) {
+    const excess = parseInt(String(g.divCount)) - parseInt(String(g.bankCount));
+    if (excess <= 0) continue;
+    const dupsRes = await db.execute(sql`
+      SELECT id, category, clientName FROM divergences
+      WHERE sessionId = ${sessionId}
+        AND divergenceType = 'bank_surplus'
+        AND status NOT IN ('regularizado','reclassificado','baixado')
+        AND divergenceDate = ${g.divergenceDate}
+        AND CAST(bankAmount AS DECIMAL(18,2)) = CAST(${g.bankAmount} AS DECIMAL(18,2))
+        AND COALESCE(bankName,'') = COALESCE(${g.bankName ?? ""}, '')
+      ORDER BY
+        CASE WHEN category = 'outros' AND (clientName IS NULL OR clientName = '') THEN 0 ELSE 1 END,
+        id ASC
+    `);
+    const dups = dupsRes[0] ?? [];
+    const toRemove = dups.slice(0, excess).map((r) => Number(r.id));
+    if (toRemove.length > 0) {
+      await db.execute(sql`DELETE FROM divergences WHERE id IN (${sql.raw(toRemove.join(","))})`);
+      removed += toRemove.length;
+    }
+  }
+  if (removed > 0) invalidateReconciliationCaches();
+  return { removed };
+}
 async function deleteReconciliationSession(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -134867,6 +134914,22 @@ async function processReconciliationJob(sessionId, input, ctx) {
             AND bt.id NOT IN (
               SELECT COALESCE(bankTransactionId, 0) FROM divergences WHERE sessionId = ${sessionId}
             )
+            -- Só é orphan de verdade se NÃO há divergência suficiente para este grupo
+            -- (data + valor + banco). Evita duplicar quando há transações idênticas.
+            AND (
+              SELECT COUNT(*) FROM divergences d2
+              WHERE d2.sessionId = ${sessionId}
+                AND d2.divergenceDate = bt.transactionDate
+                AND CAST(d2.bankAmount AS DECIMAL(18,2)) = CAST(bt.amount AS DECIMAL(18,2))
+                AND COALESCE(d2.bankName,'') = COALESCE(bt.bankName,'')
+            ) < (
+              SELECT COUNT(*) FROM bank_transactions bt2
+              WHERE bt2.sessionId = ${sessionId}
+                AND bt2.transactionDate = bt.transactionDate
+                AND CAST(bt2.amount AS DECIMAL(18,2)) = CAST(bt.amount AS DECIMAL(18,2))
+                AND COALESCE(bt2.bankName,'') = COALESCE(bt.bankName,'')
+                AND bt2.matchStatus NOT IN ('matched','manual')
+            )
         `);
       if (orphanRows && orphanRows.length > 0) {
         console.log(`[RECONCILIATION] Safety net: criando ${orphanRows.length} diverg\xEAncias para orphan bank_transactions`);
@@ -134964,6 +135027,21 @@ async function processReconciliationJob(sessionId, input, ctx) {
   }
 }
 var reconciliationRouter = router({
+  // Remove divergências duplicadas de uma sessão (bug de transações idênticas)
+  dedupDivergences: adminProcedure.input(external_exports.object({ sessionId: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    const result = await dedupSessionDivergences(input.sessionId);
+    invalidateReconciliationCache();
+    if (result.removed > 0) {
+      await audit(ctx, {
+        action: "reconciliation.dedup",
+        category: "conciliacao",
+        entityType: "session",
+        entityId: input.sessionId,
+        summary: `Removeu ${result.removed} diverg\xEAncias duplicadas da sess\xE3o #${input.sessionId}`
+      });
+    }
+    return result;
+  }),
   getSessions: protectedProcedure.query(async () => {
     return getReconciliationSessions(30);
   }),

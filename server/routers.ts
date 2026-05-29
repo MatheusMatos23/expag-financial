@@ -572,6 +572,17 @@ async function processReconciliationJob(
         `);
 
         // 2) ORPHANS: bank_transactions divergent sem divergência → criar automaticamente
+        //
+        // CORREÇÃO CRÍTICA: a detecção anterior usava "bt.id NOT IN (bankTransactionId)".
+        // Mas quando há transações IDÊNTICAS (mesmo valor/data/banco, sem externalId —
+        // ex: vários PIX MESMA TITULARIDADE de R$ 14.999,96 no mesmo dia), o link 1:1
+        // via JOIN falha (casa cruzado ou parcial), deixando bank_transactions sem
+        // bankTransactionId mesmo JÁ EXISTINDO divergência pra elas. O safety net então
+        // criava divergências DUPLICADAS (categoria "outros", sem cliente).
+        //
+        // Nova lógica: um bank_transaction só é "orphan" se o número de divergências
+        // com o MESMO (data, valor, banco) for MENOR que o número de bank_transactions
+        // divergentes com esse mesmo (data, valor, banco). Compara por GRUPO, não por ID.
         const [orphanRows] = await safetyDb.execute(sql`
           SELECT bt.id, bt.transactionDate, bt.bankName, bt.amount, bt.description, bt.type, bt.externalId
           FROM bank_transactions bt
@@ -579,6 +590,22 @@ async function processReconciliationJob(
             AND bt.matchStatus NOT IN ('matched', 'manual')
             AND bt.id NOT IN (
               SELECT COALESCE(bankTransactionId, 0) FROM divergences WHERE sessionId = ${sessionId}
+            )
+            -- Só é orphan de verdade se NÃO há divergência suficiente para este grupo
+            -- (data + valor + banco). Evita duplicar quando há transações idênticas.
+            AND (
+              SELECT COUNT(*) FROM divergences d2
+              WHERE d2.sessionId = ${sessionId}
+                AND d2.divergenceDate = bt.transactionDate
+                AND CAST(d2.bankAmount AS DECIMAL(18,2)) = CAST(bt.amount AS DECIMAL(18,2))
+                AND COALESCE(d2.bankName,'') = COALESCE(bt.bankName,'')
+            ) < (
+              SELECT COUNT(*) FROM bank_transactions bt2
+              WHERE bt2.sessionId = ${sessionId}
+                AND bt2.transactionDate = bt.transactionDate
+                AND CAST(bt2.amount AS DECIMAL(18,2)) = CAST(bt.amount AS DECIMAL(18,2))
+                AND COALESCE(bt2.bankName,'') = COALESCE(bt.bankName,'')
+                AND bt2.matchStatus NOT IN ('matched','manual')
             )
         `) as any;
 
@@ -687,6 +714,22 @@ async function processReconciliationJob(
 }
 
 const reconciliationRouter = router({
+  // Remove divergências duplicadas de uma sessão (bug de transações idênticas)
+  dedupDivergences: adminProcedure
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.dedupSessionDivergences(input.sessionId);
+      db.invalidateReconciliationCache();
+      if (result.removed > 0) {
+        await audit(ctx, {
+          action: "reconciliation.dedup", category: "conciliacao",
+          entityType: "session", entityId: input.sessionId,
+          summary: `Removeu ${result.removed} divergências duplicadas da sessão #${input.sessionId}`,
+        });
+      }
+      return result;
+    }),
+
   getSessions: protectedProcedure.query(async () => {
     return db.getReconciliationSessions(30);
   }),

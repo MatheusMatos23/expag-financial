@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight, FileSpreadsheet,
   RefreshCw, ChevronDown, ChevronUp, Trash2, Eye, ArrowLeft, X,
-  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus, Unlink
+  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus, Unlink, Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -238,6 +238,14 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
     onSuccess: () => { toast.success("Par desconciliado — voltou para divergências."); refetch(); invalidateAcrossScreens(); },
     onError: (e: any) => toast.error(e.message),
   });
+  const dedupMutation = trpc.reconciliation.dedupDivergences.useMutation({
+    onSuccess: (r: any) => {
+      if (r.removed > 0) toast.success(`${r.removed} divergência(s) duplicada(s) removida(s).`);
+      else toast.success("Nenhuma duplicata encontrada — está tudo certo.");
+      refetch(); invalidateAcrossScreens();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const [confirmUnmatchId, setConfirmUnmatchId] = useState<number | null>(null);
 
   if (isLoading) return (
@@ -320,10 +328,23 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
             </p>
           </div>
         </div>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
-          onClick={() => { if (confirm("Remover sessão e todos os dados?")) onDelete(); }}>
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" className="gap-1.5 text-xs text-muted-foreground hover:text-cyan-400"
+            onClick={() => {
+              if (confirm("Verificar e remover divergências duplicadas desta sessão?\n\nIsso corrige o caso de transações idênticas (mesmo valor/data) que geraram divergências repetidas. Só remove o excesso — as divergências reais permanecem.")) {
+                dedupMutation.mutate({ sessionId });
+              }
+            }}
+            disabled={dedupMutation.isPending}>
+            {dedupMutation.isPending
+              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Limpando...</>
+              : <><Wrench className="w-3.5 h-3.5" /> Limpar duplicadas</>}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
+            onClick={() => { if (confirm("Remover sessão e todos os dados?")) onDelete(); }}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* KPIs superiores */}

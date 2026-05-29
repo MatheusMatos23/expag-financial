@@ -282,6 +282,76 @@ export function invalidateReconciliationCache() {
   _cache.clear();
 }
 
+/**
+ * Remove divergências DUPLICADAS de uma sessão.
+ *
+ * Bug histórico: quando o banco tinha transações idênticas (mesmo valor/data/
+ * banco, sem externalId — ex: vários PIX MESMA TITULARIDADE de R$ 14.999,96),
+ * o "safety net" do processReconciliationJob criava divergências extras
+ * (categoria 'outros', sem cliente) porque o link 1:1 falhava.
+ *
+ * Esta função detecta grupos (data + valor + banco + tipo) onde há MAIS
+ * divergências pendentes que bank_transactions divergentes, e remove o
+ * excesso — preferindo manter as que têm cliente/categoria informada e
+ * apagar as genéricas ('outros' sem cliente).
+ *
+ * Retorna quantas foram removidas.
+ */
+export async function dedupSessionDivergences(sessionId: number): Promise<{ removed: number }> {
+  const db = await getDb();
+  if (!db) return { removed: 0 };
+
+  // Para cada grupo (data+valor+banco), quantas bank_transactions divergentes existem
+  // e quantas divergências pendentes existem. Remove o excesso.
+  const groupsRes = await db.execute(sql`
+    SELECT d.divergenceDate, d.bankAmount, d.bankName, COUNT(*) as divCount,
+           (SELECT COUNT(*) FROM bank_transactions bt
+            WHERE bt.sessionId = ${sessionId}
+              AND bt.transactionDate = d.divergenceDate
+              AND CAST(bt.amount AS DECIMAL(18,2)) = CAST(d.bankAmount AS DECIMAL(18,2))
+              AND COALESCE(bt.bankName,'') = COALESCE(d.bankName,'')
+              AND bt.matchStatus NOT IN ('matched','manual')
+           ) as bankCount
+    FROM divergences d
+    WHERE d.sessionId = ${sessionId}
+      AND d.divergenceType = 'bank_surplus'
+      AND d.status NOT IN ('regularizado','reclassificado','baixado')
+      AND d.bankAmount IS NOT NULL
+    GROUP BY d.divergenceDate, d.bankAmount, d.bankName
+    HAVING divCount > bankCount
+  `);
+  const groups = (groupsRes as any)[0] ?? [];
+
+  let removed = 0;
+  for (const g of groups) {
+    const excess = parseInt(String(g.divCount)) - parseInt(String(g.bankCount));
+    if (excess <= 0) continue;
+    // Pega as divergências deste grupo, ordenando pra apagar primeiro as
+    // genéricas (categoria 'outros' e sem cliente) — mantém as informativas.
+    const dupsRes = await db.execute(sql`
+      SELECT id, category, clientName FROM divergences
+      WHERE sessionId = ${sessionId}
+        AND divergenceType = 'bank_surplus'
+        AND status NOT IN ('regularizado','reclassificado','baixado')
+        AND divergenceDate = ${g.divergenceDate}
+        AND CAST(bankAmount AS DECIMAL(18,2)) = CAST(${g.bankAmount} AS DECIMAL(18,2))
+        AND COALESCE(bankName,'') = COALESCE(${g.bankName ?? ''}, '')
+      ORDER BY
+        CASE WHEN category = 'outros' AND (clientName IS NULL OR clientName = '') THEN 0 ELSE 1 END,
+        id ASC
+    `);
+    const dups = (dupsRes as any)[0] ?? [];
+    const toRemove = dups.slice(0, excess).map((r: any) => Number(r.id));
+    if (toRemove.length > 0) {
+      await db.execute(sql`DELETE FROM divergences WHERE id IN (${sql.raw(toRemove.join(','))})`);
+      removed += toRemove.length;
+    }
+  }
+
+  if (removed > 0) invalidateReconciliationCaches();
+  return { removed };
+}
+
 export async function deleteReconciliationSession(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
