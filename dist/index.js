@@ -109176,6 +109176,29 @@ async function getReconciliationSessionById(id) {
   const result = await db.select().from(reconciliationSessions).where(eq(reconciliationSessions.id, id)).limit(1);
   return result[0] ?? null;
 }
+async function getSessionsByReferenceDate(referenceDate) {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT s.id, s.referenceDate, s.status, s.createdAt,
+           COUNT(DISTINCT bt.id) as bankCount,
+           COUNT(DISTINCT d.id) as divCount
+    FROM reconciliation_sessions s
+    LEFT JOIN bank_transactions bt ON bt.sessionId = s.id
+    LEFT JOIN divergences d ON d.sessionId = s.id
+    WHERE s.referenceDate = ${referenceDate}
+    GROUP BY s.id, s.referenceDate, s.status, s.createdAt
+    ORDER BY s.createdAt DESC
+  `);
+  return (result[0] ?? []).map((r) => ({
+    id: Number(r.id),
+    referenceDate: r.referenceDate,
+    status: r.status,
+    createdAt: r.createdAt,
+    bankCount: parseInt(String(r.bankCount ?? 0)),
+    divCount: parseInt(String(r.divCount ?? 0))
+  }));
+}
 function invalidateReconciliationCache() {
   _cache.clear();
 }
@@ -134943,6 +134966,12 @@ async function processReconciliationJob(sessionId, input, ctx) {
 var reconciliationRouter = router({
   getSessions: protectedProcedure.query(async () => {
     return getReconciliationSessions(30);
+  }),
+  // Verifica se já existem conciliações com a mesma data de referência.
+  // O frontend chama isso antes de conciliar para avisar sobre duplicatas.
+  checkDuplicateSessions: protectedProcedure.input(external_exports.object({ referenceDate: external_exports.string() })).query(async ({ input }) => {
+    const sessions = await getSessionsByReferenceDate(input.referenceDate);
+    return { sessions, hasDuplicates: sessions.length > 0 };
   }),
   deleteSession: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
     await deleteReconciliationSession(input.id);

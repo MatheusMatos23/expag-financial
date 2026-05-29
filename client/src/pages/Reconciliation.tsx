@@ -745,6 +745,15 @@ export default function Reconciliation() {
   const { data: sessions, refetch: refetchSessions } = trpc.reconciliation.getSessions.useQuery();
   const latestSessionId = (sessions as any[])?.[0]?.id ?? null;
 
+  // Verifica conciliações já existentes com a mesma data de referência.
+  // Avisa o usuário antes de criar uma duplicata (mesma data conciliada 2x
+  // gera divergências repetidas que poluem a análise).
+  const { data: dupCheck } = trpc.reconciliation.checkDuplicateSessions.useQuery(
+    { referenceDate },
+    { enabled: !!referenceDate }
+  );
+  const duplicateSessions = dupCheck?.sessions ?? [];
+
   // Conciliações criam transações e divergências — afetam Dashboard inteiro.
   const invalidateAcrossScreens = useInvalidateFinancialData();
 
@@ -803,6 +812,22 @@ export default function Reconciliation() {
         `Confirme que os dados que você está importando são realmente desta data. ` +
         `Se forem de outro período, cancele e ajuste a data primeiro.\n\n` +
         `Deseja continuar com a data de hoje?`
+      );
+      if (!ok) return;
+    }
+    // Aviso de DUPLICATA: já existe conciliação com essa data de referência.
+    // Conciliar de novo cria divergências repetidas que poluem a análise global.
+    if (duplicateSessions.length > 0) {
+      const lista = duplicateSessions
+        .map((s: any) => `  • Sessão #${s.id} (${s.bankCount} transações, ${s.divCount} divergências)`)
+        .join("\n");
+      const ok = window.confirm(
+        `⚠ JÁ EXISTE conciliação para ${formatDate(referenceDate)}:\n\n${lista}\n\n` +
+        `Conciliar de novo vai DUPLICAR as divergências (elas aparecem somadas na tela ` +
+        `de Divergências, que mostra todas as sessões).\n\n` +
+        `Recomendado: cancele e exclua a(s) sessão(ões) antiga(s) primeiro, ou só ` +
+        `continue se for intencional.\n\n` +
+        `Deseja continuar mesmo assim?`
       );
       if (!ok) return;
     }
@@ -907,6 +932,10 @@ export default function Reconciliation() {
                 <p className="text-[10px] text-amber-400 mt-1 flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" /> Escolha a data do período que está importando
                 </p>
+              ) : duplicateSessions.length > 0 ? (
+                <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Já existe conciliação para esta data ({duplicateSessions.length}) — conciliar de novo duplica divergências
+                </p>
               ) : (
                 <p className="text-[10px] text-muted-foreground mt-1">
                   Período de referência: {formatDate(referenceDate)}
@@ -1010,6 +1039,21 @@ export default function Reconciliation() {
             <h2 className="text-sm font-semibold text-foreground">Sessões de Conciliação</h2>
             <span className="text-xs text-muted-foreground">{(sessions as any[]).length} sessões</span>
           </div>
+          {(() => {
+            // Detecta datas de referência que aparecem em mais de uma sessão
+            const dateCounts: Record<string, number> = {};
+            for (const s of (sessions as any[])) {
+              const d = String(s.referenceDate);
+              dateCounts[d] = (dateCounts[d] ?? 0) + 1;
+            }
+            const hasDups = Object.values(dateCounts).some(c => c > 1);
+            return hasDups ? (
+              <div className="px-5 py-2 bg-amber-500/5 border-b border-amber-500/20 text-[11px] text-amber-400 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                Há sessões com a mesma data de referência (marcadas com <span className="font-semibold">duplicada</span>). Isso soma divergências repetidas — exclua as antigas se foram conciliadas por engano.
+              </div>
+            ) : null;
+          })()}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -1020,7 +1064,13 @@ export default function Reconciliation() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(sessions as any[]).map((sess: any) => {
+                {(() => {
+                  const dateCounts: Record<string, number> = {};
+                  for (const s of (sessions as any[])) {
+                    const d = String(s.referenceDate);
+                    dateCounts[d] = (dateCounts[d] ?? 0) + 1;
+                  }
+                  return (sessions as any[]).map((sess: any) => {
                   // Fórmula única: conciliados / total real de transações de banco
                   const realT = sess.totalTransactions
                     ?? (sess.matchedCount + (sess.pendingCount ?? sess.divergentCount ?? 0));
@@ -1029,7 +1079,15 @@ export default function Reconciliation() {
                     : 0;
                   return (
                     <tr key={sess.id} className="hover:bg-accent/20 cursor-pointer" onClick={() => setSelectedSession(sess.id)}>
-                      <td className="px-4 py-3 font-medium">{formatDate(sess.referenceDate)}</td>
+                      <td className="px-4 py-3 font-medium">
+                        <div className="flex items-center gap-1.5">
+                          {formatDate(sess.referenceDate)}
+                          {dateCounts[String(sess.referenceDate)] > 1 && (
+                            <span title="Outra sessão tem a mesma data de referência — pode duplicar divergências"
+                              className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-1 cursor-help">duplicada</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-emerald-400 font-semibold">{sess.matchedCount}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
@@ -1070,7 +1128,8 @@ export default function Reconciliation() {
                       </td>
                     </tr>
                   );
-                })}
+                });
+                })()}
               </tbody>
             </table>
           </div>

@@ -691,6 +691,15 @@ const reconciliationRouter = router({
     return db.getReconciliationSessions(30);
   }),
 
+  // Verifica se já existem conciliações com a mesma data de referência.
+  // O frontend chama isso antes de conciliar para avisar sobre duplicatas.
+  checkDuplicateSessions: protectedProcedure
+    .input(z.object({ referenceDate: z.string() }))
+    .query(async ({ input }) => {
+      const sessions = await db.getSessionsByReferenceDate(input.referenceDate);
+      return { sessions, hasDuplicates: sessions.length > 0 };
+    }),
+
   deleteSession: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {

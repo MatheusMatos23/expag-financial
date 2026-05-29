@@ -248,6 +248,35 @@ export async function getReconciliationSessionById(id: number) {
   return result[0] ?? null;
 }
 
+/**
+ * Retorna sessões existentes com a MESMA data de referência.
+ * Usado para avisar o usuário antes de criar uma conciliação duplicada
+ * (mesma data conciliada mais de uma vez gera divergências repetidas).
+ */
+export async function getSessionsByReferenceDate(referenceDate: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db.execute(sql`
+    SELECT s.id, s.referenceDate, s.status, s.createdAt,
+           COUNT(DISTINCT bt.id) as bankCount,
+           COUNT(DISTINCT d.id) as divCount
+    FROM reconciliation_sessions s
+    LEFT JOIN bank_transactions bt ON bt.sessionId = s.id
+    LEFT JOIN divergences d ON d.sessionId = s.id
+    WHERE s.referenceDate = ${referenceDate}
+    GROUP BY s.id, s.referenceDate, s.status, s.createdAt
+    ORDER BY s.createdAt DESC
+  `);
+  return ((result as any)[0] ?? []).map((r: any) => ({
+    id: Number(r.id),
+    referenceDate: r.referenceDate,
+    status: r.status,
+    createdAt: r.createdAt,
+    bankCount: parseInt(String(r.bankCount ?? 0)),
+    divCount: parseInt(String(r.divCount ?? 0)),
+  }));
+}
+
 export function invalidateReconciliationCache() {
   // Limpa todo o cache — garante que dados apagados não reapareçam
   _cache.clear();
