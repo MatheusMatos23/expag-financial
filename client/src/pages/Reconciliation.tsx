@@ -363,7 +363,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
       {closure && (
         <div className="card-premium rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Fechamento da API</p>
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Fechamento da API <span className="text-[10px] text-muted-foreground normal-case tracking-normal font-normal">— apenas esta sessão</span></p>
             {closure.balanced ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                 <CheckCircle className="w-3 h-3" /> Números batem
@@ -393,7 +393,10 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
       {/* Conferência por Banco */}
       {closure && closure.banks && closure.banks.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-foreground uppercase tracking-wider px-1">Conferência por Banco</p>
+          <div className="flex items-baseline gap-2 px-1">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Conferência por Banco</p>
+            <span className="text-[10px] text-muted-foreground normal-case tracking-normal">— apenas esta sessão (#{sessionId})</span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {closure.banks.map((b: any) => (
               <BankClosureCard key={b.bankName} bank={b} />

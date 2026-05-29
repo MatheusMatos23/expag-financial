@@ -6,7 +6,7 @@ import {
   AlertTriangle, Clock, DollarSign, Hash, CheckCircle2,
   Edit2, Trash2, ChevronDown, ChevronUp, ArrowUpRight, ArrowDownRight,
   Building2, Link2, X, TrendingUp, TrendingDown, MoveRight, Square, CheckSquare,
-  Tag, Wrench, RefreshCw, Download, PlusCircle, ReceiptText, Unlink, Search
+  Tag, Wrench, RefreshCw, Download, PlusCircle, ReceiptText, Unlink, Search, Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -716,6 +716,12 @@ export default function Divergences() {
 
   const banks = Array.from(new Set(((divergences ?? []) as any[]).map((d: any) => d.bankName).filter(Boolean)));
 
+  // Quantas sessões diferentes estão representadas nas divergências visíveis.
+  // A tela de Divergências é GLOBAL (todas as sessões), diferente do card de
+  // conferência da sessão. Isto deixa o escopo explícito para o usuário.
+  const sessionsInView = new Set(rows.map((d: any) => d.sessionId).filter(Boolean));
+  const sessionCount = sessionsInView.size;
+
   const grouped = rows.reduce((acc: Record<string, any[]>, d: any) => {
     const k = d.status ?? "pendente";
     if (!acc[k]) acc[k] = [];
@@ -755,7 +761,10 @@ export default function Divergences() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Divergências</h1>
-          <p className="text-sm text-muted-foreground mt-1">Motor de divergências — sobras e faltas mapeadas automaticamente</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Motor de divergências — sobras e faltas mapeadas automaticamente
+            <span className="text-muted-foreground/70"> · visão global de todas as sessões{sessionCount > 1 ? ` (${sessionCount} sessões)` : ""}</span>
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Input
@@ -795,6 +804,19 @@ export default function Divergences() {
           </Select>
         </div>
       </div>
+
+      {/* Aviso de escopo: filtro de banco agrega várias sessões */}
+      {bankFilter !== "all" && sessionCount > 1 && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs">
+          <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-muted-foreground">
+            Mostrando divergências de <span className="text-blue-400 font-medium">{bankFilter}</span> de{" "}
+            <span className="text-foreground font-medium">{sessionCount} conciliações diferentes</span>.
+            Por isso a contagem aqui pode ser maior que a do card "Conferência por Banco" de uma sessão específica
+            (que mostra só aquela conciliação).
+          </p>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
