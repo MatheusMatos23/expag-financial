@@ -312,12 +312,35 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
     (bankTxs ?? []).map((t: any) => t.bankName).filter(Boolean)
   )) as string[];
 
-  const matchText = (s: string) => fltSearch === "" || (s ?? "").toLowerCase().includes(fltSearch.toLowerCase());
+  // Busca combinada: texto OU valor. Se o termo digitado tem dígitos, também
+  // compara com os valores monetários da linha (aceita "14999", "14999,96",
+  // "14999.96" — normaliza vírgula/ponto). Assim o usuário pode buscar por valor.
+  const searchTerm = fltSearch.trim().toLowerCase();
+  const searchAsNumber = searchTerm.replace(/[r$\s]/gi, "").replace(/\./g, "").replace(",", ".");
+  const searchHasDigits = /\d/.test(searchTerm);
+
+  const matchSearch = (text: string, amounts: Array<number | string | null | undefined> = []) => {
+    if (searchTerm === "") return true;
+    // bate no texto
+    if ((text ?? "").toLowerCase().includes(searchTerm)) return true;
+    // bate em valor (se o termo tem dígitos)
+    if (searchHasDigits) {
+      for (const a of amounts) {
+        if (a == null || a === "") continue;
+        const valStr = String(a);                       // ex: "14999.96"
+        const valBr = parseFloat(valStr).toFixed(2).replace(".", ","); // "14999,96"
+        if (valStr.includes(searchAsNumber) || valStr.replace(".", ",").includes(searchTerm) || valBr.includes(searchTerm)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
 
   // Filtra transação genérica (banco/api/transferência/boleto): busca + banco + tipo
   const passTx = (t: any, opts?: { hasBank?: boolean }) => {
     const text = `${t.description ?? ""} ${t.clientName ?? ""} ${t.bankName ?? ""} ${t.externalId ?? ""}`;
-    if (!matchText(text)) return false;
+    if (!matchSearch(text, [t.amount])) return false;
     if (fltType !== "all" && t.type !== fltType) return false;
     if (fltBank !== "all" && opts?.hasBank && t.bankName !== fltBank) return false;
     return true;
@@ -331,7 +354,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   // Divergências: campos diferentes (bankDescription, transactionType, bankName)
   const filteredDivs = (divs ?? []).filter((d: any) => {
     const text = `${d.bankDescription ?? ""} ${d.clientName ?? ""} ${d.apiDescription ?? ""} ${d.bankName ?? ""} ${d.externalId ?? ""} ${d.category ?? ""}`;
-    if (!matchText(text)) return false;
+    if (!matchSearch(text, [d.bankAmount, d.apiAmount, d.amount])) return false;
     if (fltType !== "all" && d.transactionType !== fltType) return false;
     if (fltBank !== "all" && d.bankName !== fltBank) return false;
     return true;
@@ -340,7 +363,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   // Conciliados (pares): filtra pelo lado banco + cliente API
   const filteredPairs = matchedPairs.filter((p: any) => {
     const text = `${p.bank.description ?? ""} ${p.bank.bankName ?? ""} ${p.api.clientName ?? ""} ${p.api.description ?? ""} ${p.bank.externalId ?? ""}`;
-    if (!matchText(text)) return false;
+    if (!matchSearch(text, [p.bank.amount, p.api.amount])) return false;
     if (fltType !== "all" && p.bank.type !== fltType) return false;
     if (fltBank !== "all" && p.bank.bankName !== fltBank) return false;
     return true;
@@ -497,7 +520,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={fltSearch} onChange={e => setFltSearch(e.target.value)}
-            placeholder="Buscar por descrição, cliente, banco, END2END..."
+            placeholder="Buscar por descrição, cliente, banco, END2END ou valor..."
             className="h-9 text-xs pl-9"
           />
         </div>

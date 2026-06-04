@@ -31,14 +31,17 @@ export interface ReconciliationResult {
 }
 
 // Tolerância exata: diferenças ≤ R$1,00 são consideradas "matched" (arredondamento,
-// centavos de tarifa absorvida, etc). Antes era R$0,01 o que gerava divergências
-// para diferenças de centavos que na prática são arredondamento.
-const AMOUNT_TOLERANCE = 1.00;
+// REGRA FINANCEIRA: o engine só considera duas transações como o MESMO
+// pagamento se o valor for EXATAMENTE igual (diferença R$ 0,00). Forçar um par
+// com valores diferentes (ex: R$ 14.999,96 vs R$ 14.998,06) é incorreto
+// financeiramente — podem ser transações distintas. Qualquer diferença de valor
+// gera duas divergências separadas (sobra no banco + falta na API).
+//
+// Toleramos apenas 1 centavo (R$ 0,01) por arredondamento de ponto flutuante.
+const AMOUNT_TOLERANCE = 0.01;
 
-// Tolerância aproximada: o engine ainda ENCONTRA o par correto para diferenças de
-// até R$5,00 (mesmo que marque como divergent se > AMOUNT_TOLERANCE). Sem isso,
-// transações com diff de R$2-5 ficam como "unmatched" sem nem encontrar o par.
-const APPROX_TOLERANCE = 5.00;
+// Sem tolerância aproximada: valores diferentes NÃO casam (viram 2 divergências).
+const APPROX_TOLERANCE = 0.01;
 
 /** Returns an ISO date string offset by `days` days */
 function offsetDate(isoDate: string, days: number): string {

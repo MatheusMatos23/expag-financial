@@ -86990,8 +86990,8 @@ var AMOUNT_TOLERANCE, APPROX_TOLERANCE;
 var init_engine = __esm({
   "server/reconciliation/engine.ts"() {
     "use strict";
-    AMOUNT_TOLERANCE = 1;
-    APPROX_TOLERANCE = 5;
+    AMOUNT_TOLERANCE = 0.01;
+    APPROX_TOLERANCE = 0.01;
   }
 });
 
