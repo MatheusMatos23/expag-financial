@@ -110074,6 +110074,60 @@ async function getExecutiveDashboard(params) {
     avgResolutionDays,
     resolvedCount
   };
+  const opMixRes = await dbConn.execute(sql`
+    SELECT
+      operationType,
+      SUM(quantity) as qty,
+      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as credit,
+      COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))), 0) as debit,
+      MAX(isTransfer) as isTransfer
+    FROM internal_movements
+    WHERE movementDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+    GROUP BY operationType
+    ORDER BY (COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))),0) + COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))),0)) DESC
+  `);
+  const operationMix = (opMixRes[0] ?? []).map((r) => {
+    const credit = parseFloat(String(r.credit ?? 0));
+    const debit = parseFloat(String(r.debit ?? 0));
+    return {
+      operationType: String(r.operationType ?? "OUTROS"),
+      quantity: Number(r.qty ?? 0),
+      credit,
+      debit,
+      total: credit + debit,
+      isTransfer: Number(r.isTransfer ?? 0) === 1
+    };
+  });
+  const bankDistRes = await dbConn.execute(sql`
+    SELECT
+      COALESCE(NULLIF(processor, ''), 'Não informado') as processor,
+      SUM(quantity) as qty,
+      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as credit,
+      COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))), 0) as debit
+    FROM internal_movements
+    WHERE movementDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+      AND isTransfer = 0
+    GROUP BY processor
+    ORDER BY (COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))),0) + COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))),0)) DESC
+    LIMIT 12
+  `);
+  const bankDistRows = (bankDistRes[0] ?? []).map((r) => {
+    const credit = parseFloat(String(r.credit ?? 0));
+    const debit = parseFloat(String(r.debit ?? 0));
+    return {
+      processor: String(r.processor ?? "N\xE3o informado"),
+      quantity: Number(r.qty ?? 0),
+      credit,
+      debit,
+      total: credit + debit
+    };
+  });
+  const bankDistTotal = bankDistRows.reduce((s, b) => s + b.total, 0);
+  const bankDistribution = bankDistRows.map((b) => ({
+    ...b,
+    percentage: bankDistTotal > 0 ? b.total / bankDistTotal * 100 : 0
+  }));
+  const bankConcentrationTop1 = bankDistribution[0]?.percentage ?? 0;
   return {
     period: { dateFrom: params.dateFrom, dateTo: params.dateTo },
     current,
@@ -110087,7 +110141,10 @@ async function getExecutiveDashboard(params) {
       top10: concentrationTop10
     },
     creditPortfolio: creditPortfolio2,
-    operationalHealth
+    operationalHealth,
+    operationMix,
+    bankDistribution,
+    bankConcentrationTop1
   };
 }
 async function listManualApuracao(filters) {

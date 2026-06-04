@@ -4577,6 +4577,67 @@ export async function getExecutiveDashboard(params: {
     resolvedCount,
   };
 
+  // ── 8) Mix de Operações (movimentações internas reais da conciliação) ──
+  // Breakdown por tipo de operação: quanto entrou (crédito), saiu (débito) e
+  // quantas transações. Mostra à diretoria COMO o dinheiro se move.
+  const opMixRes = await dbConn.execute(sql`
+    SELECT
+      operationType,
+      SUM(quantity) as qty,
+      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as credit,
+      COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))), 0) as debit,
+      MAX(isTransfer) as isTransfer
+    FROM internal_movements
+    WHERE movementDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+    GROUP BY operationType
+    ORDER BY (COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))),0) + COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))),0)) DESC
+  `);
+  const operationMix = ((opMixRes as any)[0] ?? []).map((r: any) => {
+    const credit = parseFloat(String(r.credit ?? 0));
+    const debit = parseFloat(String(r.debit ?? 0));
+    return {
+      operationType: String(r.operationType ?? "OUTROS"),
+      quantity: Number(r.qty ?? 0),
+      credit, debit,
+      total: credit + debit,
+      isTransfer: Number(r.isTransfer ?? 0) === 1,
+    };
+  });
+
+  // ── 9) Distribuição por Banco/Processador ──
+  // Concentração de volume por instituição (processedBy). Útil pra avaliar
+  // risco de concentração bancária.
+  const bankDistRes = await dbConn.execute(sql`
+    SELECT
+      COALESCE(NULLIF(processor, ''), 'Não informado') as processor,
+      SUM(quantity) as qty,
+      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as credit,
+      COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))), 0) as debit
+    FROM internal_movements
+    WHERE movementDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+      AND isTransfer = 0
+    GROUP BY processor
+    ORDER BY (COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))),0) + COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))),0)) DESC
+    LIMIT 12
+  `);
+  const bankDistRows = ((bankDistRes as any)[0] ?? []).map((r: any) => {
+    const credit = parseFloat(String(r.credit ?? 0));
+    const debit = parseFloat(String(r.debit ?? 0));
+    return {
+      processor: String(r.processor ?? "Não informado"),
+      quantity: Number(r.qty ?? 0),
+      credit, debit,
+      total: credit + debit,
+    };
+  });
+  const bankDistTotal = bankDistRows.reduce((s: number, b: any) => s + b.total, 0);
+  const bankDistribution = bankDistRows.map((b: any) => ({
+    ...b,
+    percentage: bankDistTotal > 0 ? (b.total / bankDistTotal) * 100 : 0,
+  }));
+  // Concentração bancária: % do maior processador
+  const bankConcentrationTop1 = bankDistribution[0]?.percentage ?? 0;
+
   return {
     period: { dateFrom: params.dateFrom, dateTo: params.dateTo },
     current,
@@ -4591,6 +4652,9 @@ export async function getExecutiveDashboard(params: {
     },
     creditPortfolio,
     operationalHealth,
+    operationMix,
+    bankDistribution,
+    bankConcentrationTop1,
   };
 }
 

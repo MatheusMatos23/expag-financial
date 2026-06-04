@@ -144,7 +144,7 @@ export default function ExecutiveDashboard() {
     );
   }
 
-  const { current, previous, series12m, revenueByType } = data as any;
+  const { current, previous, series12m, revenueByType, operationMix, bankDistribution, bankConcentrationTop1 } = data as any;
 
   // Comparativos MoM
   const cmpRevenue = pctChange(current.totalRevenue, previous.totalRevenue);
@@ -221,7 +221,107 @@ export default function ExecutiveDashboard() {
         </div>
       </section>
 
-      {/* ── SEÇÃO 2: Evolução (12 meses) ─────────────────────────────────── */}
+      {/* ── SEÇÃO: Crescimento vs Período Anterior ──────────────────────── */}
+      <section>
+        <SectionHeader>Crescimento vs Período Anterior</SectionHeader>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <GrowthCard label="Volume Processado" current={current.tpv} previous={previous.tpv} />
+          <GrowthCard label="Receita Total" current={current.totalRevenue} previous={previous.totalRevenue} />
+          <GrowthCard label="Lucro Líquido" current={current.netProfit} previous={previous.netProfit} />
+          <GrowthCard label="Despesas" current={current.totalExpenses} previous={previous.totalExpenses} invertColor />
+        </div>
+      </section>
+
+      {/* ── SEÇÃO: Mix de Operações ─────────────────────────────────────── */}
+      {operationMix && operationMix.length > 0 && (
+        <section>
+          <SectionHeader>Mix de Operações — Período</SectionHeader>
+          <div className="card-premium rounded-2xl p-5 lg:p-6">
+            <p className="text-xs text-muted-foreground mb-4">
+              Como o dinheiro se movimenta na operação (dados reais da conciliação). Transferências entre contas não somam ao volume operacional.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
+                    <th className="text-left py-2.5 px-2 font-medium">Operação</th>
+                    <th className="text-right py-2.5 px-2 font-medium">Qtd</th>
+                    <th className="text-right py-2.5 px-2 font-medium">Entradas (C)</th>
+                    <th className="text-right py-2.5 px-2 font-medium">Saídas (D)</th>
+                    <th className="text-right py-2.5 px-2 font-medium">Volume Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {operationMix.map((op: any) => (
+                    <tr key={op.operationType} className="hover:bg-accent/10">
+                      <td className="py-2.5 px-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground">{op.operationType}</span>
+                          {op.isTransfer && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">interno</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-right font-mono text-muted-foreground">{op.quantity.toLocaleString("pt-BR")}</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-emerald-400">{op.credit > 0 ? compactCurrency(op.credit) : "—"}</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-red-400">{op.debit > 0 ? compactCurrency(op.debit) : "—"}</td>
+                      <td className="py-2.5 px-2 text-right font-mono font-semibold text-foreground">{compactCurrency(op.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── SEÇÃO: Distribuição por Banco ───────────────────────────────── */}
+      {bankDistribution && bankDistribution.length > 0 && (
+        <section>
+          <SectionHeader>Distribuição por Banco / Processador</SectionHeader>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Concentração — destaque */}
+            <div className="card-premium rounded-2xl p-5 flex flex-col justify-center">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Concentração</p>
+              <p className={cn("text-4xl font-bold mt-2",
+                bankConcentrationTop1 >= 70 ? "text-red-400" : bankConcentrationTop1 >= 50 ? "text-amber-400" : "text-emerald-400")}>
+                {bankConcentrationTop1.toFixed(0)}%
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                no maior processador ({bankDistribution[0]?.processor})
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 mt-3 leading-relaxed">
+                {bankConcentrationTop1 >= 70
+                  ? "⚠ Alta dependência de uma única instituição — considere diversificar."
+                  : bankConcentrationTop1 >= 50
+                  ? "Concentração moderada. Vale monitorar."
+                  : "Volume bem distribuído entre instituições."}
+              </p>
+            </div>
+            {/* Lista — ocupa 2 colunas */}
+            <div className="card-premium rounded-2xl p-5 lg:col-span-2">
+              <div className="space-y-2.5">
+                {bankDistribution.map((b: any) => (
+                  <div key={b.processor}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="font-medium text-foreground truncate max-w-[200px]" title={b.processor}>{b.processor}</span>
+                      <span className="font-mono text-muted-foreground">
+                        {compactCurrency(b.total)} <span className="text-muted-foreground/60">· {b.percentage.toFixed(1)}%</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-accent/20 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full"
+                        style={{ width: `${Math.min(100, b.percentage)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── SEÇÃO: Evolução (12 meses) ─────────────────────────────────── */}
       <section>
         <SectionHeader>Evolução — Últimos 12 Meses</SectionHeader>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -739,6 +839,27 @@ export default function ExecutiveDashboard() {
 }
 
 // ── KPI de saúde operacional (verde/âmbar/vermelho) ──────────────────────────
+function GrowthCard({ label, current, previous, invertColor }: {
+  label: string; current: number; previous: number; invertColor?: boolean;
+}) {
+  const change = pctChange(current, previous);
+  // invertColor: para Despesas, crescer é ruim (vermelho), cair é bom (verde)
+  const isGood = invertColor ? change.sign === "down" : change.sign === "up";
+  const color = change.sign === "flat" ? "text-muted-foreground"
+    : isGood ? "text-emerald-400" : "text-red-400";
+  const arrow = change.sign === "up" ? "↑" : change.sign === "down" ? "↓" : "→";
+  return (
+    <div className="card-premium rounded-2xl p-4">
+      <p className="text-[11px] text-muted-foreground uppercase tracking-wider truncate">{label}</p>
+      <p className="text-xl font-bold text-foreground mt-1.5 font-mono">{compactCurrency(current)}</p>
+      <div className="flex items-center gap-1.5 mt-1.5">
+        <span className={cn("text-sm font-semibold font-mono", color)}>{arrow} {change.value.toFixed(1)}%</span>
+      </div>
+      <p className="text-[10px] text-muted-foreground/70 mt-1 font-mono">antes: {compactCurrency(previous)}</p>
+    </div>
+  );
+}
+
 function HealthKPI({ label, value, icon: Icon, hint, status }: {
   label: string;
   value: string;
