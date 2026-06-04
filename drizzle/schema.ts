@@ -414,7 +414,7 @@ export const internalMovements = mysqlTable("internal_movements", {
   creditAmount: decimal("creditAmount", { precision: 18, scale: 2 }).default("0").notNull(),
   isTransfer: boolean("isTransfer").default(false).notNull(),          // true = transferência entre contas (neutro, não soma)
   notes: text("notes"),
-  source: mysqlEnum("source", ["manual", "imported"]).default("manual").notNull(),
+  source: mysqlEnum("source", ["manual", "imported", "reconciliation"]).default("manual").notNull(),
   createdBy: varchar("createdBy", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

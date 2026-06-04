@@ -195,7 +195,7 @@ export default function InternalMovements() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Movimentações Internas</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Operações na API Expag — apenas visualização.
+            Operações na API Expag. <span className="text-cyan-400">A conciliação preenche esta aba automaticamente</span> a partir do extrato da API.
             Transferências entre contas aparecem mas não somam ao total operacional.
           </p>
         </div>
@@ -206,6 +206,7 @@ export default function InternalMovements() {
           />
           <Button variant="outline" size="sm" className="h-9 gap-1.5"
             disabled={importMutation.isPending}
+            title="Para casos esporádicos. Normalmente a conciliação já preenche esta aba automaticamente."
             onClick={() => fileRef.current?.click()}>
             <Upload className="w-3.5 h-3.5" />
             {importMutation.isPending ? "Importando..." : "Importar planilha"}

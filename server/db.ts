@@ -3886,6 +3886,89 @@ export async function bulkInsertInternalMovements(rows: Array<{
 }
 
 /**
+ * Gera movimentações internas a partir das transações da API de uma conciliação.
+ *
+ * Agrega as transações da API por (data + tipo de operação + processador),
+ * contando quantidade e somando débitos/créditos — exatamente o formato da
+ * aba "Movimentações Internas".
+ *
+ * SUBSTITUI as movimentações das MESMAS DATAS que tenham origem automática
+ * ('reconciliation') ou importada ('imported'), para a reconciliação ser a
+ * fonte de verdade. Movimentações criadas MANUALMENTE (source='manual') são
+ * preservadas para não apagar ajustes do usuário.
+ *
+ * @param apiTxs transações já parseadas da API (com operationType/processedBy)
+ */
+export async function generateInternalMovementsFromApi(apiTxs: Array<{
+  date: string;
+  type: "credit" | "debit";
+  amount: number;
+  operationType?: string;
+  processedBy?: string;
+  isInternal?: boolean;
+}>): Promise<{ inserted: number; replacedDates: string[] }> {
+  const db = await getDb();
+  if (!db) return { inserted: 0, replacedDates: [] };
+
+  // Agrupa por data + operationType + processedBy
+  const groups = new Map<string, {
+    movementDate: string; operationType: string; processor: string | null;
+    quantity: number; debitAmount: number; creditAmount: number; isTransfer: boolean;
+  }>();
+
+  for (const tx of apiTxs) {
+    const opType = (tx.operationType ?? "OUTROS").toUpperCase();
+    const proc = tx.processedBy ?? null;
+    const key = `${tx.date}|${opType}|${proc ?? ""}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        movementDate: tx.date, operationType: opType, processor: proc,
+        quantity: 0, debitAmount: 0, creditAmount: 0,
+        isTransfer: tx.isInternal === true || /ENTRE\s+CONTAS/i.test(opType),
+      };
+      groups.set(key, g);
+    }
+    g.quantity += 1;
+    if (tx.type === "debit") g.debitAmount += tx.amount;
+    else g.creditAmount += tx.amount;
+  }
+
+  if (groups.size === 0) return { inserted: 0, replacedDates: [] };
+
+  // Datas afetadas — remove movimentações antigas dessas datas (exceto manuais)
+  const dates = Array.from(new Set(Array.from(groups.values()).map(g => g.movementDate)));
+  for (const d of dates) {
+    await db.execute(sql`
+      DELETE FROM internal_movements
+      WHERE movementDate = ${d} AND source IN ('imported','reconciliation')
+    `);
+  }
+
+  // Insere os novos agregados
+  const values = Array.from(groups.values()).map(g => ({
+    movementDate: g.movementDate as any,
+    operationType: g.operationType,
+    processor: g.processor,
+    quantity: g.quantity,
+    debitAmount: g.debitAmount.toFixed(2),
+    creditAmount: g.creditAmount.toFixed(2),
+    isTransfer: g.isTransfer,
+    source: 'reconciliation' as any,
+    createdBy: 'Conciliação (automático)',
+  }));
+
+  const chunkSize = 200;
+  let inserted = 0;
+  for (let i = 0; i < values.length; i += chunkSize) {
+    const chunk = values.slice(i, i + chunkSize);
+    await db.insert(internalMovements).values(chunk as any);
+    inserted += chunk.length;
+  }
+  return { inserted, replacedDates: dates };
+}
+
+/**
  * Retorna estatísticas agregadas das movimentações internas.
  *
  * Returns por tipo de operação:

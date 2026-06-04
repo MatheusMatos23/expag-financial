@@ -298,6 +298,24 @@ async function processReconciliationJob(
       }
       await db.insertApiTransactionsBatch(apiRows);
 
+      // ── GERAR MOVIMENTAÇÕES INTERNAS (automático) ──────────────────────────
+      // Agrega TODAS as transações da API por data+operação+processador e
+      // popula a aba "Movimentações Internas". Substitui as movimentações
+      // automáticas/importadas das mesmas datas (mantém as manuais).
+      // Usa allApiTxsRaw (todas as operações, incl. tarifas/transferências).
+      try {
+        const imResult = await db.generateInternalMovementsFromApi(
+          (allApiTxsRaw as any[]).map(tx => ({
+            date: tx.date, type: tx.type, amount: tx.amount,
+            operationType: tx.operationType, processedBy: tx.processedBy,
+            isInternal: tx.isInternal,
+          }))
+        );
+        console.log(`[MOV. INTERNAS] ${imResult.inserted} movimentações geradas da API (datas: ${imResult.replacedDates.join(", ")})`);
+      } catch (e) {
+        console.error("[MOV. INTERNAS] Erro ao gerar movimentações da API:", e);
+      }
+
       // ── LINK MATCHED PAIRS ─────────────────────────────────────────────────
       // Após os batch inserts, as transações têm IDs do BD mas NÃO têm
       // matchedApiTransactionId/matchedBankTransactionId preenchidos.

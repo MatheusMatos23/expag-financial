@@ -24,6 +24,10 @@ export interface ParsedTransaction {
   accountCode?: string;
   /** true → depósito por boleto: movimento interno da API, não tem par no banco */
   isBoletoDeposit?: boolean;
+  /** Tipo de operação original da API (col OPERAÇÃO) — ex: "PIX ENVIADO" */
+  operationType?: string;
+  /** Processado por (col PROCESSADO POR) — ex: "BANCO DO BRASIL S.A." */
+  processedBy?: string;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -458,6 +462,7 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
     const clientName = String(row[2]  ?? "").trim() || undefined;
     const apiStatus  = String(row[16] ?? "").trim().toUpperCase();
     const accountCode = String(row[0] ?? "").trim() || undefined; // COD da conta
+    const processedBy = String(row[18] ?? "").trim() || undefined; // PROCESSADO POR
 
     // STATUS: filtros
     const isRejected = apiStatus === "REJEITADO" || apiStatus === "CANCELADO";
@@ -491,6 +496,8 @@ export function parseAPI(buffer: Buffer): ParsedTransaction[] {
       isEstorno,
       apiStatus,
       accountCode,
+      operationType: op || undefined,
+      processedBy,
     });
   }
 
