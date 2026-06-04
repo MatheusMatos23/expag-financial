@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Upload, CheckCircle, AlertTriangle, XCircle, ArrowRight, FileSpreadsheet,
   RefreshCw, ChevronDown, ChevronUp, Trash2, Eye, ArrowLeft, X,
-  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus, Unlink, Wrench
+  Building2, TrendingUp, TrendingDown, Scale, Info, BarChart2, Plus, Unlink, Wrench, Search
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -210,6 +210,10 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
   sessionId: number; onBack: () => void; onDelete: () => void;
 }) {
   const [tab, setTab] = useState<"conciliados"|"divergentes"|"banco"|"api"|"divs"|"transferencias"|"boletos">("divs");
+  // Filtros das abas (tempo real, client-side)
+  const [fltSearch, setFltSearch] = useState("");
+  const [fltBank, setFltBank] = useState("all");
+  const [fltType, setFltType] = useState<"all"|"credit"|"debit">("all");
   const { data, isLoading, refetch } = trpc.reconciliation.getSessionTransactions.useQuery({ id: sessionId });
   const { data: closure } = trpc.reconciliation.getSessionClosure.useQuery({ sessionId });
 
@@ -302,13 +306,55 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
     })
     .filter((p: any) => p.api !== null); // só pares com ambos os lados
 
+  // ── FILTROS DAS ABAS (tempo real, client-side) ──────────────────────────────
+  // Lista de bancos presentes na sessão (pro dropdown de filtro)
+  const sessionBanks: string[] = Array.from(new Set(
+    (bankTxs ?? []).map((t: any) => t.bankName).filter(Boolean)
+  )) as string[];
+
+  const matchText = (s: string) => fltSearch === "" || (s ?? "").toLowerCase().includes(fltSearch.toLowerCase());
+
+  // Filtra transação genérica (banco/api/transferência/boleto): busca + banco + tipo
+  const passTx = (t: any, opts?: { hasBank?: boolean }) => {
+    const text = `${t.description ?? ""} ${t.clientName ?? ""} ${t.bankName ?? ""} ${t.externalId ?? ""}`;
+    if (!matchText(text)) return false;
+    if (fltType !== "all" && t.type !== fltType) return false;
+    if (fltBank !== "all" && opts?.hasBank && t.bankName !== fltBank) return false;
+    return true;
+  };
+
+  const filteredBankTxs = (bankTxs ?? []).filter((t: any) => passTx(t, { hasBank: true }));
+  const filteredApiNormal = apiTxsNormal.filter((t: any) => passTx(t));
+  const filteredTransfers = internalTransfers.filter((t: any) => passTx(t));
+  const filteredBoletos = boletoDeposits.filter((t: any) => passTx(t));
+
+  // Divergências: campos diferentes (bankDescription, transactionType, bankName)
+  const filteredDivs = (divs ?? []).filter((d: any) => {
+    const text = `${d.bankDescription ?? ""} ${d.clientName ?? ""} ${d.apiDescription ?? ""} ${d.bankName ?? ""} ${d.externalId ?? ""} ${d.category ?? ""}`;
+    if (!matchText(text)) return false;
+    if (fltType !== "all" && d.transactionType !== fltType) return false;
+    if (fltBank !== "all" && d.bankName !== fltBank) return false;
+    return true;
+  });
+
+  // Conciliados (pares): filtra pelo lado banco + cliente API
+  const filteredPairs = matchedPairs.filter((p: any) => {
+    const text = `${p.bank.description ?? ""} ${p.bank.bankName ?? ""} ${p.api.clientName ?? ""} ${p.api.description ?? ""} ${p.bank.externalId ?? ""}`;
+    if (!matchText(text)) return false;
+    if (fltType !== "all" && p.bank.type !== fltType) return false;
+    if (fltBank !== "all" && p.bank.bankName !== fltBank) return false;
+    return true;
+  });
+
+  const filtersActive = fltSearch !== "" || fltBank !== "all" || fltType !== "all";
+
   const TABS = [
-    { key: "divs",          label: "Divergências",          count: (divs ?? []).length,        color: "text-yellow-400" },
-    { key: "conciliados",   label: "✓ Conciliados",         count: liveMatchedCount,           color: "text-emerald-400" },
-    { key: "transferencias",label: "⇄ Transferências",      count: internalTransfers.length,   color: "text-cyan-400" },
-    { key: "boletos",       label: "🧾 Dep. Boleto",         count: boletoDeposits.length,      color: "text-fuchsia-400" },
-    { key: "banco",         label: "Transações Banco",      count: (bankTxs ?? []).length,     color: "text-blue-400" },
-    { key: "api",           label: "Transações API",        count: apiTxsNormal.length,        color: "text-purple-400" },
+    { key: "divs",          label: "Divergências",          count: filtersActive ? filteredDivs.length : (divs ?? []).length,        color: "text-yellow-400" },
+    { key: "conciliados",   label: "✓ Conciliados",         count: filtersActive ? filteredPairs.length : liveMatchedCount,         color: "text-emerald-400" },
+    { key: "transferencias",label: "⇄ Transferências",      count: filtersActive ? filteredTransfers.length : internalTransfers.length, color: "text-cyan-400" },
+    { key: "boletos",       label: "🧾 Dep. Boleto",         count: filtersActive ? filteredBoletos.length : boletoDeposits.length,   color: "text-fuchsia-400" },
+    { key: "banco",         label: "Transações Banco",      count: filtersActive ? filteredBankTxs.length : (bankTxs ?? []).length,  color: "text-blue-400" },
+    { key: "api",           label: "Transações API",        count: filtersActive ? filteredApiNormal.length : apiTxsNormal.length,   color: "text-purple-400" },
   ] as const;
 
   return (
@@ -445,6 +491,39 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
         ))}
       </div>
 
+      {/* Filtros das abas */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={fltSearch} onChange={e => setFltSearch(e.target.value)}
+            placeholder="Buscar por descrição, cliente, banco, END2END..."
+            className="h-9 text-xs pl-9"
+          />
+        </div>
+        <Select value={fltBank} onValueChange={setFltBank}>
+          <SelectTrigger className="h-9 text-xs w-40"><SelectValue placeholder="Banco" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">Todos os bancos</SelectItem>
+            {sessionBanks.map(b => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={fltType} onValueChange={v => setFltType(v as any)}>
+          <SelectTrigger className="h-9 text-xs w-36"><SelectValue placeholder="Tipo" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">Crédito e Débito</SelectItem>
+            <SelectItem value="credit" className="text-xs">Só Créditos</SelectItem>
+            <SelectItem value="debit" className="text-xs">Só Débitos</SelectItem>
+          </SelectContent>
+        </Select>
+        {filtersActive && (
+          <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-xs text-muted-foreground"
+            onClick={() => { setFltSearch(""); setFltBank("all"); setFltType("all"); }}>
+            <X className="w-3.5 h-3.5" /> Limpar
+          </Button>
+        )}
+      </div>
+
       {/* Tab Content */}
       <div className="card-premium rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -459,10 +538,10 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(divs ?? []).length === 0 && (
-                  <tr><td colSpan={13} className="px-4 py-8 text-center text-muted-foreground">Nenhuma divergência nesta sessão.</td></tr>
+                {filteredDivs.length === 0 && (
+                  <tr><td colSpan={13} className="px-4 py-8 text-center text-muted-foreground">{filtersActive ? "Nenhuma divergência corresponde aos filtros." : "Nenhuma divergência nesta sessão."}</td></tr>
                 )}
-                {(divs ?? []).slice(0, 500).map((d: any, i: number) => (
+                {filteredDivs.slice(0, 500).map((d: any, i: number) => (
                   <tr key={i} className={cn("hover:bg-accent/20",
                     d.status === "pendente" ? "border-l-2 border-l-yellow-500/40" :
                     d.status === "resolvido" ? "opacity-60" : ""
@@ -534,9 +613,9 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {matchedPairs.length === 0 ? (
+                {filteredPairs.length === 0 ? (
                   <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">Nenhum par conciliado nesta sessão.</td></tr>
-                ) : matchedPairs.map((pair: any) => {
+                ) : filteredPairs.map((pair: any) => {
                   const bankAmt = parseFloat(pair.bank.amount ?? 0);
                   const apiAmt = parseFloat(pair.api.amount ?? 0);
                   const diff = Math.abs(bankAmt - apiAmt);
@@ -600,7 +679,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(bankTxs ?? []).slice(0, 500).map((t: any, i: number) => (
+                {filteredBankTxs.slice(0, 500).map((t: any, i: number) => (
                   <tr key={i} className="hover:bg-accent/20">
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
                     <td className="px-3 py-2 font-medium">{t.bankName}</td>
@@ -639,7 +718,7 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {apiTxsNormal.slice(0, 500).map((t: any, i: number) => (
+                {filteredApiNormal.slice(0, 500).map((t: any, i: number) => (
                   <tr key={i} className="hover:bg-accent/20">
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
                     <td className="px-3 py-2 text-center">
@@ -680,9 +759,9 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {internalTransfers.length === 0 ? (
+                  {filteredTransfers.length === 0 ? (
                     <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">Nenhuma transferência interna nesta sessão.</td></tr>
-                  ) : internalTransfers.slice(0, 500).map((t: any, i: number) => (
+                  ) : filteredTransfers.slice(0, 500).map((t: any, i: number) => (
                     <tr key={i} className="hover:bg-accent/20">
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
                       <td className="px-3 py-2 text-center">
@@ -719,9 +798,9 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {boletoDeposits.length === 0 ? (
+                  {filteredBoletos.length === 0 ? (
                     <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">Nenhum depósito por boleto nesta sessão.</td></tr>
-                  ) : boletoDeposits.slice(0, 500).map((t: any, i: number) => (
+                  ) : filteredBoletos.slice(0, 500).map((t: any, i: number) => (
                     <tr key={i} className="hover:bg-accent/20">
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{safeDate(t.transactionDate)}</td>
                       <td className="px-3 py-2 text-center">
@@ -741,8 +820,8 @@ function SessionDetail({ sessionId, onBack, onDelete }: {
             </div>
           )}
         </div>
-        {tab === "divs" && (divs ?? []).length > 500 && (
-          <p className="text-center text-xs text-muted-foreground py-2 border-t border-border">Mostrando 500 de {(divs ?? []).length}</p>
+        {tab === "divs" && filteredDivs.length > 500 && (
+          <p className="text-center text-xs text-muted-foreground py-2 border-t border-border">Mostrando 500 de {filteredDivs.length}</p>
         )}
       </div>
     </div>
