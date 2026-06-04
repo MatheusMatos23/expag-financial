@@ -533,7 +533,7 @@ function DivergencePanel({ div: d, onClose, onUpdate, onDelete, onMoveToRevenue,
           {(d.divergenceType === "bank_surplus" || d.divergenceType === "bank_shortage") && (
             <Button
               variant="outline"
-              className="w-full text-xs border-primary/30 text-primary hover:bg-primary/10 gap-1.5"
+              className="w-full text-xs border-blue-500/40 text-blue-300 hover:bg-blue-500/10 hover:text-blue-200 gap-1.5"
               onClick={() => onPostCounterpart()}
             >
               <PlusCircle className="w-3.5 h-3.5" />
@@ -858,6 +858,15 @@ export default function Divergences() {
             </Button>
             <Button size="sm" className="text-xs gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => setNidOpen(true)}>
               <Tag className="w-3.5 h-3.5" /> Marcar NID
+            </Button>
+            <Button size="sm" className="text-xs gap-1.5 bg-amber-600 hover:bg-amber-700"
+              onClick={() => {
+                if (confirm(`Mover ${selectedIds.size} divergência(s) selecionada(s) para Boletos?`)) {
+                  moveToBoletoMutation.mutate({ divergenceIds: Array.from(selectedIds) });
+                }
+              }}
+              disabled={moveToBoletoMutation.isPending}>
+              <ReceiptText className="w-3.5 h-3.5" /> {moveToBoletoMutation.isPending ? "Movendo..." : "Boletos"}
             </Button>
             <Button size="sm" variant="outline" className="text-xs gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10" onClick={() => setAdjustOpen(true)}>
               <Wrench className="w-3.5 h-3.5" /> Ajuste Manual
