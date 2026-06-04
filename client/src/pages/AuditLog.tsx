@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { cn, exportToCsv } from "@/lib/utils";
 import { useInvalidateFinancialData } from "@/hooks/useInvalidateFinancialData";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   ScrollText, Search, RefreshCw, Download, Activity, Calendar,
   ArrowLeftRight, AlertTriangle, Users as UsersIcon, FileText,
@@ -98,7 +98,42 @@ export default function AuditLog() {
     },
     onError: (e: any) => toast.error(e.message),
   });
-  // ── Limpeza de dados operacionais ──
+  // ── Importar backup (restore) ──
+  const [importOpen, setImportOpen] = useState(false);
+  const [importConfirm, setImportConfirm] = useState("");
+  const [importFile, setImportFile] = useState<{ name: string; data: any; records: number } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const importMutation = trpc.dashboard.importBackup.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(`Backup importado — ${data.totalRecords} registros restaurados.`);
+      setImportOpen(false); setImportConfirm(""); setImportFile(null);
+      invalidateAll();
+      setTimeout(() => window.location.reload(), 1200);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleImportFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (!parsed.tables || typeof parsed.tables !== "object") {
+          toast.error("Arquivo inválido: não parece um backup do Expag (falta 'tables').");
+          return;
+        }
+        const records = Object.values(parsed.tables).reduce((s: number, arr: any) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+        setImportFile({ name: file.name, data: parsed, records });
+        setImportOpen(true);
+      } catch {
+        toast.error("Arquivo inválido: não é um JSON válido.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // permite re-selecionar o mesmo arquivo
+  };
   const [clearOpen, setClearOpen] = useState(false);
   const [clearConfirm, setClearConfirm] = useState("");
   const invalidateAll = useInvalidateFinancialData();
@@ -195,6 +230,15 @@ export default function AuditLog() {
               <DatabaseBackup className="w-3.5 h-3.5" />
               {backupMutation.isPending ? "Gerando..." : "Backup completo"}
             </Button>
+          )}
+          {isAdmin && (
+            <>
+              <input ref={importFileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFileSelected} />
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs"
+                onClick={() => importFileRef.current?.click()}>
+                <DatabaseBackup className="w-3.5 h-3.5" /> Importar backup
+              </Button>
+            </>
           )}
           {isAdmin && (
             <Button variant="outline" size="sm"
@@ -459,6 +503,59 @@ export default function AuditLog() {
               disabled={resetConfirm !== "RESETAR SISTEMA" || resetMutation.isPending}
               onClick={() => resetMutation.mutate({ confirmation: resetConfirm })}>
               {resetMutation.isPending ? "Resetando..." : "Resetar Sistema"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════ Dialog: Importar Backup (restore) ════ */}
+      <Dialog open={importOpen} onOpenChange={v => { setImportOpen(v); if (!v) { setImportConfirm(""); setImportFile(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <DatabaseBackup className="w-4 h-4 text-amber-400" />
+              Importar Backup — Restaurar Dados
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {importFile && (
+              <div className="bg-accent/20 border border-border rounded-xl p-3">
+                <p className="text-xs text-muted-foreground">Arquivo selecionado:</p>
+                <p className="text-sm font-medium text-foreground truncate">{importFile.name}</p>
+                <p className="text-xs text-muted-foreground mt-1">{importFile.records.toLocaleString("pt-BR")} registros no backup</p>
+              </div>
+            )}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
+              <p className="text-sm text-amber-400 font-semibold">⚠️ Ação irreversível</p>
+              <p className="text-xs text-muted-foreground">
+                Os dados operacionais atuais (conciliações, transações, divergências, receitas,
+                despesas, etc.) serão <strong>substituídos</strong> pelos do backup.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Seus <strong>usuários e senhas são preservados</strong> — ninguém perde acesso.
+                Recomendado ter um backup atual à mão antes de continuar.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Digite <span className="text-amber-400 font-mono">IMPORTAR BACKUP</span> para confirmar
+              </Label>
+              <Input
+                value={importConfirm}
+                onChange={e => setImportConfirm(e.target.value)}
+                placeholder="IMPORTAR BACKUP"
+                className="h-10 text-sm font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(false)}>
+              Cancelar
+            </Button>
+            <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white"
+              disabled={importConfirm !== "IMPORTAR BACKUP" || !importFile || importMutation.isPending}
+              onClick={() => importFile && importMutation.mutate({ confirmation: importConfirm, backup: importFile.data })}>
+              {importMutation.isPending ? "Importando..." : "Importar Backup"}
             </Button>
           </DialogFooter>
         </DialogContent>

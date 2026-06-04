@@ -108655,6 +108655,103 @@ async function getAuditStats() {
     }))
   };
 }
+async function importFullBackup(backup) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  if (!backup || typeof backup !== "object" || !backup.tables) {
+    throw new Error("Arquivo de backup inv\xE1lido: estrutura 'tables' n\xE3o encontrada.");
+  }
+  const tableMap = {
+    reconciliation_sessions: reconciliationSessions,
+    revenues,
+    expenses,
+    payables,
+    managerial_balances: managerialBalances,
+    cost_centers: costCenters,
+    bank_transactions: bankTransactions,
+    api_transactions: apiTransactions,
+    credit_portfolio: creditPortfolio,
+    divergences,
+    manual_adjustments: manualAdjustments,
+    credit_installments: creditInstallments,
+    dre,
+    cash_flow: cashFlow,
+    alerts,
+    system_config: systemConfig
+  };
+  const insertOrder = [
+    "reconciliation_sessions",
+    "revenues",
+    "expenses",
+    "payables",
+    "managerial_balances",
+    "cost_centers",
+    "credit_portfolio",
+    "bank_transactions",
+    "api_transactions",
+    "divergences",
+    "manual_adjustments",
+    "credit_installments",
+    "dre",
+    "cash_flow",
+    "alerts",
+    "system_config"
+  ];
+  const clearOrder = [...insertOrder].reverse();
+  const restoredTables = [];
+  const skipped = [];
+  let totalRecords = 0;
+  await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 0"));
+  try {
+    for (const name2 of clearOrder) {
+      try {
+        await db.execute(sql.raw(`TRUNCATE TABLE ${name2}`));
+      } catch (err) {
+        console.error(`[RESTORE] Falha ao limpar ${name2}:`, err);
+      }
+    }
+    for (const name2 of insertOrder) {
+      const table = tableMap[name2];
+      const rows = backup.tables[name2];
+      if (!table) {
+        skipped.push(name2);
+        continue;
+      }
+      if (!Array.isArray(rows) || rows.length === 0) continue;
+      const normalizeRow = (row) => {
+        const out = {};
+        for (const [k, v] of Object.entries(row)) {
+          if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
+            const d = new Date(v);
+            out[k] = isNaN(d.getTime()) ? v : d;
+          } else {
+            out[k] = v;
+          }
+        }
+        return out;
+      };
+      const chunkSize = 200;
+      let inserted = 0;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize).map(normalizeRow);
+        try {
+          await db.insert(table).values(chunk);
+          inserted += chunk.length;
+        } catch (err) {
+          console.error(`[RESTORE] Falha ao inserir chunk em ${name2}:`, err);
+          throw new Error(`Erro ao restaurar a tabela "${name2}": ${err.message}`);
+        }
+      }
+      restoredTables.push(name2);
+      totalRecords += inserted;
+    }
+  } finally {
+    await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 1"));
+    _cache.clear();
+  }
+  console.log(`[RESTORE] ${restoredTables.length} tabelas restauradas, ${totalRecords} registros`);
+  return { restoredTables, totalRecords, skipped };
+}
 async function exportFullBackup() {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -131465,6 +131562,29 @@ var dashboardRouter = router({
       metadata: { totalRecords: backup.meta.totalRecords, tableCount: backup.meta.tableCount }
     });
     return backup;
+  }),
+  // ── Importar backup (restore) — somente admin ───────────────────────────────
+  // SUBSTITUI os dados operacionais pelos do backup. Preserva usuários/senhas.
+  // Exige a frase de confirmação exata por ser destrutivo e irreversível.
+  importBackup: adminProcedure.input(external_exports.object({
+    confirmation: external_exports.string(),
+    backup: external_exports.object({
+      meta: external_exports.any().optional(),
+      tables: external_exports.record(external_exports.string(), external_exports.array(external_exports.any()))
+    })
+  })).mutation(async ({ input, ctx }) => {
+    if (input.confirmation !== "IMPORTAR BACKUP") {
+      throw new Error("Confirma\xE7\xE3o inv\xE1lida. Digite exatamente: IMPORTAR BACKUP");
+    }
+    const result = await importFullBackup(input.backup);
+    await audit(ctx, {
+      action: "system.restore",
+      category: "usuario",
+      entityType: "system",
+      summary: `Importou backup \u2014 ${result.totalRecords} registros restaurados em ${result.restoredTables.length} tabelas`,
+      metadata: { totalRecords: result.totalRecords, restoredTables: result.restoredTables, skipped: result.skipped }
+    });
+    return result;
   }),
   // ── Limpar dados operacionais (somente admin) ──────────────────────────────
   // Operação destrutiva: zera o banco para entrada de dados reais.

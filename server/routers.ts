@@ -2530,6 +2530,31 @@ const dashboardRouter = router({
       return backup;
     }),
 
+  // ── Importar backup (restore) — somente admin ───────────────────────────────
+  // SUBSTITUI os dados operacionais pelos do backup. Preserva usuários/senhas.
+  // Exige a frase de confirmação exata por ser destrutivo e irreversível.
+  importBackup: adminProcedure
+    .input(z.object({
+      confirmation: z.string(),
+      backup: z.object({
+        meta: z.any().optional(),
+        tables: z.record(z.string(), z.array(z.any())),
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.confirmation !== "IMPORTAR BACKUP") {
+        throw new Error("Confirmação inválida. Digite exatamente: IMPORTAR BACKUP");
+      }
+      const result = await db.importFullBackup(input.backup);
+      await audit(ctx, {
+        action: "system.restore", category: "usuario",
+        entityType: "system",
+        summary: `Importou backup — ${result.totalRecords} registros restaurados em ${result.restoredTables.length} tabelas`,
+        metadata: { totalRecords: result.totalRecords, restoredTables: result.restoredTables, skipped: result.skipped },
+      });
+      return result;
+    }),
+
   // ── Limpar dados operacionais (somente admin) ──────────────────────────────
   // Operação destrutiva: zera o banco para entrada de dados reais.
   // Exige a frase de confirmação exata para evitar acionamento acidental.

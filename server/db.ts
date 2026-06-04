@@ -2483,6 +2483,126 @@ export async function getAuditStats() {
  *
  * Senhas (passwordHash) são EXCLUÍDAS do backup por segurança.
  */
+/**
+ * Importa um backup completo, SUBSTITUINDO os dados atuais.
+ *
+ * Comportamento (restore):
+ * - Limpa as tabelas operacionais e recarrega com os dados do backup.
+ * - PRESERVA a tabela `users` atual (o backup não tem passwordHash, então
+ *   restaurar users deixaria todos sem senha). Os usuários e senhas atuais
+ *   permanecem intactos — ninguém perde acesso.
+ * - Restaura na ordem correta de dependências (pais antes de filhas).
+ *
+ * Operação destrutiva e irreversível para os dados operacionais.
+ */
+export async function importFullBackup(backup: {
+  meta?: { version?: string };
+  tables: Record<string, any[]>;
+}): Promise<{ restoredTables: string[]; totalRecords: number; skipped: string[] }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  if (!backup || typeof backup !== "object" || !backup.tables) {
+    throw new Error("Arquivo de backup inválido: estrutura 'tables' não encontrada.");
+  }
+
+  // Mapa nome lógico → tabela Drizzle. MESMA lista do export, EXCETO users
+  // (preservamos os usuários/senhas atuais) e audit_logs (histórico não se
+  // sobrescreve — o restore fica registrado como um novo evento).
+  const tableMap: Record<string, any> = {
+    reconciliation_sessions: reconciliationSessions,
+    revenues, expenses, payables,
+    managerial_balances: managerialBalances,
+    cost_centers: costCenters,
+    bank_transactions: bankTransactions,
+    api_transactions: apiTransactions,
+    credit_portfolio: creditPortfolio,
+    divergences,
+    manual_adjustments: manualAdjustments,
+    credit_installments: creditInstallments,
+    dre, cash_flow: cashFlow,
+    alerts,
+    system_config: systemConfig,
+  };
+
+  // Ordem de INSERÇÃO: pais antes de filhas (FK). Mesmo com FK_CHECKS=0,
+  // mantemos uma ordem lógica por clareza.
+  const insertOrder = [
+    "reconciliation_sessions",
+    "revenues", "expenses", "payables", "managerial_balances", "cost_centers",
+    "credit_portfolio",
+    "bank_transactions", "api_transactions",
+    "divergences", "manual_adjustments", "credit_installments",
+    "dre", "cash_flow", "alerts", "system_config",
+  ];
+
+  // Ordem de LIMPEZA: filhas antes de pais (inverso)
+  const clearOrder = [...insertOrder].reverse();
+
+  const restoredTables: string[] = [];
+  const skipped: string[] = [];
+  let totalRecords = 0;
+
+  await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 0"));
+  try {
+    // 1) Limpa as tabelas operacionais (preserva users e audit_logs)
+    for (const name of clearOrder) {
+      try {
+        await db.execute(sql.raw(`TRUNCATE TABLE ${name}`));
+      } catch (err) {
+        console.error(`[RESTORE] Falha ao limpar ${name}:`, err);
+      }
+    }
+
+    // 2) Insere os dados do backup
+    for (const name of insertOrder) {
+      const table = tableMap[name];
+      const rows = backup.tables[name];
+      if (!table) { skipped.push(name); continue; }
+      if (!Array.isArray(rows) || rows.length === 0) continue;
+
+      // Normaliza valores antes de inserir:
+      // - strings ISO de data/hora viram Date (timestamp/datetime do MySQL)
+      // - strings 'YYYY-MM-DD' de campos date são mantidas (MySQL aceita)
+      const normalizeRow = (row: any) => {
+        const out: any = {};
+        for (const [k, v] of Object.entries(row)) {
+          if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
+            // ISO datetime completo → Date
+            const d = new Date(v);
+            out[k] = isNaN(d.getTime()) ? v : d;
+          } else {
+            out[k] = v;
+          }
+        }
+        return out;
+      };
+
+      const chunkSize = 200;
+      let inserted = 0;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize).map(normalizeRow);
+        try {
+          await db.insert(table).values(chunk as any);
+          inserted += chunk.length;
+        } catch (err) {
+          console.error(`[RESTORE] Falha ao inserir chunk em ${name}:`, err);
+          throw new Error(`Erro ao restaurar a tabela "${name}": ${(err as Error).message}`);
+        }
+      }
+      restoredTables.push(name);
+      totalRecords += inserted;
+    }
+  } finally {
+    await db.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 1"));
+    _cache.clear();
+  }
+
+  console.log(`[RESTORE] ${restoredTables.length} tabelas restauradas, ${totalRecords} registros`);
+  return { restoredTables, totalRecords, skipped };
+}
+
+
 export async function exportFullBackup(): Promise<{
   meta: { generatedAt: string; version: string; tableCount: number; totalRecords: number };
   tables: Record<string, any[]>;
