@@ -4604,27 +4604,30 @@ export async function getExecutiveDashboard(params: {
     };
   });
 
-  // ── 9) Distribuição por Banco/Processador ──
-  // Concentração de volume por instituição (processedBy). Útil pra avaliar
-  // risco de concentração bancária.
+  // ── 9) Distribuição por Banco (bancos reais conciliados) ──
+  // Fonte: bank_transactions (bankName real de cada extrato: JD, Sicoob, BB...).
+  // NÃO usa o "processedBy" da API (que traz 'EXPAG'/genéricos e não reflete
+  // o banco onde o dinheiro está). Mostra entradas (crédito) e saídas (débito)
+  // por banco — útil pra avaliar concentração bancária.
   const bankDistRes = await dbConn.execute(sql`
     SELECT
-      COALESCE(NULLIF(processor, ''), 'Não informado') as processor,
-      SUM(quantity) as qty,
-      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as credit,
-      COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))), 0) as debit
-    FROM internal_movements
-    WHERE movementDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
-      AND isTransfer = 0
-    GROUP BY processor
-    ORDER BY (COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))),0) + COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))),0)) DESC
-    LIMIT 12
+      COALESCE(NULLIF(bankName, ''), 'Não informado') as bankName,
+      COUNT(*) as qty,
+      COALESCE(SUM(CASE WHEN type = 'credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as credit,
+      COALESCE(SUM(CASE WHEN type = 'debit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as debit
+    FROM bank_transactions
+    WHERE transactionDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+    GROUP BY bankName
+    ORDER BY (
+      COALESCE(SUM(CASE WHEN type='credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0) +
+      COALESCE(SUM(CASE WHEN type='debit'  THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0)
+    ) DESC
   `);
   const bankDistRows = ((bankDistRes as any)[0] ?? []).map((r: any) => {
     const credit = parseFloat(String(r.credit ?? 0));
     const debit = parseFloat(String(r.debit ?? 0));
     return {
-      processor: String(r.processor ?? "Não informado"),
+      processor: String(r.bankName ?? "Não informado"),  // mantém a chave 'processor' p/ o frontend
       quantity: Number(r.qty ?? 0),
       credit, debit,
       total: credit + debit,
@@ -4635,7 +4638,7 @@ export async function getExecutiveDashboard(params: {
     ...b,
     percentage: bankDistTotal > 0 ? (b.total / bankDistTotal) * 100 : 0,
   }));
-  // Concentração bancária: % do maior processador
+  // Concentração bancária: % do maior banco
   const bankConcentrationTop1 = bankDistribution[0]?.percentage ?? 0;
 
   return {

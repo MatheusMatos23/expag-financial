@@ -278,7 +278,7 @@ export default function ExecutiveDashboard() {
       {/* ── SEÇÃO: Distribuição por Banco ───────────────────────────────── */}
       {bankDistribution && bankDistribution.length > 0 && (
         <section>
-          <SectionHeader>Distribuição por Banco / Processador</SectionHeader>
+          <SectionHeader>Distribuição por Banco</SectionHeader>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Concentração — destaque */}
             <div className="card-premium rounded-2xl p-5 flex flex-col justify-center">
@@ -288,30 +288,39 @@ export default function ExecutiveDashboard() {
                 {bankConcentrationTop1.toFixed(0)}%
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                no maior processador ({bankDistribution[0]?.processor})
+                no maior banco ({bankDistribution[0]?.processor})
               </p>
               <p className="text-[11px] text-muted-foreground/70 mt-3 leading-relaxed">
                 {bankConcentrationTop1 >= 70
-                  ? "⚠ Alta dependência de uma única instituição — considere diversificar."
+                  ? "⚠ Alta dependência de um único banco — considere diversificar."
                   : bankConcentrationTop1 >= 50
                   ? "Concentração moderada. Vale monitorar."
-                  : "Volume bem distribuído entre instituições."}
+                  : "Volume bem distribuído entre os bancos."}
+              </p>
+              <p className="text-[10px] text-muted-foreground/50 mt-3">
+                Volume conciliado por banco (entradas + saídas) no período.
               </p>
             </div>
-            {/* Lista — ocupa 2 colunas */}
+            {/* Lista — ocupa 2 colunas, entradas/saídas separadas */}
             <div className="card-premium rounded-2xl p-5 lg:col-span-2">
-              <div className="space-y-2.5">
+              <div className="space-y-4">
                 {bankDistribution.map((b: any) => (
                   <div key={b.processor}>
-                    <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="font-medium text-foreground truncate max-w-[200px]" title={b.processor}>{b.processor}</span>
-                      <span className="font-mono text-muted-foreground">
+                    <div className="flex items-center justify-between text-sm mb-1.5">
+                      <span className="font-medium text-foreground truncate max-w-[220px]" title={b.processor}>{b.processor}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
                         {compactCurrency(b.total)} <span className="text-muted-foreground/60">· {b.percentage.toFixed(1)}%</span>
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-accent/20 overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full"
-                        style={{ width: `${Math.min(100, b.percentage)}%` }} />
+                    {/* Barra dividida: entradas (verde) e saídas (vermelho) proporcionais */}
+                    <div className="flex h-2 rounded-full overflow-hidden bg-accent/20">
+                      <div className="bg-emerald-500" style={{ width: `${b.total > 0 ? (b.credit / b.total) * 100 : 0}%` }} title="Entradas" />
+                      <div className="bg-red-500/80" style={{ width: `${b.total > 0 ? (b.debit / b.total) * 100 : 0}%` }} title="Saídas" />
+                    </div>
+                    <div className="flex items-center justify-between mt-1 text-[11px] font-mono">
+                      <span className="text-emerald-400">↑ Entradas {compactCurrency(b.credit)}</span>
+                      <span className="text-muted-foreground/50">{b.quantity.toLocaleString("pt-BR")} tx</span>
+                      <span className="text-red-400">↓ Saídas {compactCurrency(b.debit)}</span>
                     </div>
                   </div>
                 ))}

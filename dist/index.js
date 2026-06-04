@@ -110100,22 +110100,24 @@ async function getExecutiveDashboard(params) {
   });
   const bankDistRes = await dbConn.execute(sql`
     SELECT
-      COALESCE(NULLIF(processor, ''), 'Não informado') as processor,
-      SUM(quantity) as qty,
-      COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))), 0) as credit,
-      COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))), 0) as debit
-    FROM internal_movements
-    WHERE movementDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
-      AND isTransfer = 0
-    GROUP BY processor
-    ORDER BY (COALESCE(SUM(CAST(creditAmount AS DECIMAL(18,2))),0) + COALESCE(SUM(CAST(debitAmount AS DECIMAL(18,2))),0)) DESC
-    LIMIT 12
+      COALESCE(NULLIF(bankName, ''), 'Não informado') as bankName,
+      COUNT(*) as qty,
+      COALESCE(SUM(CASE WHEN type = 'credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as credit,
+      COALESCE(SUM(CASE WHEN type = 'debit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) as debit
+    FROM bank_transactions
+    WHERE transactionDate BETWEEN ${params.dateFrom} AND ${params.dateTo}
+    GROUP BY bankName
+    ORDER BY (
+      COALESCE(SUM(CASE WHEN type='credit' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0) +
+      COALESCE(SUM(CASE WHEN type='debit'  THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END),0)
+    ) DESC
   `);
   const bankDistRows = (bankDistRes[0] ?? []).map((r) => {
     const credit = parseFloat(String(r.credit ?? 0));
     const debit = parseFloat(String(r.debit ?? 0));
     return {
-      processor: String(r.processor ?? "N\xE3o informado"),
+      processor: String(r.bankName ?? "N\xE3o informado"),
+      // mantém a chave 'processor' p/ o frontend
       quantity: Number(r.qty ?? 0),
       credit,
       debit,
