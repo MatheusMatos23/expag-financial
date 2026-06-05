@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Users as UsersIcon, Search, RefreshCw, Plus, Trash2, KeyRound,
-  Pencil, ShieldCheck, User as UserIcon, X, Check, Eye, EyeOff, Lock,
+  Pencil, ShieldCheck, User as UserIcon, X, Check, Eye, EyeOff, Lock, LogOut,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,16 @@ export default function Users() {
     onSuccess: () => { toast.success("Usuário removido."); setDelUser(null); refreshAll(); },
     onError: (e: any) => toast.error(e.message),
   });
+  const [logoutAllOpen, setLogoutAllOpen] = useState(false);
+  const logoutAllMut = trpc.system.logoutAllUsers.useMutation({
+    onSuccess: (r: any) => {
+      toast.success(`${r.affected} usuário(s) desconectado(s). Você também será deslogado.`);
+      setLogoutAllOpen(false);
+      // O próprio admin também é desconectado — redireciona para o login
+      setTimeout(() => { window.location.href = "/"; }, 1500);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const allUsers = (users ?? []) as any[];
   const filtered = allUsers.filter(u => {
@@ -104,6 +114,11 @@ export default function Users() {
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setMyPwOpen(true)}>
             <KeyRound className="w-3.5 h-3.5" /> Minha senha
           </Button>
+          {isAdmin && (
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs text-amber-400 border-amber-500/30 hover:bg-amber-500/10" onClick={() => setLogoutAllOpen(true)}>
+              <LogOut className="w-3.5 h-3.5" /> Desconectar todos
+            </Button>
+          )}
           {isAdmin && (
             <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setCreateOpen(true)}>
               <Plus className="w-3.5 h-3.5" /> Novo usuário
@@ -292,6 +307,40 @@ export default function Users() {
               onClick={() => delMut.mutate({ id: delUser.id })}
               disabled={delMut.isPending}>
               {delMut.isPending ? "Removendo..." : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Desconectar todos */}
+      <Dialog open={logoutAllOpen} onOpenChange={setLogoutAllOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-500/12 border border-amber-500/25 flex items-center justify-center">
+                <LogOut className="w-3.5 h-3.5 text-amber-400" />
+              </div>
+              Desconectar todos
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground py-1 space-y-2">
+            <p>
+              Todos os usuários conectados serão <span className="text-foreground font-semibold">deslogados</span> e
+              terão que entrar novamente pela tela de login, em qualquer dispositivo.
+            </p>
+            <p className="text-xs">
+              Nenhum usuário é apagado — apenas as sessões ativas são encerradas.
+            </p>
+            <p className="text-xs text-amber-400">
+              Atenção: você também será desconectado e precisará logar de novo.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setLogoutAllOpen(false)}>Cancelar</Button>
+            <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white"
+              onClick={() => logoutAllMut.mutate()}
+              disabled={logoutAllMut.isPending}>
+              {logoutAllMut.isPending ? "Desconectando..." : "Desconectar todos"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2346,6 +2346,31 @@ export async function countAdmins(): Promise<number> {
   return parseInt(String((res as any)[0]?.[0]?.cnt ?? 0));
 }
 
+/**
+ * Desconecta TODOS os usuários (logout em massa). Define sessionsValidAfter
+ * para agora — todos os tokens emitidos antes deste instante são rejeitados,
+ * obrigando novo login. NÃO apaga usuários nem senhas.
+ * Retorna quantos usuários foram afetados.
+ */
+export async function logoutAllUsers(): Promise<{ affected: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const res = await db.execute(sql`UPDATE users SET sessionsValidAfter = NOW()`);
+  _cache.clear();
+  return { affected: (res as any)[0]?.affectedRows ?? 0 };
+}
+
+/**
+ * Desconecta um usuário específico (logout das sessões dele em qualquer
+ * dispositivo). Mesmo mecanismo do logoutAllUsers, restrito a um id.
+ */
+export async function logoutUser(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE users SET sessionsValidAfter = NOW() WHERE id = ${userId}`);
+  _cache.clear();
+}
+
 export async function deleteManagerialBalance(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");

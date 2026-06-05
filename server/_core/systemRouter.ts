@@ -88,6 +88,33 @@ export const systemRouter = router({
       return { success: true };
     }),
 
+  // Desconectar TODOS os usuários (logout em massa) — somente admin.
+  // Não apaga ninguém; apenas invalida as sessões ativas, exigindo novo login.
+  logoutAllUsers: adminProcedure
+    .mutation(async ({ ctx }) => {
+      const result = await db.logoutAllUsers();
+      await audit(ctx, {
+        action: "security.logout_all", category: "usuario",
+        entityType: "system",
+        summary: `Desconectou todos os usuários (${result.affected}) — logout forçado`,
+      });
+      return result;
+    }),
+
+  // Desconectar um usuário específico de todos os dispositivos — somente admin.
+  logoutUser: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      await db.logoutUser(input.id);
+      const target = (await db.getUsers()).find(u => u.id === input.id);
+      await audit(ctx, {
+        action: "security.logout_user", category: "usuario",
+        entityType: "user", entityId: input.id,
+        summary: `Desconectou o usuário ${target?.name ?? target?.email ?? "#" + input.id} de todos os dispositivos`,
+      });
+      return { success: true };
+    }),
+
   // Alterar senha de qualquer usuário — somente admin
   updateUserPassword: adminProcedure
     .input(z.object({ id: z.number(), password: z.string().min(8, "Senha precisa de 8+ caracteres") }))

@@ -49667,7 +49667,10 @@ var init_schema2 = __esm({
       role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-      lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull()
+      lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+      // Tokens emitidos ANTES deste timestamp são rejeitados (logout forçado).
+      // Usado para "desconectar todos" sem apagar usuários.
+      sessionsValidAfter: timestamp("sessionsValidAfter")
     });
     reconciliationSessions = mysqlTable("reconciliation_sessions", {
       id: int("id").autoincrement().primaryKey(),
@@ -108583,6 +108586,19 @@ async function countAdmins() {
   const res = await db.execute(sql`SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'`);
   return parseInt(String(res[0]?.[0]?.cnt ?? 0));
 }
+async function logoutAllUsers() {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const res = await db.execute(sql`UPDATE users SET sessionsValidAfter = NOW()`);
+  _cache.clear();
+  return { affected: res[0]?.affectedRows ?? 0 };
+}
+async function logoutUser(userId) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.execute(sql`UPDATE users SET sessionsValidAfter = NOW() WHERE id = ${userId}`);
+  _cache.clear();
+}
 async function deleteManagerialBalance(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -115290,7 +115306,7 @@ var SDKServer = class {
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name
-    }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setExpirationTime(expirationSeconds).sign(secretKey);
+    }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuedAt(Math.floor(issuedAt / 1e3)).setExpirationTime(expirationSeconds).sign(secretKey);
   }
   async verifySession(cookieValue) {
     if (!cookieValue) {
@@ -115303,6 +115319,7 @@ var SDKServer = class {
         algorithms: ["HS256"]
       });
       const { openId, appId, name: name2 } = payload;
+      const iat = typeof payload.iat === "number" ? payload.iat : null;
       if (!isNonEmptyString(openId) || !isNonEmptyString(appId) || !isNonEmptyString(name2)) {
         console.warn("[Auth] Session payload missing required fields");
         return null;
@@ -115310,7 +115327,8 @@ var SDKServer = class {
       return {
         openId,
         appId,
-        name: name2
+        name: name2,
+        iat
       };
     } catch (error46) {
       console.warn("[Auth] Session verification failed", String(error46));
@@ -115378,6 +115396,13 @@ var SDKServer = class {
     }
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+    if (user.sessionsValidAfter && session.iat) {
+      const tokenIssuedMs = session.iat * 1e3;
+      const cutoffMs = new Date(user.sessionsValidAfter).getTime();
+      if (tokenIssuedMs < cutoffMs) {
+        throw ForbiddenError("Session expired by administrator");
+      }
     }
     await upsertUser({
       openId: user.openId,
@@ -128218,6 +128243,31 @@ var systemRouter = router({
       entityType: "user",
       entityId: input.id,
       summary: `Excluiu o usu\xE1rio ${target?.name ?? target?.email ?? "#" + input.id}`
+    });
+    return { success: true };
+  }),
+  // Desconectar TODOS os usuários (logout em massa) — somente admin.
+  // Não apaga ninguém; apenas invalida as sessões ativas, exigindo novo login.
+  logoutAllUsers: adminProcedure.mutation(async ({ ctx }) => {
+    const result = await logoutAllUsers();
+    await audit(ctx, {
+      action: "security.logout_all",
+      category: "usuario",
+      entityType: "system",
+      summary: `Desconectou todos os usu\xE1rios (${result.affected}) \u2014 logout for\xE7ado`
+    });
+    return result;
+  }),
+  // Desconectar um usuário específico de todos os dispositivos — somente admin.
+  logoutUser: adminProcedure.input(external_exports.object({ id: external_exports.number() })).mutation(async ({ input, ctx }) => {
+    await logoutUser(input.id);
+    const target = (await getUsers()).find((u) => u.id === input.id);
+    await audit(ctx, {
+      action: "security.logout_user",
+      category: "usuario",
+      entityType: "user",
+      entityId: input.id,
+      summary: `Desconectou o usu\xE1rio ${target?.name ?? target?.email ?? "#" + input.id} de todos os dispositivos`
     });
     return { success: true };
   }),

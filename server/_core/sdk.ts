@@ -193,13 +193,14 @@ class SDKServer {
       name: payload.name,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt(Math.floor(issuedAt / 1000))
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
   }
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<{ openId: string; appId: string; name: string; iat: number | null } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
       return null;
@@ -211,6 +212,7 @@ class SDKServer {
         algorithms: ["HS256"],
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
+      const iat = typeof payload.iat === "number" ? payload.iat : null;
 
       if (
         !isNonEmptyString(openId) ||
@@ -225,6 +227,7 @@ class SDKServer {
         openId,
         appId,
         name,
+        iat,
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
@@ -306,6 +309,18 @@ class SDKServer {
 
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+
+    // ── Logout forçado ("desconectar todos") ──────────────────────────────────
+    // Se o admin disparou um logout em massa, sessionsValidAfter guarda o
+    // momento do corte. Tokens emitidos ANTES disso são rejeitados, obrigando
+    // o usuário a entrar de novo pela tela de login.
+    if (user.sessionsValidAfter && session.iat) {
+      const tokenIssuedMs = session.iat * 1000;
+      const cutoffMs = new Date(user.sessionsValidAfter).getTime();
+      if (tokenIssuedMs < cutoffMs) {
+        throw ForbiddenError("Session expired by administrator");
+      }
     }
 
     await db.upsertUser({

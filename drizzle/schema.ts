@@ -26,6 +26,9 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  // Tokens emitidos ANTES deste timestamp são rejeitados (logout forçado).
+  // Usado para "desconectar todos" sem apagar usuários.
+  sessionsValidAfter: timestamp("sessionsValidAfter"),
 });
 
 // ─── CAMADA 1: CONCILIAÇÃO ────────────────────────────────────────────────────
