@@ -128154,6 +128154,11 @@ async function audit(ctx, params) {
 }
 
 // server/_core/systemRouter.ts
+var PROTECTED_ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "admin@expag.com.br").toLowerCase();
+async function isProtectedAdmin(userId) {
+  const target = (await getUsers()).find((u) => u.id === userId);
+  return !!target && (target.email ?? "").toLowerCase() === PROTECTED_ADMIN_EMAIL;
+}
 var systemRouter = router({
   health: publicProcedure.input(external_exports.object({ timestamp: external_exports.number().min(0, "timestamp cannot be negative") })).query(() => ({ ok: true })),
   notifyOwner: adminProcedure.input(external_exports.object({ title: external_exports.string().min(1), content: external_exports.string().min(1) })).mutation(async ({ input }) => {
@@ -128198,6 +128203,9 @@ var systemRouter = router({
     if (ctx.user?.id === input.id) {
       throw new Error("Voc\xEA n\xE3o pode excluir seu pr\xF3prio usu\xE1rio.");
     }
+    if (await isProtectedAdmin(input.id)) {
+      throw new Error("O administrador principal do sistema n\xE3o pode ser exclu\xEDdo.");
+    }
     const target = (await getUsers()).find((u) => u.id === input.id);
     if (target?.role === "admin") {
       const adminCount = await countAdmins();
@@ -128215,6 +128223,9 @@ var systemRouter = router({
   }),
   // Alterar senha de qualquer usuário — somente admin
   updateUserPassword: adminProcedure.input(external_exports.object({ id: external_exports.number(), password: external_exports.string().min(8, "Senha precisa de 8+ caracteres") })).mutation(async ({ input, ctx }) => {
+    if (await isProtectedAdmin(input.id) && ctx.user?.id !== input.id) {
+      throw new Error("A senha do administrador principal s\xF3 pode ser alterada pelo pr\xF3prio.");
+    }
     const hash2 = await hashPassword(input.password);
     await updateUserPassword(input.id, hash2);
     const target = (await getUsers()).find((u) => u.id === input.id);
@@ -128243,6 +128254,9 @@ var systemRouter = router({
   }),
   // Alterar papel (admin/user) — somente admin, com proteção do último admin
   updateUserRole: adminProcedure.input(external_exports.object({ id: external_exports.number(), role: external_exports.enum(["admin", "user"]) })).mutation(async ({ input, ctx }) => {
+    if (await isProtectedAdmin(input.id) && input.role !== "admin") {
+      throw new Error("O administrador principal do sistema n\xE3o pode ser rebaixado.");
+    }
     if (ctx.user?.id === input.id && input.role === "user") {
       const adminCount = await countAdmins();
       if (adminCount <= 1) throw new Error("Voc\xEA \xE9 o \xFAnico administrador \u2014 n\xE3o pode rebaixar a si mesmo.");

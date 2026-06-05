@@ -5,6 +5,16 @@ import { hashPassword, emailToOpenId } from "./localAuth";
 import * as db from "../db";
 import { audit } from "./auditHelper";
 
+// Admin principal (dono do sistema) — blindado contra alterações por terceiros.
+// Nem outro admin pode trocar a senha, rebaixar ou excluir este usuário.
+// Protege o acesso do proprietário mesmo ao conceder admin a outras pessoas.
+const PROTECTED_ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "admin@expag.com.br").toLowerCase();
+
+async function isProtectedAdmin(userId: number): Promise<boolean> {
+  const target = (await db.getUsers()).find(u => u.id === userId);
+  return !!target && (target.email ?? "").toLowerCase() === PROTECTED_ADMIN_EMAIL;
+}
+
 export const systemRouter = router({
   health: publicProcedure
     .input(z.object({ timestamp: z.number().min(0, "timestamp cannot be negative") }))
@@ -59,6 +69,10 @@ export const systemRouter = router({
       if (ctx.user?.id === input.id) {
         throw new Error("Você não pode excluir seu próprio usuário.");
       }
+      // Blindagem do admin principal — não pode ser excluído por ninguém
+      if (await isProtectedAdmin(input.id)) {
+        throw new Error("O administrador principal do sistema não pode ser excluído.");
+      }
       // Não permite remover o último admin
       const target = (await db.getUsers()).find(u => u.id === input.id);
       if (target?.role === "admin") {
@@ -78,6 +92,11 @@ export const systemRouter = router({
   updateUserPassword: adminProcedure
     .input(z.object({ id: z.number(), password: z.string().min(8, "Senha precisa de 8+ caracteres") }))
     .mutation(async ({ input, ctx }) => {
+      // Blindagem: a senha do admin principal só pode ser alterada por ele mesmo
+      // (via "alterar a própria senha"), nunca por outro admin.
+      if (await isProtectedAdmin(input.id) && ctx.user?.id !== input.id) {
+        throw new Error("A senha do administrador principal só pode ser alterada pelo próprio.");
+      }
       const hash = await hashPassword(input.password);
       await db.updateUserPassword(input.id, hash);
       const target = (await db.getUsers()).find(u => u.id === input.id);
@@ -108,6 +127,10 @@ export const systemRouter = router({
   updateUserRole: adminProcedure
     .input(z.object({ id: z.number(), role: z.enum(["admin", "user"]) }))
     .mutation(async ({ input, ctx }) => {
+      // Blindagem: o admin principal não pode ser rebaixado por ninguém
+      if (await isProtectedAdmin(input.id) && input.role !== "admin") {
+        throw new Error("O administrador principal do sistema não pode ser rebaixado.");
+      }
       if (ctx.user?.id === input.id && input.role === "user") {
         const adminCount = await db.countAdmins();
         if (adminCount <= 1) throw new Error("Você é o único administrador — não pode rebaixar a si mesmo.");

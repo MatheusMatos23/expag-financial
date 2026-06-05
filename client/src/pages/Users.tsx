@@ -160,6 +160,9 @@ export default function Users() {
                 const meta = roleMeta(u.role);
                 const RoleIcon = meta.icon;
                 const isSelf = u.id === me?.id;
+                // Admin principal do sistema — blindado contra alterações por terceiros
+                const isProtectedAdmin = (u.email ?? "").toLowerCase() === "admin@expag.com.br";
+                const canManage = isAdmin && !(isProtectedAdmin && !isSelf);
                 return (
                   <tr key={u.id} className="border-b border-border/40 hover:bg-primary/5 transition-colors">
                     <td className="px-4 py-3">
@@ -169,13 +172,14 @@ export default function Users() {
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-foreground truncate">{u.name || "—"}</span>
                             {isSelf && <span className="text-[9px] text-primary bg-primary/10 border border-primary/20 rounded px-1 py-0.5">você</span>}
+                            {isProtectedAdmin && !isSelf && <span className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-1 py-0.5">protegido</span>}
                           </div>
                           <p className="text-[11px] text-muted-foreground truncate">{u.email}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {isAdmin ? (
+                      {isAdmin && !(isProtectedAdmin && !isSelf) ? (
                         <select
                           value={u.role}
                           onChange={e => roleMut.mutate({ id: u.id, role: e.target.value as "admin" | "user" })}
@@ -205,19 +209,26 @@ export default function Users() {
                     <td className="px-4 py-3">
                       {isAdmin ? (
                         <div className="flex items-center justify-end gap-1">
-                          <button title="Editar nome" onClick={() => setEditUser(u)}
-                            className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button title="Alterar senha" onClick={() => setPwUser(u)}
-                            className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 transition-colors">
-                            <KeyRound className="w-3.5 h-3.5" />
-                          </button>
-                          {!isSelf && (
+                          {canManage && (
+                            <button title="Editar nome" onClick={() => setEditUser(u)}
+                              className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {(canManage || isSelf) && (
+                            <button title="Alterar senha" onClick={() => setPwUser(u)}
+                              className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 transition-colors">
+                              <KeyRound className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {!isSelf && !isProtectedAdmin && (
                             <button title="Excluir usuário" onClick={() => setDelUser(u)}
                               className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
+                          )}
+                          {isProtectedAdmin && !isSelf && (
+                            <span className="text-[10px] text-muted-foreground/40">protegido</span>
                           )}
                         </div>
                       ) : (
