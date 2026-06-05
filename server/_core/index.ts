@@ -214,6 +214,25 @@ async function startServer() {
     ? preferredPort
     : await findAvailablePort(preferredPort);
 
+  // ── Logout forçado único nesta versão ──────────────────────────────────────
+  // Derruba TODAS as sessões antigas uma única vez quando esta versão sobe.
+  // Usa uma flag no system_config para não repetir a cada restart/deploy.
+  const FORCE_LOGOUT_KEY = "force_logout_2026_06";
+  try {
+    const alreadyDone = await dbModule.getSystemConfig(FORCE_LOGOUT_KEY);
+    if (!alreadyDone) {
+      const result = await dbModule.logoutAllUsers();
+      await dbModule.setSystemConfig(
+        FORCE_LOGOUT_KEY,
+        new Date().toISOString(),
+        "Logout em massa aplicado automaticamente nesta versão (uma única vez)"
+      );
+      console.log(`[BOOT] Logout forçado aplicado: ${result.affected} usuário(s) desconectado(s).`);
+    }
+  } catch (e) {
+    console.error("[BOOT] Falha ao aplicar logout forçado inicial:", e);
+  }
+
   server.listen(port, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${port}/`);
   });

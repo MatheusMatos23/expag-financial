@@ -132316,6 +132316,21 @@ async function startServer() {
   }
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
+  const FORCE_LOGOUT_KEY = "force_logout_2026_06";
+  try {
+    const alreadyDone = await getSystemConfig(FORCE_LOGOUT_KEY);
+    if (!alreadyDone) {
+      const result = await logoutAllUsers();
+      await setSystemConfig(
+        FORCE_LOGOUT_KEY,
+        (/* @__PURE__ */ new Date()).toISOString(),
+        "Logout em massa aplicado automaticamente nesta vers\xE3o (uma \xFAnica vez)"
+      );
+      console.log(`[BOOT] Logout for\xE7ado aplicado: ${result.affected} usu\xE1rio(s) desconectado(s).`);
+    }
+  } catch (e) {
+    console.error("[BOOT] Falha ao aplicar logout for\xE7ado inicial:", e);
+  }
   server.listen(port, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${port}/`);
   });
