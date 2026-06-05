@@ -80,12 +80,15 @@ export default function Users() {
     onError: (e: any) => toast.error(e.message),
   });
   const [logoutAllOpen, setLogoutAllOpen] = useState(false);
+  const selfLogoutMut = trpc.auth.logout.useMutation();
   const logoutAllMut = trpc.system.logoutAllUsers.useMutation({
-    onSuccess: (r: any) => {
-      toast.success(`${r.affected} usuário(s) desconectado(s). Você também será deslogado.`);
+    onSuccess: async (r: any) => {
+      toast.success(`${r.affected} usuário(s) desconectado(s). Você será redirecionado para o login.`);
       setLogoutAllOpen(false);
-      // O próprio admin também é desconectado — redireciona para o login
-      setTimeout(() => { window.location.href = "/"; }, 1500);
+      // Limpa o próprio cookie de sessão e vai para a tela de login.
+      try { await selfLogoutMut.mutateAsync(); } catch { /* ignore */ }
+      localStorage.removeItem("manus-runtime-user-info");
+      setTimeout(() => { window.location.href = "/"; }, 800);
     },
     onError: (e: any) => toast.error(e.message),
   });

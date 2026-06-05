@@ -29,9 +29,17 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
 
-  const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
+  // Redireciona ao login quando a sessão é inválida/expirada. Cobre:
+  // - mensagem padrão de não-autenticado (UNAUTHED_ERR_MSG)
+  // - código UNAUTHORIZED do tRPC (sessão perdida / logout forçado pelo admin)
+  const code = (error.data as any)?.code;
+  const isUnauthorized =
+    error.message === UNAUTHED_ERR_MSG || code === "UNAUTHORIZED";
 
   if (!isUnauthorized) return;
+
+  // Evita loop se já estiver na tela de login
+  if (window.location.pathname === getLoginUrl()) return;
 
   window.location.href = getLoginUrl();
 };
