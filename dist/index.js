@@ -115397,10 +115397,14 @@ var SDKServer = class {
     if (!user) {
       throw ForbiddenError("User not found");
     }
-    if (user.sessionsValidAfter && session.iat) {
-      const tokenIssuedMs = session.iat * 1e3;
+    if (user.sessionsValidAfter) {
       const cutoffMs = new Date(user.sessionsValidAfter).getTime();
-      if (tokenIssuedMs < cutoffMs) {
+      if (session.iat) {
+        const tokenIssuedMs = session.iat * 1e3;
+        if (tokenIssuedMs < cutoffMs) {
+          throw ForbiddenError("Session expired by administrator");
+        }
+      } else {
         throw ForbiddenError("Session expired by administrator");
       }
     }

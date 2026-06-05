@@ -315,10 +315,19 @@ class SDKServer {
     // Se o admin disparou um logout em massa, sessionsValidAfter guarda o
     // momento do corte. Tokens emitidos ANTES disso são rejeitados, obrigando
     // o usuário a entrar de novo pela tela de login.
-    if (user.sessionsValidAfter && session.iat) {
-      const tokenIssuedMs = session.iat * 1000;
+    if (user.sessionsValidAfter) {
       const cutoffMs = new Date(user.sessionsValidAfter).getTime();
-      if (tokenIssuedMs < cutoffMs) {
+      if (session.iat) {
+        // Token novo (tem issuedAt): rejeita se emitido antes do corte.
+        const tokenIssuedMs = session.iat * 1000;
+        if (tokenIssuedMs < cutoffMs) {
+          throw ForbiddenError("Session expired by administrator");
+        }
+      } else {
+        // Token ANTIGO (sem issuedAt, criado antes desta funcionalidade):
+        // não dá para saber quando foi emitido, então — havendo um corte
+        // ativo — tratamos como anterior ao corte e rejeitamos. Isso garante
+        // que o "desconectar todos" pegue também as sessões antigas.
         throw ForbiddenError("Session expired by administrator");
       }
     }
